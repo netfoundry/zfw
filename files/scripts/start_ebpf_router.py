@@ -142,10 +142,10 @@ def set_local_rules(resolver):
                    lan_mask = default_mask
                if(len(edge_port)):
                    print("edge_port=",edge_port)
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + default_ip + ' -m ' + default_mask + ' -l ' + edge_port + ' -h ' + edge_port + ' -t 0  -p tcp\n')
+                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + edge_port + ' -h ' + edge_port + ' -t 0  -p tcp\n')
                if(len(link_port)):
                    print("link_port=",link_port)
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + default_ip + ' -m ' + default_mask + ' -l ' + link_port + ' -h ' + link_port + ' -t 0  -p tcp\n')
+                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + link_port + ' -h ' + link_port + ' -t 0  -p tcp\n')
                if(len(health_port)):
                    print("health_port=", health_port)
                    user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + health_port + ' -h ' + health_port + ' -t 0  -p tcp\n')
