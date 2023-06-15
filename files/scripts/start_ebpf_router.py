@@ -136,7 +136,7 @@ def set_local_rules(resolver):
                resolver_port = get_resolver()
                if(len(resolver.split('/'))):
                    lan_ip = resolver.split('/')[0]
-                   lan_mask = resolver.split('/')[1]
+                   lan_mask = '32'
                else:
                    lan_ip = default_cidr
                    lan_mask = default_mask
