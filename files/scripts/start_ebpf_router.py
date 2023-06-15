@@ -123,41 +123,30 @@ def get_if_ip(intf):
                return ""
 
 def set_local_rules(resolver):
-    if(os.path.exists('/opt/openziti/bin/user/user_rules.sh.sample')):
-        shutil.copy('/opt/openziti/bin/user/user_rules.sh.sample', '/opt/openziti/bin/user/user_rules.sh')
-        if(os.path.exists('/opt/openziti/bin/user/user_rules.sh')):
-            with open('/opt/openziti/bin/user/user_rules.sh','a') as user_file:
-               default_cidr = '0.0.0.0/0'
-               default_ip = '0.0.0.0'
-               default_mask = '0'
-               edge_port = get_edge_listener()
-               health_port = get_health_check_listener()
-               link_port = get_link_listener()
-               resolver_port = get_resolver()
-               if(len(resolver.split('/'))):
-                   lan_ip = resolver.split('/')[0]
-                   lan_mask = '32'
-               else:
-                   lan_ip = default_cidr
-                   lan_mask = default_mask
-               if(len(edge_port)):
-                   print("edge_port=",edge_port)
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + edge_port + ' -h ' + edge_port + ' -t 0  -p tcp\n')
-               if(len(link_port)):
-                   print("link_port=",link_port)
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + link_port + ' -h ' + link_port + ' -t 0  -p tcp\n')
-               if(len(health_port)):
-                   print("health_port=", health_port)
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + health_port + ' -h ' + health_port + ' -t 0  -p tcp\n')
-               if(len(resolver_port)):
-                   print("resolver_port=", resolver_port)
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p tcp\n')
-                   user_file.write('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p udp\n')
+        default_cidr = '0.0.0.0/0'
+        default_ip = '0.0.0.0'
+        default_mask = '0'
+        edge_port = get_edge_listener()
+        health_port = get_health_check_listener()
+        link_port = get_link_listener()
+        resolver_port = get_resolver()
+        if(len(resolver.split('/'))):
+            lan_ip = resolver.split('/')[0]
+            lan_mask = '32'
         else:
-            print('File not created:', '/opt/openziti/bin/user/user_rules.sh')
-    else:
-        print('File not found:', '/opt/openziti/bin/user/user_rules.sh.sample')
-
+            lan_ip = default_cidr
+            lan_mask = default_mask
+        if(len(edge_port)):
+            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + edge_port + ' -h ' + edge_port + ' -t 0  -p tcp')
+        if(len(link_port)):
+            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + link_port + ' -h ' + link_port + ' -t 0  -p tcp')
+        if(len(health_port)):
+            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + health_port + ' -h ' + health_port + ' -t 0  -p tcp')
+        if(len(resolver_port)):
+            print("resolver_port=", resolver_port)
+            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p tcp')
+            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p udp')
+        
 netfoundry = False
 if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
     netfoundry = True
@@ -169,9 +158,6 @@ if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
         print("Symlink found nothing to do!")
 
 lanIf = get_lanIf()
-resolver = get_if_ip(lanIf)
-if(len(resolver)):
-    set_local_rules(resolver)
 if(not len(lanIf)):
     print("Unable to retrieve LanIf!")
 else:
@@ -386,6 +372,9 @@ else:
         print("Adding user defined rules!")
         os.system("/opt/openziti/bin/user/user_rules.sh")
 
+resolver = get_if_ip(lanIf)
+if(len(resolver)):
+    set_local_rules(resolver)
 if(os.path.exists('/etc/systemd/system/ziti-router.service') & router_config):
     unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_router.py' /etc/systemd/system/ziti-router.service")
     if(unconfigured):
