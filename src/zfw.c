@@ -111,7 +111,7 @@ static char *tun_interface;
 static char *tc_interface;
 static char *object_file;
 static char *direction_string;
-const char *argp_program_version = "0.3.4";
+const char *argp_program_version = "0.3.5";
 
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
