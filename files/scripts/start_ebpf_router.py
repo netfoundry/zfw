@@ -4,7 +4,6 @@ import sys
 import json
 import subprocess
 import time
-import shutil
 
 def tc_status(interface, direction):
     process = subprocess.Popen(['tc', 'filter', 'show', 'dev', interface, direction], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
