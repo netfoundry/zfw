@@ -111,7 +111,7 @@ static char *tun_interface;
 static char *tc_interface;
 static char *object_file;
 static char *direction_string;
-const char *argp_program_version = "0.3.6";
+const char *argp_program_version = "0.3.7";
 
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
@@ -319,6 +319,11 @@ void set_tc_filter(char *action)
                     {
                         printf("tc %s filter not set : %s\n", direction_string, tc_interface);
                     }
+                }
+                if(status)
+                {
+                    printf("tc %s filter action/%d not set : %s\n", direction_string, x,tc_interface);
+                    exit(1);
                 }
             }
         }

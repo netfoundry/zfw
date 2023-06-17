@@ -3,7 +3,17 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
-# [0.3.5] - 2023-06-15
+# [0.3.7] - 2023-06-16
+
+###
+
+- Fixed CHANGELOG Duplicate 0.3.5 entry and set to 0.3.6
+- Added check to make sure each ebpf program loads into tc filter before proceeding and if failure occurs
+  exit(1) and print the filter# where the failure ocurred.
+- Removed unknown import shutil from start_ebpf_router.py
+
+
+# [0.3.6] - 2023-06-15
 
 ###
 
