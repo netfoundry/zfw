@@ -4,6 +4,7 @@ import sys
 import json
 import subprocess
 import time
+import shutil
 
 def tc_status(interface, direction):
     process = subprocess.Popen(['tc', 'filter', 'show', 'dev', interface, direction], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -145,7 +146,7 @@ def set_local_rules(resolver):
             print("resolver_port=", resolver_port)
             os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p tcp')
             os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p udp')
-        
+
 netfoundry = False
 if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
     netfoundry = True
@@ -278,10 +279,11 @@ else:
 
 ingress_object_file = '/opt/openziti/bin/zfw_tc_ingress.o'
 egress_object_file = '/opt/openziti/bin/zfw_tc_outbound_track.o'
-if os.system("/opt/openziti/bin/zfw -L -E"):
-    test1 = os.system("/opt/openziti/bin/zfw -Q")
-    if test1:
-        print("failed to clear ebpf maps")
+status = subprocess.run(['/opt/openziti/bin/zfw', '-L', '-E'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+if(status.returncode):
+    test1 = subprocess.run(['/opt/openziti/bin/zfw', '-Q'],stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if(test1.returncode):
+        print("Ebpf not running no  maps to clear")
     for i in internal_list:
         if(not tc_status(i, "ingress")):
             test1 = os.system("/opt/openziti/bin/zfw -X " + i + " -O " + ingress_object_file + " -z ingress")
@@ -398,5 +400,5 @@ if(os.path.exists('/etc/systemd/system/ziti-router.service') & router_config):
     else:
         print("ziti-router.service already converted. Nothing to do!")
 else:
-    print("Skipping ziti-router.service conversion. File does not exist or config.yml not set!")
+    print("Skipping ziti-router.service conversion. File does not exist or no changes made to config.yml!")
 sys.exit(0)
