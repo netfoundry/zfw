@@ -16,17 +16,11 @@ edge-routers deb package.
 
 The program is designed to be deployed as systemd services if deployed via .deb package with
 an existing ziti-edge-tunnel(v21.0 +) installation on Ubuntu 22.04(amd64/arm64)service installation. If you don't currently
-have ziti-edge-tunnel installed and an operational OpenZiti network built if not follow these 
+have ziti-edge-tunnel installed and an operational OpenZiti network built, follow these 
 [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeTunnel).
 
 
 - Install
-**pre 0.3.x installs should remove zfw package prior to install of 0.3.x i.e. 
-```
-sudo systemctl stop ziti-edge-tunnel.service
-sudo dpkg -P zfw
-```
-
 ```
 sudo dpkg -i zfw-tunnel_<ver>_<arch>.deb
 ```
@@ -36,7 +30,7 @@ sudo dpkg -i zfw-tunnel_<ver>_<arch>.deb
 The program is designed to integrated into an existing Openziti ziti-router installation if ziti router has been deployed via ziti_auto_enroll
  [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeRouter). 
 
- Install
+- Install
 ```
 sudo dpkg -i zfw-router_<ver>_<arch>.deb
 ```
