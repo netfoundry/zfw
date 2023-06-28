@@ -10,33 +10,44 @@ signal(SIGPIPE,SIG_DFL)
 
 def set_tproxy_mode():
     if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-        with open('/opt/openziti/ziti-router/config.yml') as config_file:
-             config = yaml.load(config_file, Loader=yaml.FullLoader)
-        if(config):
-            if('listeners' in config.keys()):
-                for key in config['listeners']:
-                    if(('binding' in key.keys()) and (key['binding'] == 'tunnel')):
-                        if('options' in key.keys()):
-                            if('mode' in key['options']):
-                                if(key['options']['mode'] == 'tproxy'):
-                                   print("ziti-router config.yml already converted to use tproxy!")
-                                elif(key['options']['mode'] == 'tproxy:/opt/openziti/bin/zfw'):
-                                   key['options']['mode'] = 'tproxy'
-                                   write_config(config)
-                                   return True
-                            else:
-                                print("ziti-router config.yml already converted to use tproxy!")
-                        else:
-                            print('Mandatory key \'options\' missing from binding: tunnel')
-            else:
-                print('Mandatory key \'listeners\' missing in config.yml')
+        try:
+            with open('/opt/openziti/ziti-router/config.yml') as config_file:
+                config = yaml.load(config_file, Loader=yaml.FullLoader)
+                if(config):
+                    if('listeners' in config.keys()):
+                        for key in config['listeners']:
+                            if(('binding' in key.keys()) and (key['binding'] == 'tunnel')):
+                                if('options' in key.keys()):
+                                    if('mode' in key['options']):
+                                        if(key['options']['mode'] == 'tproxy'):
+                                            print("ziti-router config.yml already converted to use tproxy!")
+                                        elif(key['options']['mode'] == 'tproxy:/opt/openziti/bin/zfw'):
+                                            key['options']['mode'] = 'tproxy'
+                                            write_config(config)
+                                            return True
+                                    else:
+                                        print("ziti-router config.yml already converted to use tproxy!")
+                                else:
+                                    print('Mandatory key \'options\' missing from binding: tunnel')
+                                    sys.exit(1)
+                    else:
+                        print('Mandatory key \'listeners\' missing in config.yml')
+                        sys.exit(1)
+        except Exception as e:
+            print(e)
+            sys.exit(1)
     else:
         print('ziti-router not installed, skipping ebpf router configuration!')
+        sys.exit(1)
     return False
 
 def write_config(config):
-    with open('/opt/openziti/ziti-router/config.yml', 'w') as config_file:
-        yaml.dump(config, config_file, sort_keys=False)
+    try:
+        with open('/opt/openziti/ziti-router/config.yml', 'w') as config_file:
+            yaml.dump(config, config_file, sort_keys=False)
+    except Exception as e:
+        print(e)
+        sys.exit(1)
 
 def delete(rule):
     os.system('yes | /usr/sbin/ufw delete ' + str(rule) + ' > /dev/null 2>&1')
@@ -99,6 +110,11 @@ if(os.path.exists('/etc/systemd/system/ziti-router.service')):
             test1 = os.system("systemctl daemon-reload")
             if(not test1):
                 service = True
+                os.system("/opt/openziti/bin/zfw -Q")
+                if(os.path.exists("/opt/openziti/etc/ebpf_config.json")):
+                    os.remove("/opt/openziti/etc/ebpf_config.json")
+                if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
+                    os.remove("/opt/openziti/bin/user/user_rules.sh")
                 print("Successfully reverted ziti-router.service!")
         else:
             print("Failed to revert ziti-router.service!")
@@ -109,11 +125,6 @@ else:
 
 if(set_tproxy_mode()):
     if service:
-        os.system("/opt/openziti/bin/zfw -Q")
-        if(os.path.exists("/opt/openziti/etc/ebpf_config.json")):
-            os.remove("/opt/openziti/etc/ebpf_config.json")
-        if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
-            os.remove("/opt/openziti/bin/user/user_rules.sh")
         print("config.yml successfully reverted. restarting ziti-router.service")
         os.system('systemctl restart ziti-router.service')
         if(not os.system('systemctl is-active --quiet ziti-router.service')):
