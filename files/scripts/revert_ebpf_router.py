@@ -3,8 +3,40 @@ import os
 import subprocess
 import sys
 import json
+import yaml
 from signal import signal, SIGPIPE, SIG_DFL
 signal(SIGPIPE,SIG_DFL)
+
+
+def set_tproxy_mode():
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+        if(config):
+            if('listeners' in config.keys()):
+                for key in config['listeners']:
+                    if(('binding' in key.keys()) and (key['binding'] == 'tunnel')):
+                        if('options' in key.keys()):
+                            if('mode' in key['options']):
+                                if(key['options']['mode'] == 'tproxy'):
+                                   print("ziti-router config.yml already converted to use tproxy!")
+                                elif(key['options']['mode'] == 'tproxy:/opt/openziti/bin/zfw'):
+                                   key['options']['mode'] = 'tproxy'
+                                   write_config(config)
+                                   return True
+                            else:
+                                print("ziti-router config.yml already converted to use tproxy!")
+                        else:
+                            print('Mandatory key \'options\' missing from binding: tunnel')
+            else:
+                print('Mandatory key \'listeners\' missing in config.yml')
+    else:
+        print('ziti-router not installed, skipping ebpf router configuration!')
+    return False
+
+def write_config(config):
+    with open('/opt/openziti/ziti-router/config.yml', 'w') as config_file:
+        yaml.dump(config, config_file, sort_keys=False)
 
 def delete(rule):
     os.system('yes | /usr/sbin/ufw delete ' + str(rule) + ' > /dev/null 2>&1')
@@ -15,7 +47,7 @@ def remove_ufw_rule(rule):
     data = out.decode().splitlines()
     count = 1
     for line in data:
-        if((line.find(rule) >= 0) & (line.find('ALLOW IN') >= 0)):
+        if((line.find(rule) >= 0) and (line.find('ALLOW IN') >= 0)):
             print("removing:", line)
             delete(count)
         if(line.startswith('[')):
@@ -75,33 +107,25 @@ if(os.path.exists('/etc/systemd/system/ziti-router.service')):
 else:
     print("Skipping ziti-router.service reversal. File does not exist!")
 
-if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-    unconfigured = os.system("grep -r '\ \ \ \ \ \ mode: tproxy:/opt/openziti/bin/zfw' /opt/openziti/ziti-router/config.yml")
-    if(not unconfigured):
-        test1 = os.system("sed -i 's/#mode: tproxy/mode: tproxy/g' /opt/openziti/ziti-router/config.yml")
-        test2 = os.system("sed -i '/\ \ \ \ \ \ mode: tproxy:\/opt\/openziti\/bin\/zfw/d' /opt/openziti/ziti-router/config.yml")
-        if(test1 | test2):
-            print("Unable to revert ziti-router config.yml to use iptables!")
-        elif service:
-            os.system("/opt/openziti/bin/zfw -Q")
-            if(os.path.exists("/opt/openziti/etc/ebpf_config.json")):
-                os.remove("/opt/openziti/etc/ebpf_config.json")
-            if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
-                os.remove("/opt/openziti/bin/user/user_rules.sh")
-            print("config.yml successfully reverted. restarting ziti-router.service")
-            os.system('systemctl restart ziti-router.service')
-            if(not os.system('systemctl is-active --quiet ziti-router.service')):
-                print("ziti-router.service successfully restarted")
-                if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
-                    print("Detected Netfoundry install/registration!")
-                    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-                        print("Removing symlink from /opt/openziti/ziti-router to /opt/netfoundry/ziti/ziti-router")
-                        os.unlink('/opt/openziti/ziti-router')
-                    else:
-                        print("No symlink found nothing to do!")
-            else:
-                print('ziti-router.service unable to start check router logs')
-    else:
-        print("ziti-router config already reverted to use iptables!")
+if(set_tproxy_mode()):
+    if service:
+        os.system("/opt/openziti/bin/zfw -Q")
+        if(os.path.exists("/opt/openziti/etc/ebpf_config.json")):
+            os.remove("/opt/openziti/etc/ebpf_config.json")
+        if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
+            os.remove("/opt/openziti/bin/user/user_rules.sh")
+        print("config.yml successfully reverted. restarting ziti-router.service")
+        os.system('systemctl restart ziti-router.service')
+        if(not os.system('systemctl is-active --quiet ziti-router.service')):
+            print("ziti-router.service successfully restarted")
+            if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
+                print("Detected Netfoundry install/registration!")
+                if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+                    print("Removing symlink from /opt/openziti/ziti-router to /opt/netfoundry/ziti/ziti-router")
+                    os.unlink('/opt/openziti/ziti-router')
+                else:
+                    print("No symlink found nothing to do!")
+        else:
+            print('ziti-router.service unable to start check router logs')
 else:
-    print('ziti-router not installed, skipping ebpf router reversion!')
+    print("ziti-router config already not set to use ebpf!")

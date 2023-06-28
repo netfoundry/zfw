@@ -4,7 +4,7 @@ import sys
 import json
 import subprocess
 import time
-import shutil
+import yaml
 
 def tc_status(interface, direction):
     process = subprocess.Popen(['tc', 'filter', 'show', 'dev', interface, direction], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -15,107 +15,154 @@ def tc_status(interface, direction):
     else:
         return False
 
-def get_resolver():
-    process = subprocess.Popen(['grep', 'resolver:', '/opt/openziti/ziti-router/config.yml'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = process.communicate()
-    data = out.decode()
-    if(len(err)):
-        return ''
-    data = out.decode()
-    raw = data.split(':')
-    if(len(raw)):
-       port= raw[-1].strip()
-       try:
-           int(port)
-           return port
-       except:
-           return ''
+def add_health_check_rules(lan_ip, lan_mask):
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+             if(config):
+                 if('web' in config.keys()):
+                     for key in config['web']:
+                         if(('name' in key.keys()) and (key['name'] == 'health-check')):
+                             if('bindPoints' in key.keys()):
+                                 for point in key['bindPoints']:
+                                     address = point['address']
+                                     addr_array = address.split(':')
+                                     if(len(addr_array)):
+                                         try:
+                                             port = addr_array[-1].strip()
+                                             if(int(port) > 0):
+                                                 os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
+                                         except Exception as e:
+                                             print(e)
+                                             pass
+
+def add_link_listener_rules(lan_ip, lan_mask):
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+             if(config):
+                 if('link' in config.keys()):
+                     if('listeners' in config['link'].keys()):
+                         for key in config['link']['listeners']:
+                             if(('binding' in key.keys()) and (key['binding'] == 'transport')):
+                                 if('bind' in key.keys()):
+                                     address = key['bind']
+                                     addr_array = address.split(':')
+                                     if(len(addr_array) == 3):
+                                         try:
+                                             port = addr_array[-1].strip()
+                                             if((int(port) > 0) and (addr_array[0] == 'tls')):
+                                                 os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp') 
+                                         except Exception as e:
+                                             print(e) 
+                                             pass
+
+
+def add_edge_listener_rules(lan_ip, lan_mask):
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+             if(config):
+                 if('listeners' in config.keys()):
+                   for key in config['listeners']:
+                             if(('binding' in key.keys()) and (key['binding'] == 'edge')):
+                                 if('address' in key.keys()):
+                                     address = key['address']
+                                     addr_array = address.split(':')
+                                     if(len(addr_array) == 3):
+                                         port = addr_array[-1].strip()
+                                         try:
+                                             port = addr_array[-1].strip()
+                                             if((int(port) > 0) and (addr_array[0] == 'tls')):
+                                                 os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
+                                         except Exception as e:
+                                             print(e)
+                                             pass
+
+
+def add_resolver_rules():
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+             if(config):
+                 if('listeners' in config.keys()):
+                   for key in config['listeners']:
+                       if(('binding' in key.keys()) and (key['binding'] == 'tunnel')):
+                           if('options' in key.keys()):
+                               if('resolver' in key['options']):
+                                   address = key['options']['resolver']
+                                   addr_array = address.split(':')
+                                   if(len(addr_array) == 3):
+                                       port = addr_array[-1].strip()
+                                       lan_ip = addr_array[1].split('//')
+                                       lan_mask = '32'
+                                       try:
+                                           port = addr_array[-1].strip()
+                                           lan_ip = addr_array[1].split('//')[1]
+                                           if((int(port) > 0)):
+                                               os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
+                                               os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p udp')
+                                       except Exception as e:
+                                           print(e)
+                                           pass
+
+def set_zfw_mode():
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+             if(config):
+                 if('listeners' in config.keys()):
+                     for key in config['listeners']:
+                         if(('binding' in key.keys()) and (key['binding'] == 'tunnel')):
+                             if('options' in key.keys()):
+                                 if('mode' in key['options']):
+                                     if(key['options']['mode'] == 'tproxy:/opt/openziti/bin/zfw'):
+                                         print("ziti-router config already converted to use ebpf diverter!")
+                                     else:
+                                         key['options']['mode'] = 'tproxy:/opt/openziti/bin/zfw'
+                                         write_config(config)
+                                         return True
+                                 else:
+                                     key['options']['mode'] = 'tproxy:/opt/openziti/bin/zfw'
+                                     write_config(config)
+                                     return True
+                             else:
+                                 print('Mandatory key \'options\' missing from binding: tunnel')
+                 else:
+                     print('Mandatory key \'listeners\' missing in config.yml')
     else:
-        return ''
+        print('ziti-router not installed, skipping ebpf router configuration!')
+    return False
 
-def get_edge_listener():
-    in_edge = False
-    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-        with open('/opt/openziti/ziti-router/config.yml', 'r') as cfile:
-           for line in cfile:
-               if(line.find("binding: proxy") >= 0):
-                   in_edge = False
-               if(line.find("binding: edge") >= 0):
-                   in_edge = True
-               if(in_edge):
-                  if(line.find("address:") >= 0):
-                      address = line.split(':')
-                      if(len(address)):
-                          port = address[-1].strip()
-                          try:
-                              int(port)
-                              return port
-                          except:
-                              return ''
-    return ''
-
-def get_health_check_listener():
-    in_hc = False
-    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-        with open('/opt/openziti/ziti-router/config.yml', 'r') as cfile:
-           for line in cfile:
-               if(line.find("apis:") >= 0):
-                   in_hc = False
-               if(line.find("name: health-check") >= 0):
-                   in_hc = True
-               if(in_hc):
-                  if(line.find("address:") >= 0):
-                      address = line.split(':')
-                      if(len(address)):
-                          port = address[-1].strip()
-                          try:
-                              int(port)
-                              return port
-                          except:
-                              return ''
-    return ''
-
-def get_link_listener():
-    in_link = False
-    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-        with open('/opt/openziti/ziti-router/config.yml', 'r') as cfile:
-           for line in cfile:
-               if(line.find("healthChecks:") >= 0):
-                   in_link = False
-               if(line.find("link:") >= 0):
-                   in_link = True
-               if(in_link):
-                  if(line.find("bind:") >= 0):
-                      address = line.split(':')
-                      if(len(address)):
-                          port = address[-1].strip()
-                          try:
-                              int(port)
-                              return port
-                          except:
-                              return ''
-    return ''
+def write_config(config):
+    with open('/opt/openziti/ziti-router/config.yml', 'w') as config_file:
+        yaml.dump(config, config_file, sort_keys=False)
 
 def get_lanIf():
-    process = subprocess.Popen(['grep', 'lanIf:', '/opt/openziti/ziti-router/config.yml'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = process.communicate()
-    data = out.decode()
-    if(len(err)):
-        return ''
-    data = out.decode()
-    raw = data.split(':')
-    if(len(raw)):
-       result = raw[1].strip()
-       return result
+    if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
+        with open('/opt/openziti/ziti-router/config.yml') as config_file:
+             config = yaml.load(config_file, Loader=yaml.FullLoader)
+             if(config):
+                 if('listeners' in config.keys()):
+                     for key in config['listeners']:
+                         if(('binding' in key.keys()) and (key['binding'] == 'tunnel')):
+                             if('options' in key.keys()):
+                                 if('lanIf' in key['options']):
+                                    return key['options']['lanIf']
+                             else:
+                                 print('Mandatory key \'options\' missing from binding: tunnel')
+                 else:
+                     print('Mandatory key \'listeners\' missing in config.yml')
     else:
-        return ''
+        print('ziti-router not installed, skipping ebpf router configuration!')
+    return ''
 
 def get_if_ip(intf):
     process = subprocess.Popen(['ip', 'add'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = process.communicate()
     data = out.decode().splitlines()
     for line in data:
-        if((line.find(intf) >= 0) & (line.find('inet') >= 0)):
+        if((line.find(intf) >= 0) and (line.find('inet') >= 0)):
             search_list = line.strip().split(" ")
             if(search_list[-1].strip() == intf):
                return search_list[1]
@@ -126,26 +173,16 @@ def set_local_rules(resolver):
         default_cidr = '0.0.0.0/0'
         default_ip = '0.0.0.0'
         default_mask = '0'
-        edge_port = get_edge_listener()
-        health_port = get_health_check_listener()
-        link_port = get_link_listener()
-        resolver_port = get_resolver()
         if(len(resolver.split('/'))):
             lan_ip = resolver.split('/')[0]
             lan_mask = '32'
         else:
             lan_ip = default_cidr
             lan_mask = default_mask
-        if(len(edge_port)):
-            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + edge_port + ' -h ' + edge_port + ' -t 0  -p tcp')
-        if(len(link_port)):
-            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + link_port + ' -h ' + link_port + ' -t 0  -p tcp')
-        if(len(health_port)):
-            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + health_port + ' -h ' + health_port + ' -t 0  -p tcp')
-        if(len(resolver_port)):
-            print("resolver_port=", resolver_port)
-            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p tcp')
-            os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + resolver_port + ' -h ' + resolver_port + ' -t 0  -p udp')
+        add_edge_listener_rules(lan_ip, lan_mask)
+        add_link_listener_rules(lan_ip, lan_mask)
+        add_health_check_rules(lan_ip, lan_mask)
+        add_resolver_rules()
 
 netfoundry = False
 if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
@@ -189,26 +226,7 @@ else:
     else:
          print('File already exist: /opt/openziti/etc/ebpf_config.json')
 
-router_config = False
-if(os.path.exists('/opt/openziti/ziti-router/config.yml')):
-    unconfigured = os.system("grep -r '\ \ \ \ \ \ mode: tproxy:/opt/openziti/bin/zfw' /opt/openziti/ziti-router/config.yml")
-    if(unconfigured):
-        no_binding = os.system("grep -r '\ \ - binding: tunnel' /opt/openziti/ziti-router/config.yml")
-        if(no_binding):
-            print('ziti-router config.yml missing \"binding: tunnel\" aborting router config conversion!')
-        else:
-            test1 = os.system("sed -i 's/mode: tproxy/#mode: tproxy/g' /opt/openziti/ziti-router/config.yml")
-            test2 = os.system("sed -i '/#mode: tproxy/a \ \ \ \ \ \ mode: tproxy:/opt/openziti/bin/zfw' /opt/openziti/ziti-router/config.yml")
-            if(test1 | test2):
-                print("Unable to convert ziti-router config to use ebpf diverter!")
-            else:
-                router_config = True
-                print("config.yml successfully converted!")
-    else:
-        print("ziti-router config already converted to use ebpf diverter!")
-else:
-    print('ziti-router not installed, skipping ebpf router configuration!')
-
+router_config = set_zfw_mode()
 internal_list = []
 external_list = []
 per_interface_rules = dict()
@@ -376,7 +394,7 @@ else:
 resolver = get_if_ip(lanIf)
 if(len(resolver)):
     set_local_rules(resolver)
-if(os.path.exists('/etc/systemd/system/ziti-router.service') & router_config):
+if(os.path.exists('/etc/systemd/system/ziti-router.service') and router_config):
     unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_router.py' /etc/systemd/system/ziti-router.service")
     if(unconfigured):
         os.system("sed -i 's/ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/#ExecStartPre\=-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/g' /etc/systemd/system/ziti-router.service")
@@ -400,5 +418,5 @@ if(os.path.exists('/etc/systemd/system/ziti-router.service') & router_config):
     else:
         print("ziti-router.service already converted. Nothing to do!")
 else:
-    print("Skipping ziti-router.service conversion. File does not exist or no changes made to config.yml!")
+    print("Skipping ziti-router.service conversion. File does not exist or is already converted to run ebpf!")
 sys.exit(0)
