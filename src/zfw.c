@@ -111,7 +111,7 @@ static char *tun_interface;
 static char *tc_interface;
 static char *object_file;
 static char *direction_string;
-const char *argp_program_version = "0.3.10";
+const char *argp_program_version = "0.4.0";
 
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
@@ -976,11 +976,21 @@ void interface_tc()
                 address = address->ifa_next;
                 continue;
             }
-            if(!strncmp(address->ifa_name,"tun", 3) || idx >= MAX_IF_ENTRIES)
+            if (all_interface)
             {
-                if(!strncmp(tc_interface,"tun", 3)){
-                    printf("zfw does not allow tc filters on tun interfaces!\n");
+                tc_interface = address->ifa_name;
+            }
+            if(!strncmp(address->ifa_name,"tun", 3) || !strncmp(address->ifa_name,"ziti", 4))
+            {
+                if(!strncmp(tc_interface,"tun", 3) || !strncmp(tc_interface,"ziti", 4)){
+                    printf("%s:zfw does not allow tc filters on tun interfaces!\n", address->ifa_name);
                 }
+                address = address->ifa_next;
+                continue;
+            }
+            if(idx >= MAX_IF_ENTRIES)
+            {
+                printf("%s:zfw does not allow tc filters interfaces with an ifindex above %d!\n", address->ifa_name, MAX_IF_ENTRIES -1);
                 address = address->ifa_next;
                 continue;
             }
@@ -991,10 +1001,6 @@ void interface_tc()
                     address = address->ifa_next;
                     continue;
                 }
-            }
-            if (all_interface)
-            {
-                tc_interface = address->ifa_name;
             }
             if (tc || tcfilter)
             {
@@ -1070,7 +1076,8 @@ void interface_diag()
                 address = address->ifa_next;
                 continue;
             }
-            if(idx >= MAX_IF_ENTRIES && strncmp(address->ifa_name,"tun", 3)){
+            if(idx >= MAX_IF_ENTRIES && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
+                printf("%s:zfw does not support interfaces with an ifindex above %d!\n", address->ifa_name, MAX_IF_ENTRIES -1);
                 address = address->ifa_next;
                 continue;
             }
@@ -1107,7 +1114,23 @@ void interface_diag()
                 address = address->ifa_next;
                 continue;
             }
-            if (echo && strncmp(address->ifa_name,"tun", 3))
+            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo)){
+                if(per_interface && !strncmp(prefix_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
+                if(tun && !strncmp(tun_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
+                if(ssh_disable && !strncmp(ssh_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
+                if(echo && !strncmp(echo_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
+                address = address->ifa_next;
+                continue;
+            }
+            if (echo && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4))
             {
                 if (!strcmp(echo_interface, address->ifa_name))
                 {
@@ -1118,6 +1141,9 @@ void interface_diag()
             if (verbose)
             {
                 if(!strncmp(address->ifa_name, "tun", 3) && !strncmp(verbose_interface,"tun", 3)){
+                    set_tun_diag();
+                }
+                else if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
                     set_tun_diag();
                 }
                 else if(!strcmp(verbose_interface, address->ifa_name))
@@ -1145,6 +1171,9 @@ void interface_diag()
             if (list_diag)
             {
                 if(!strncmp(address->ifa_name, "tun", 3) && !strncmp(diag_interface,"tun", 3)){
+                    set_tun_diag();
+                }
+                else if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
                     set_tun_diag();
                 }
                 else if (!strcmp(diag_interface, address->ifa_name))
@@ -1287,7 +1316,7 @@ bool interface_map()
                 address = address->ifa_next;
                 continue;
             }
-            if((idx >= MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3)){
+            if((idx >= MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
                 address = address->ifa_next;
                 continue;
             }
@@ -1312,11 +1341,11 @@ bool interface_map()
                     continue;
                 }
             }
-            if((idx < MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3)){
+            if((idx < MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
                 add_if_index(&idx, ifip, address->ifa_name);
             }
 
-            if(ifip == tunip)
+            if((ifip == tunip) && (!strncmp(address->ifa_name,"tun", 3) || !strncmp(address->ifa_name,"ziti", 4)))
             {
                 bool change_detected =true;
                 struct ifindex_tun o_iftun; 
