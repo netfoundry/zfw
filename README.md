@@ -174,7 +174,7 @@ expected output:
 The firewall can support subtending devices for two interface scenarios i.e.
 external and trusted.
 
-external inet <----> (ens33)[ebpf-router](ens37) <----> trusted clients
+external inet <----> (ens33)[ebpf-router](ens37) <----> trusted client(s)
 
 with zfw_tc_ingress.o applied ingress on ens33 and zfw_tc_oubound_track.o applied egress on ens33 the router will
 statefully track outbound udp and tcp connections on ens33 and allow the associated inbound traffic.  While
@@ -286,9 +286,27 @@ fall through to rule check instead where a more specific rule could be applied. 
 interface setting and can be set for all interfaces except loopback.  This would need to be put in
  /opt/openziti/bin/user/user_rules.sh to survive reboot.
 
+- Disable
 ```
-sudo zfw -x ens33
+sudo zfw -x <ens33 | all>
 ```
+
+- Enable
+```
+sudo zfw -x <ens33 | all> -d
+```
+
+### vrrp passthrough
+- Enable
+```
+sudo zfw --vrrp-enable <ens33 | all>
+```
+
+- Disable
+``` 
+sudo zfw --vrrp-enable <ens33 | all> -d
+```
+
 
 ### Inserting / Deleting rules
     
@@ -371,7 +389,7 @@ target     proto    origin           destination              mapping:          
 PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
 ```
 
-Example: List rules in firewall for a given prefix
+- Example: List rules in firewall for a given prefix
 Usage: zfw -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
 ```
 sudo zfw -L -c 192.168.100.100 -m 32
@@ -382,7 +400,7 @@ target     proto    origin           destination              mapping:          
 PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
 PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32     []
 ```
-Example: List all interface settings
+- Example: List all interface settings
 
 ```
 sudo zfw -L -E
@@ -394,34 +412,37 @@ icmp echo               :1
 verbose                 :0
 ssh disable             :0
 per interface           :0
-tc ingress filter       :1
+tc ingress filter       :0
 tc egress filter        :0
 tun mode intercept      :0
+vrrp enable             :0
 --------------------------
 
-ens33: 3
---------------------------
-icmp echo               :0
-verbose                 :1
-ssh disable             :1
-per interface           :1
-tc ingress filter       :1
-tc egress filter        :1
-tun mode intercept      :0
---------------------------
-
-ens37: 4
+ens33: 2
 --------------------------
 icmp echo               :0
 verbose                 :0
 ssh disable             :0
 per interface           :0
 tc ingress filter       :1
-tc egress filter        :0
-tun mode intercept      :0
+tc egress filter        :1
+tun mode intercept      :1
+vrrp enable             :1
 --------------------------
 
-tun0: 9
+ens37: 3
+--------------------------
+icmp echo               :0
+verbose                 :0
+ssh disable             :0
+per interface           :0
+tc ingress filter       :0
+tc egress filter        :0
+tun mode intercept      :0
+vrrp enable             :0
+--------------------------
+
+tun0: 18
 --------------------------
 verbose                 :0
 cidr                    :100.64.0.0
@@ -429,7 +450,7 @@ mask                    :10
 --------------------------
 ```
 
-Example Detaching bpf from interface:
+- Example Detaching bpf from interface:
 
 ```
 sudo zfw --set-tc-filter <interface name>  --direction <ingress | egress> --disable

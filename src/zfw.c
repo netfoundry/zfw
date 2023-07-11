@@ -62,6 +62,7 @@ static bool passthru = false;
 static bool intercept = false;
 static bool echo = false;
 static bool verbose = false;
+static bool vrrp = false;
 static bool per_interface = false;
 static bool interface = false;
 static bool disable = false;
@@ -108,10 +109,11 @@ static char *verbose_interface;
 static char *ssh_interface;
 static char *prefix_interface;
 static char *tun_interface;
+static char *vrrp_interface;
 static char *tc_interface;
 static char *object_file;
 static char *direction_string;
-const char *argp_program_version = "0.4.0";
+const char *argp_program_version = "0.4.1";
 
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
@@ -149,6 +151,7 @@ struct diag_ip4
     bool tc_ingress;
     bool tc_egress;
     bool tun_mode;
+    bool vrrp;
 };
 
 struct tproxy_port_mapping
@@ -726,6 +729,7 @@ void usage(char *message)
     fprintf(stderr, "       zfw -X <ifname> -O <object file name> -z direction\n");
     fprintf(stderr, "       zfw -X <ifname> -O <object file name> -z direction -d\n");
     fprintf(stderr, "       zfw -Q\n");
+    fprintf(stderr, "       zfw --vrrp-enable <ifname>\n");
     fprintf(stderr, "       zfw -V\n");
     fprintf(stderr, "       zfw --help\n");
     exit(1);
@@ -916,6 +920,18 @@ bool set_diag(uint32_t *idx)
                 }
                 printf("Set tun mode to %d for %s\n", !disable, tun_interface);
             }
+            if (vrrp)
+            {
+                if (!disable)
+                {
+                    o_diag.vrrp = true;
+                }
+                else
+                {
+                    o_diag.vrrp = false;
+                }
+                printf("Set vrrp mode to %d for %s\n", !disable, vrrp_interface);
+            }
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
             if (ret)
             {
@@ -942,6 +958,7 @@ bool set_diag(uint32_t *idx)
             printf("%-24s:%d\n", "tc ingress filter", o_diag.tc_ingress);
             printf("%-24s:%d\n", "tc egress filter", o_diag.tc_egress);
             printf("%-24s:%d\n", "tun mode intercept", o_diag.tun_mode);
+            printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
             printf("--------------------------\n\n");
         }
     }
@@ -1097,8 +1114,9 @@ void interface_diag()
                 ssh_interface = address->ifa_name;
                 diag_interface = address->ifa_name;
                 tun_interface = address->ifa_name;
+                vrrp_interface = address->ifa_name;
             }
-            if(!strncmp(address->ifa_name, "tun", 3) && (tun || per_interface || ssh_disable || echo)){
+            if(!strncmp(address->ifa_name, "tun", 3) && (tun || per_interface || ssh_disable || echo || vrrp)){
                 if(per_interface && !strncmp(prefix_interface, "tun", 3)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
@@ -1111,10 +1129,13 @@ void interface_diag()
                 if(echo && !strncmp(echo_interface, "tun", 3)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
+                if(vrrp && !strncmp(vrrp_interface, "tun", 3)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
                 address = address->ifa_next;
                 continue;
             }
-            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo)){
+            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp)){
                 if(per_interface && !strncmp(prefix_interface, "ziti", 4)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
@@ -1127,12 +1148,23 @@ void interface_diag()
                 if(echo && !strncmp(echo_interface, "ziti", 4)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
+                if(vrrp && !strncmp(vrrp_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
                 address = address->ifa_next;
                 continue;
             }
-            if (echo && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4))
+            if (echo) //&& strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4))
             {
                 if (!strcmp(echo_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (vrrp)
+            {
+                if (!strcmp(vrrp_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -1911,14 +1943,15 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
-    {"set-tun-mode", 'T', "", 0, "set tun mode on interface", 0},
-    {"disable-ebpf", 'Q', NULL, 0, "delete tc from all interface and remove all maps", 0},
-    {"per-interface-rules", 'P', "", 0, "set interface to per interface rule aware", 0},
-    {"disable-ssh", 'x', "", 0, "disable inbound ssh to interface (default enabled)", 0},
+    {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
+    {"disable-ebpf", 'Q', NULL, 0, "Delete tc from all interface and remove all maps", 0},
+    {"per-interface-rules", 'P', "", 0, "Set interface to per interface rule aware", 0},
+    {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"icmp-echo", 'e', "", 0, "enable inbound icmp echo to interface", 0},
-    {"verbose", 'v', "", 0, "enable verbose tracing on interface", 0},
-    {"disable", 'd', NULL, 0, "disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
+    {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
+    {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
+    {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
+    {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
@@ -1927,13 +1960,13 @@ static struct argp_option options[] = {
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
-    {"intercepts", 'i', NULL, 0, "list intercept rules <optional for list>", 0},
-    {"passthrough", 'f', NULL, 0, "list passthrough rules <optional list>", 0},
+    {"intercepts", 'i', NULL, 0, "List intercept rules <optional for list>", 0},
+    {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
     {"interface", 'N', "", 0, "Interface <optional insert>", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
-    {"set-tc-filter", 'X', "", 0, "add/remove TC filter to/from interface", 0},
-    {"object-file", 'O', "", 0, "set object file", 0},
-    {"direction", 'z', "", 0, "set direction", 0},
+    {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
+    {"object-file", 'O', "", 0, "Set object file", 0},
+    {"direction", 'z', "", 0, "Set direction", 0},
     {0}};
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
@@ -2019,6 +2052,28 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'Q':
         ebpf_disable = true;
+        break;
+    case 'R':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -R, --vrrp-enable: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        get_index(arg, &idx);
+        if(strcmp("all", arg) && idx == 0){
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        vrrp = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            vrrp_interface = arg;
+        }
         break;
     case 'T':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
@@ -2316,6 +2371,11 @@ int main(int argc, char **argv)
         usage("-T, --set-tun-mode cannot be set as a part of combination call to zfw");
     }
 
+    if (( vrrp && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
+    {
+        usage("-R, --vrrp-enable cannot be set as a part of combination call to zfw");
+    }
+
     if ((tcfilter && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush)))
     {
         usage("-X, --set-tc-filter cannot be set as a part of combination call to zfw");
@@ -2351,9 +2411,9 @@ int main(int argc, char **argv)
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
     }
 
-    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun))
+    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp))
     {
-        usage("Missing argument at least one of -e, -v, -x, or -E, -P, -T, -X");
+        usage("Missing argument at least one of -e, -v, -x, or -E, -P, -R, -T, -X");
     }
 
     if (direction && !tcfilter)
@@ -2504,7 +2564,7 @@ int main(int argc, char **argv)
             map_list();
         }
     }
-    else if (verbose || ssh_disable || echo || per_interface || tun)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun)
     {
         interface_diag();
         exit(0);
