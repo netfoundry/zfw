@@ -153,6 +153,7 @@ struct diag_ip4 {
     bool tc_ingress;
     bool tc_egress;
     bool tun_mode;
+    bool vrrp;
 };
 
 /*Value to tun_map*/
@@ -408,7 +409,7 @@ static inline void clear_match_tracker(__u32 key){
 * from the combined IP SA|DA and the TCP/UDP SP|DP. 
 */
 static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
-    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, struct diag_ip4 *local_diag){
+    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, bool *vrrp, struct diag_ip4 *local_diag){
     struct bpf_sock_tuple *result;
     __u8 proto = 0;
     int ret;
@@ -523,6 +524,10 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
             *icmp = true;
             return NULL;
         }
+        if(proto == 112){
+            *vrrp = true;
+            return NULL;
+        }
         /* check if ip protocol is not UDP or TCP. Return NULL if true */
         if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
             return NULL;
@@ -568,6 +573,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool tcp=false;
     bool arp=false;
     bool icmp=false;
+    bool vrrp=false;
     int ret;
     
     /*look up attached interface inbound diag status*/
@@ -590,7 +596,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 	}
 
     /* check if incoming packet is a UDP or TCP tuple */
-    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, local_diag);
+    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, &vrrp, local_diag);
 
     /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
@@ -626,7 +632,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
             else{
                 return TC_ACT_SHOT;
             }
-        }else{
+        }else if(vrrp && local_diag && local_diag->vrrp)
+        {
+            return TC_ACT_OK;
+        }
+        else{
             return TC_ACT_SHOT;
         }
     }
