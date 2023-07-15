@@ -44,6 +44,7 @@
 #define MAX_TABLE_SIZE      65536  // PORT Mapping table size
 #define MAX_IF_LIST_ENTRIES 3
 #define MAX_IF_ENTRIES      30
+#define MAX_ADDRESSES       10
 
 static bool add = false;
 static bool delete = false;
@@ -113,13 +114,13 @@ static char *vrrp_interface;
 static char *tc_interface;
 static char *object_file;
 static char *direction_string;
-const char *argp_program_version = "0.4.1";
+const char *argp_program_version = "0.4.2";
 
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
 int get_key_count();
 void interface_tc();
-int add_if_index(uint32_t *idx, in_addr_t ifip, char *ifname);
+int add_if_index(uint32_t *idx, char *ifname, uint32_t ifip[MAX_ADDRESSES], uint8_t count);
 void open_diag_map();
 void open_if_map();
 void open_tun_map();
@@ -129,8 +130,9 @@ void close_maps(int code);
 
 struct ifindex_ip4
 {
-    uint32_t ipaddr;
+    uint32_t ipaddr[MAX_ADDRESSES];
     char ifname[IFNAMSIZ];
+    uint8_t count;
 };
 
 /*value to ifindex_tun_map*/
@@ -968,7 +970,6 @@ bool set_diag(uint32_t *idx)
 void interface_tc()
 {
     struct ifaddrs *addrs;
-
     /* call function to get a linked list of interface structs from system */
     if (getifaddrs(&addrs) == -1)
     {
@@ -977,12 +978,12 @@ void interface_tc()
     }
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
+    uint32_t cur_idx = 0;
     /*
      * traverse linked list of interfaces and for each non-loopback interface
      *  populate the index into the map with ifindex as the key and ip address
      *  as the value
      */
-    int lo_count = 0;
     while (address)
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -1011,13 +1012,12 @@ void interface_tc()
                 address = address->ifa_next;
                 continue;
             }
-            if (!strncmp(address->ifa_name, "lo", 2))
+            if(cur_idx == idx)
             {
-                lo_count++;
-                if(lo_count > 1){
-                    address = address->ifa_next;
-                    continue;
-                }
+                address = address->ifa_next;
+                continue;
+            }else{
+                cur_idx = idx;
             }
             if (tc || tcfilter)
             {
@@ -1039,6 +1039,7 @@ void interface_tc()
                         if (!disable)
                         {
                             set_tc_filter("add");
+                            interface_map();
                             if(diag_fd == -1){
                                 open_diag_map();
                             }
@@ -1077,7 +1078,7 @@ void interface_diag()
     }
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
-    int lo_count = 0;
+    uint32_t cur_idx = 0;
     /*
      * traverse linked list of interfaces and for each non-loopback interface
      *  populate the index into the map with ifindex as the key and ip address
@@ -1098,13 +1099,12 @@ void interface_diag()
                 address = address->ifa_next;
                 continue;
             }
-            if(!strncmp(address->ifa_name, "lo", 2))
+            if(cur_idx == idx)
             {
-                lo_count++;
-                if(lo_count > 1){
-                    address = address->ifa_next;
-                    continue;
-                }
+                address = address->ifa_next;
+                continue;
+            }else{
+                cur_idx = idx;
             }
             if (all_interface)
             {
@@ -1232,7 +1232,7 @@ void interface_diag()
     freeifaddrs(addrs);
 }
 
-int get_ifindex_map(uint32_t *idx){
+/*int get_ifindex_map(uint32_t *idx){
     if(if_fd == -1){
         open_if_map();
     }
@@ -1250,14 +1250,13 @@ int get_ifindex_map(uint32_t *idx){
         printf("ifip=%x\n",orule.ipaddr);
     }
     return 0;
-}
+}*/
 
-int add_if_index(uint32_t *idx, in_addr_t ifip, char *ifname)
+int add_if_index(uint32_t *idx, char *ifname, in_addr_t ifip[MAX_ADDRESSES], uint8_t count)
 {
     if(if_fd == -1){
         open_if_map();
     }
-    bool change_detected = false;
     if_map.map_fd = if_fd;
     struct ifindex_ip4 o_ifip4;
     if_map.key = (uint64_t)idx;
@@ -1268,22 +1267,21 @@ int add_if_index(uint32_t *idx, in_addr_t ifip, char *ifname)
     {
         printf("Unable to access ArrayMap Index\n");
     }else{
-        if(o_ifip4.ipaddr != ifip){
-            o_ifip4.ipaddr = ifip;
-            change_detected =true;
-        }
-        if(strcmp(o_ifip4.ifname, ifname)){
-            sprintf(o_ifip4.ifname, "%s", ifname);
-            change_detected =true;
-        }
-        if(change_detected){
-            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
-            if (ret)
-            {
-                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                return 1;
+        for(int x = 0; x < MAX_ADDRESSES; x++){
+            if(x < count){
+                o_ifip4.ipaddr[x] = ifip[x];
             }
-            
+            else{
+                o_ifip4.ipaddr[x] = 0;
+            }
+        }
+        o_ifip4.count = count;
+        sprintf(o_ifip4.ifname, "%s", ifname);
+        int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
+        if (ret)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            return 1;
         }
     }
     return 0;
@@ -1338,6 +1336,10 @@ bool interface_map()
      *  populate the index into the map with ifindex as the key and ip address
      *  as the value
      */
+    uint32_t addr_array[MAX_ADDRESSES];
+    char * cur_name;
+    uint32_t cur_idx;
+    uint8_t addr_count = 0;
     while (address)
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -1374,7 +1376,29 @@ bool interface_map()
                 }
             }
             if((idx < MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
-                add_if_index(&idx, ifip, address->ifa_name);
+                if(addr_count == 0){
+                    cur_name = address->ifa_name;
+                    cur_idx = idx;
+                    addr_array[addr_count] = ifip;
+                    addr_count++;
+                }
+                else if(cur_idx != idx){
+                    add_if_index(&cur_idx, cur_name, addr_array, addr_count);
+                    addr_count = 0;
+                    cur_idx = idx;
+                    cur_name = address->ifa_name;
+                    if(addr_count < MAX_ADDRESSES){
+                        addr_array[addr_count] = ifip;
+                        addr_count++;
+                    }
+                }
+                else{
+                    if(addr_count < MAX_ADDRESSES){
+                        addr_array[addr_count] = ifip;
+                        addr_count++;
+                    }
+                }
+                
             }
 
             if((ifip == tunip) && (!strncmp(address->ifa_name,"tun", 3) || !strncmp(address->ifa_name,"ziti", 4)))
@@ -1420,12 +1444,14 @@ bool interface_map()
                             printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
                             return 1;
                         }
-                        
                     }
                 }
             }
         }
         address = address->ifa_next;
+    }
+    if((idx > 0) && (addr_count > 0) && (addr_count <= MAX_ADDRESSES)){
+        add_if_index(&cur_idx, cur_name, addr_array, addr_count);
     }
     freeifaddrs(addrs);
     return create_route;
@@ -1438,7 +1464,10 @@ void map_insert()
         printf("INSERT FAILURE -- MAX PREFIX TUPLES REACHED\n");
         exit(1);
     }
-    bool route_insert = interface_map();
+    bool route_insert = false;
+    if(route){
+        route_insert = interface_map();
+    }
     union bpf_attr map;
     struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
@@ -1541,7 +1570,7 @@ void map_insert()
             }
             close(count_fd);
         }
-        if (route && route_insert)
+        if (route_insert)
         {
             bind_prefix(&dcidr, dplen);
         }
@@ -1609,7 +1638,10 @@ void map_delete_key(struct tproxy_key key)
 
 void map_delete()
 {
-    bool route_delete = interface_map();
+    bool route_delete = false;
+    if(route){
+        route_delete = interface_map();
+    }
     union bpf_attr map;
     struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule;
@@ -1707,7 +1739,7 @@ void map_delete()
                 }
                 close(count_fd);
                 printf("Last Element: Hash Entry Deleted\n");
-                if (route && route_delete)
+                if (route_delete)
                 {
                     unbind_prefix(&dcidr, dplen);
                 }
