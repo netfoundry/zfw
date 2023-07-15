@@ -44,6 +44,7 @@
 #define SERVICE_ID_BYTES            32
 #define MAX_TRANSP_ROUTES           256
 #define BPF_MAX_SESSIONS            10000
+#define MAX_ADDRESSES               10
 #ifndef memcpy
  #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -131,8 +132,9 @@ struct match_tracker {
 
 /*value to ifindex_ip_map*/
 struct ifindex_ip4 {
-    uint32_t ipaddr;
+    uint32_t ipaddr[MAX_ADDRESSES];
     char ifname[IFNAMSIZ];
+    uint8_t count;
 };
 
 /*value to ifindex_tun_map*/
@@ -651,13 +653,24 @@ int bpf_sk_splice(struct __sk_buff *skb){
        return TC_ACT_OK;
     }
 
-    /* allow ssh to local system */
-    if(((!local_ip4) || (!local_ip4->ipaddr)) || ((tuple->ipv4.daddr == local_ip4->ipaddr) && !local_diag->ssh_disable)){
-       if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
+    /* allow ssh to local interface ip addresses */
+    if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
+        if((!local_ip4 || !local_ip4->count)){
             return TC_ACT_OK;
-       }
+        }else{
+            uint8_t addresses = 0; 
+            if(local_ip4->count < MAX_ADDRESSES){
+                addresses = local_ip4->count;
+            }else{
+                addresses = MAX_ADDRESSES;
+            }
+            for(int x = 0; x < addresses; x++){
+                if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                    return TC_ACT_OK;
+                }
+            }
+        }
     }
-
     /* forward DHCP messages to local system */
     if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
        return TC_ACT_OK;

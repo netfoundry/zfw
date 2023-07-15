@@ -281,7 +281,10 @@ with listening ports in the config.yml.
 
 ### ssh default operation
 By default ssh is enabled to pass through to the ip address of the attached interface from any source.
-The following command will disable default ssh action to pass to ip of local interface and then
+If secondary addresses exist on the interface this will only work for the first 10.  After that you would need
+to add manual entries via ```zfw -I```. 
+
+The following command will disable default ssh action to pass to the IP addresses of the local interface and will
 fall through to rule check instead where a more specific rule could be applied.  This is a per
 interface setting and can be set for all interfaces except loopback.  This would need to be put in
  /opt/openziti/bin/user/user_rules.sh to survive reboot.
