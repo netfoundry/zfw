@@ -28,7 +28,7 @@
 #include <linux/ethtool.h>
 #include <sys/ioctl.h>
 #include <netinet/ip.h>
-#include <linux/if.h>
+#include <net/if.h>
 #include <linux/sockios.h>
 #include <string.h>
 #include <errno.h>
@@ -36,63 +36,94 @@
 #include <argp.h>
 #include <linux/socket.h>
 #include <sys/wait.h>
+#include <sys/sysinfo.h>
+#include <bpf/libbpf.h>
+#include <time.h>
+#include <signal.h>
 
 #ifndef BPF_MAX_ENTRIES
-#define BPF_MAX_ENTRIES     100 // MAX # PREFIXES
+#define BPF_MAX_ENTRIES                     100 // MAX # PREFIXES
 #endif
-#define MAX_INDEX_ENTRIES   100 // MAX port ranges per prefix
-#define MAX_TABLE_SIZE      65536  // PORT Mapping table size
-#define MAX_IF_LIST_ENTRIES 3
-#define MAX_IF_ENTRIES      30
-#define MAX_ADDRESSES       10
+#define MAX_INDEX_ENTRIES                   100 // MAX port ranges per prefix
+#define MAX_TABLE_SIZE                      65536  // PORT Mapping table size
+#define MAX_IF_LIST_ENTRIES                 3
+#define MAX_IF_ENTRIES                      30
+#define MAX_ADDRESSES                       10
+#define IP_HEADER_TOO_BIG                   1
+#define NO_IP_OPTIONS_ALLOWED               2
+#define UDP_HEADER_TOO_BIG                  3
+#define GENEVE_HEADER_TOO_BIG               4
+#define GENEVE_HEADER_LENGTH_VERSION_ERROR  5
+#define SKB_ADJUST_ERROR                    6
+#define ICMP_HEADER_TOO_BIG                 7
+#define IP_TUPLE_TOO_BIG                    8
+#define IF_LIST_MATCH_ERROR                 9
+#define NO_REDIRECT_STATE_FOUND             10
+#define INGRESS                             0
+#define EGRESS                              1
+#define SERVER_SYN_ACK_RCVD                 1
+#define SERVER_FIN_RCVD                     2
+#define SERVER_RST_RCVD                     3
+#define SERVER_FINAL_ACK_RCVD               4
+#define UDP_MATCHED_EXPIRED_STATE           5
+#define UDP_MATCHED_ACTIVE_STATE            6
+#define CLIENT_SYN_RCVD                     7
+#define CLIENT_FIN_RCVD                     8
+#define CLIENT_RST_RCVD                     9
+#define TCP_CONNECTION_ESTABLISHED          10
+#define CLIENT_FINAL_ACK_RCVD               11
+#define CLIENT_INITIATED_UDP_SESSION        12
 
-static bool add = false;
-static bool delete = false;
-static bool list = false;
-static bool flush = false;
-static bool lpt = false;
-static bool hpt = false;
-static bool tpt = false;
-static bool dl = false;
-static bool sl = false;
-static bool cd = false;
-static bool cs = false;
-static bool prot = false;
-static bool route = false;
-static bool passthru = false;
-static bool intercept = false;
-static bool echo = false;
-static bool verbose = false;
-static bool vrrp = false;
-static bool per_interface = false;
-static bool interface = false;
-static bool disable = false;
-static bool all_interface = false;
-static bool ssh_disable = false;
-static bool tc = false;
-static bool tcfilter = false;
-static bool direction = false;
-static bool object;
-static bool ebpf_disable = false;
-static bool list_diag = false;
-static bool tun = false;
-static struct in_addr dcidr;
-static struct in_addr scidr;
-static unsigned short dplen;
-static unsigned short splen;
-static unsigned short low_port;
-static unsigned short high_port;
-static unsigned short tproxy_port;
-static char *program_name;
-static char *protocol_name;
-static unsigned short protocol;
+bool add = false;
+bool delete = false;
+bool list = false;
+bool flush = false;
+bool lpt = false;
+bool hpt = false;
+bool tpt = false;
+bool dl = false;
+bool sl = false;
+bool cd = false;
+bool cs = false;
+bool prot = false;
+bool route = false;
+bool passthru = false;
+bool intercept = false;
+bool echo = false;
+bool verbose = false;
+bool vrrp = false;
+bool per_interface = false;
+bool interface = false;
+bool disable = false;
+bool all_interface = false;
+bool ssh_disable = false;
+bool tc = false;
+bool tcfilter = false;
+bool direction = false;
+bool object;
+bool ebpf_disable = false;
+bool list_diag = false;
+bool monitor = false;
+bool tun = false;
+struct in_addr dcidr;
+struct in_addr scidr;
+unsigned short dplen;
+unsigned short splen;
+unsigned short low_port;
+unsigned short high_port;
+unsigned short tproxy_port;
+char *program_name;
+char *protocol_name;
+unsigned short protocol;
 union bpf_attr if_map;
 int if_fd = -1;
 union bpf_attr diag_map;
 int diag_fd = -1;
 union bpf_attr tun_map;
 int tun_fd = -1;
-static const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
+union bpf_attr rb_map;
+int rb_fd = -1;
+const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
 const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
@@ -102,46 +133,67 @@ const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
 const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
 const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
-static char doc[] = "zfw -- ebpf firewall configuration tool";
+const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
+char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
-static char *diag_interface;
-static char *echo_interface;
-static char *verbose_interface;
-static char *ssh_interface;
-static char *prefix_interface;
-static char *tun_interface;
-static char *vrrp_interface;
-static char *tc_interface;
-static char *object_file;
-static char *direction_string;
-const char *argp_program_version = "0.4.2";
+char *diag_interface;
+char *echo_interface;
+char *verbose_interface;
+char *ssh_interface;
+char *prefix_interface;
+char *tun_interface;
+char *vrrp_interface;
+char *monitor_interface;
+char *tc_interface;
+char *object_file;
+char *direction_string;
+const char *argp_program_version = "0.4.3";
+struct ring_buffer *ring_buffer;
 
-static __u8 if_list[MAX_IF_LIST_ENTRIES];
+__u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
 int get_key_count();
 void interface_tc();
 int add_if_index(uint32_t *idx, char *ifname, uint32_t ifip[MAX_ADDRESSES], uint8_t count);
 void open_diag_map();
 void open_if_map();
+void open_rb_map();
 void open_tun_map();
 bool interface_map();
 void close_maps(int code);
-
+char * get_ts(unsigned long long tstamp);
 
 struct ifindex_ip4
 {
     uint32_t ipaddr[MAX_ADDRESSES];
-    char ifname[IFNAMSIZ];
+    char ifname[IF_NAMESIZE];
     uint8_t count;
 };
 
 /*value to ifindex_tun_map*/
 struct ifindex_tun {
     uint32_t index;
-    char ifname[IFNAMSIZ];
+    char ifname[IF_NAMESIZE];
     char cidr[16];
     char mask[3];
     bool verbose;
+};
+
+struct bpf_event{
+    unsigned long long tstamp;
+    __u32 ifindex;
+    __u32 tun_ifindex;
+    __u32 daddr;
+    __u32 saddr;
+    __u16 sport;
+    __u16 dport;
+    __u16 tport;
+    __u8 proto;
+    __u8 direction;
+    __u8 error_code;
+    __u8 tracking_code;
+    unsigned char source[6];
+    unsigned char dest[6];
 };
 
 struct diag_ip4
@@ -180,6 +232,11 @@ struct tproxy_key
     __u16 protocol;
     __u16 pad;
 };
+
+void INThandler(int sig){
+    signal(sig, SIG_IGN);
+    close_maps(1);
+}
 
 void ebpf_usage()
 {
@@ -354,10 +411,10 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[10] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[11] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                             transp_map_path};
-    for (int map_count = 0; map_count < 10; map_count++)
+                             transp_map_path, rb_map_path};
+    for (int map_count = 0; map_count < 11; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -390,32 +447,6 @@ int is_subset(__u32 network, __u32 netmask, __u32 prefix)
     {
         return -1;
     }
-}
-
-/* function to get ifindex by interface name */
-int get_index(char *name, uint32_t *idx)
-{
-    int fd, result;
-    struct ifreq irequest;
-
-    fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (fd == -1){
-        return -1;
-    }
-
-    strncpy(irequest.ifr_name, name, IFNAMSIZ);
-    if (ioctl(fd, SIOCGIFINDEX, &irequest) == -1)
-    {
-        do
-        {
-            result = close(fd);
-        } while (result == -1 && errno == EINTR);
-        return -1;
-    }
-    
-    *idx = irequest.ifr_ifindex;
-    close(fd);
-    return 0;
 }
 
 /* convert string port to unsigned short int */
@@ -598,7 +629,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                 entry_exists = true;
                 *rule_count += 1;
             }
-            char interfaces[IFNAMSIZ * MAX_IF_LIST_ENTRIES + 8] = "";
+            char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
             for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
             {
                 if (tuple->port_mapping[tuple->index_table[x]].if_list[i])
@@ -630,7 +661,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             {
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
                        dpts, "PASSTHRU", dcidr_block);
-                char interfaces[IFNAMSIZ * MAX_IF_LIST_ENTRIES + 8] = "";
+                char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                 for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
                 {
                     if (tuple->port_mapping[tuple->index_table[x]].if_list[i])
@@ -673,7 +704,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
                        dpts, "PASSTHRU", dcidr_block);
             }
-            char interfaces[IFNAMSIZ * MAX_IF_LIST_ENTRIES + 8] = "";
+            char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
             for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
             {
                 if (tuple->port_mapping[tuple->index_table[x]].if_list[i])
@@ -988,8 +1019,8 @@ void interface_tc()
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
         {
-            int index_check = get_index(address->ifa_name, &idx);
-            if(index_check){
+            idx = if_nametoindex(address->ifa_name);
+            if(!idx){
                 printf("unable to get interface index fd!\n");
                 address = address->ifa_next;
                 continue;
@@ -1088,8 +1119,8 @@ void interface_diag()
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
         {
-            int index_check = get_index(address->ifa_name, &idx);
-            if(index_check){
+            idx = if_nametoindex(address->ifa_name);
+            if(!idx){
                 printf("unable to get interface index fd!\n");
                 address = address->ifa_next;
                 continue;
@@ -1344,8 +1375,8 @@ bool interface_map()
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
         {
-            int index_check = get_index(address->ifa_name, &idx);
-            if(index_check){
+            idx = if_nametoindex(address->ifa_name);
+            if(!idx){
                 printf("unable to get interface index fd!\n");
                 address = address->ifa_next;
                 continue;
@@ -1455,6 +1486,130 @@ bool interface_map()
     }
     freeifaddrs(addrs);
     return create_route;
+}
+
+static int process_events(void *ctx, void *data, size_t len){
+    struct bpf_event * evt = (struct bpf_event *)data;
+    char buf[IF_NAMESIZE];
+    char *ifname = if_indextoname(evt->ifindex, buf);
+    char *ts = get_ts(evt->tstamp);
+    if(((ifname && monitor_interface && !strcmp(monitor_interface, ifname)) || all_interface) && ts)
+    {
+        if(evt->error_code){
+            if(evt->error_code == IP_HEADER_TOO_BIG){
+                if(ifname){
+                    printf("%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                }
+            }
+            else if(evt->error_code == NO_IP_OPTIONS_ALLOWED){
+                printf("%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == UDP_HEADER_TOO_BIG){
+                printf("%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == GENEVE_HEADER_TOO_BIG){
+                printf("%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR){
+                printf("%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == SKB_ADJUST_ERROR){
+                printf("%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == ICMP_HEADER_TOO_BIG){
+                printf("%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == IF_LIST_MATCH_ERROR){
+                printf("%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+            else if(evt->error_code == NO_REDIRECT_STATE_FOUND){
+                printf("%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+            }
+        }   
+        else{
+            char *saddr = nitoa(ntohl(evt->saddr)); 
+            char *daddr = nitoa(ntohl(evt->daddr)); 
+            char * protocol;
+            if(evt->proto == IPPROTO_TCP){
+                protocol = "TCP";
+            }else{
+                protocol = "UDP";
+            }
+            if(evt->tun_ifindex && ifname){
+                char tbuf[IF_NAMESIZE];
+                char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
+                if(tun_ifname){
+                    printf("%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol,saddr, ntohs(evt->sport),
+                    evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
+                    evt->dest[0],evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
+                }
+            }
+            else if(evt->tport && ifname){
+                printf("%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
+                ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport),
+                daddr, ntohs(evt->dport), ntohs(evt->tport));
+            }
+            else if(evt->tracking_code && ifname){
+                char *state = NULL;
+                __u16 code = evt->tracking_code;
+
+                if(code == SERVER_SYN_ACK_RCVD){
+                    state = "SERVER_SYN_ACK_RCVD";
+                }
+                else if(code == SERVER_FIN_RCVD){
+                    state = "SERVER_FIN_RCVD";
+                }
+                else if(code == SERVER_RST_RCVD){
+                    state = "SERVER_RST_RCVD";
+                }
+                else if(code == SERVER_FINAL_ACK_RCVD){
+                    state = "SERVER_FINAL_ACK_RCVD";
+                }
+                else if(code == UDP_MATCHED_EXPIRED_STATE){
+                    state = "UDP_MATCHED_EXPIRED_STATE";
+                }
+                else if(code == UDP_MATCHED_ACTIVE_STATE){
+                    state = "UDP_MATCHED_ACTIVE_STATE";
+                }
+                else if(code == CLIENT_SYN_RCVD){
+                    state = "CLIENT_SYN_RCVD";
+                }
+                else if(code == CLIENT_FIN_RCVD){
+                    state = "CLIENT_FIN_RCVD";
+                }
+                else if(code ==  CLIENT_RST_RCVD){
+                    state = "CLIENT_RST_RCVD";
+                }
+                else if(code == TCP_CONNECTION_ESTABLISHED){
+                    state = "TCP_CONNECTION_ESTABLISHED";
+                }
+                else if(code == CLIENT_FINAL_ACK_RCVD){
+                    state = "CLIENT_FINAL_ACK_RCVD";
+                }
+                else if(code ==  CLIENT_INITIATED_UDP_SESSION){
+                    state = "CLIENT_INITIATED_UDP_SESSION";
+                }
+                if(state){
+                    printf("%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
+                    (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
+                }
+            }
+            else if(ifname){
+                printf("%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
+                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+            }
+            if(saddr){
+                free(saddr);
+            }
+            if(saddr){
+                free(daddr);
+            }
+        }
+        if(ts){
+            free(ts);
+        }
+    }
+    return 0;
 }
 
 void map_insert()
@@ -1994,6 +2149,7 @@ static struct argp_option options[] = {
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"intercepts", 'i', NULL, 0, "List intercept rules <optional for list>", 0},
     {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
+    {"monitor", 'M', "", 0, "Monitor ebpf events for interface", 0},
     {"interface", 'N', "", 0, "Interface <optional insert>", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
@@ -2023,6 +2179,28 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'L':
         list = true;
         break;
+    case 'M':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -M, --monitor: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if(strcmp("all", arg) && idx == 0){
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        monitor = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            monitor_interface = arg;
+        }
+        break;
     case 'N':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
@@ -2031,8 +2209,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         interface = true;
-        get_index(arg, &idx);
-        if(idx == 0){
+        idx = if_nametoindex(arg);
+        if(!idx){
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2067,7 +2245,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2092,7 +2270,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2114,7 +2292,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2136,7 +2314,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2167,7 +2345,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2248,7 +2426,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2270,7 +2448,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        get_index(arg, &idx);
+        idx = if_nametoindex(arg);
         if(strcmp("all", arg) && idx == 0){
             printf("Interface not found: %s\n", arg);
             exit(1);
@@ -2313,7 +2491,40 @@ void close_maps(int code){
     if(tun_fd != -1){
         close(if_fd);
     } 
+    if(rb_fd != -1){
+        close(rb_fd);
+    }
     exit(code);
+}
+
+char * get_ts(unsigned long long tstamp){
+    time_t ns; 
+    time_t s; 
+    struct timespec spec;
+    const char *format = "%b %d %Y %H:%M:%S";;
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+    s  = spec.tv_sec;
+    ns  = spec.tv_nsec;
+    time_t now = s + (ns/1000000000);
+    char ftime[22];
+    struct tm local_t;
+    struct sysinfo si;
+ 	sysinfo (&si);
+    time_t t = (now + tstamp/1000000000) - (time_t)si.uptime;
+    time_t t_ns = tstamp%1000000000;
+    localtime_r(&t, &local_t);
+    if (strftime(ftime, sizeof(ftime), format, &local_t) == 0) {
+        return NULL;
+    }
+    char *result = malloc(31);
+    sprintf(result, "%s.%09ld", ftime, t_ns);
+    if(result){
+        return result;
+    }
+    else{
+        return NULL;
+    }
 }
 
 void open_diag_map(){
@@ -2346,6 +2557,19 @@ void open_if_map(){
     }
 }
 
+void open_rb_map(){
+    memset(&rb_map, 0, sizeof(rb_map));
+    rb_map.pathname = (uint64_t)rb_map_path;
+    rb_map.bpf_fd = 0;
+    rb_map.file_flags = 0;
+    /* make system call to get fd for map */
+    rb_fd = syscall(__NR_bpf, BPF_OBJ_GET, &rb_map, sizeof(rb_map));
+    if (rb_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
 void open_tun_map(){
     memset(&tun_map, 0, sizeof(tun_map));
     tun_map.pathname = (uint64_t)if_tun_map_path;
@@ -2362,6 +2586,8 @@ void open_tun_map(){
 
 int main(int argc, char **argv)
 {
+    signal(SIGINT, INThandler);
+    signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
     if (tcfilter && !object && !disable)
@@ -2401,6 +2627,11 @@ int main(int argc, char **argv)
     if ((tun && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
     {
         usage("-T, --set-tun-mode cannot be set as a part of combination call to zfw");
+    }
+
+    if (( monitor && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp)))
+    {
+        usage("-M, --monitor cannot be set as a part of combination call to zfw");
     }
 
     if (( vrrp && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
@@ -2605,6 +2836,14 @@ int main(int argc, char **argv)
     {
         interface_tc();
         exit(0);
+    }
+    else if (monitor)
+    {
+        open_rb_map();    
+        ring_buffer = ring_buffer__new(rb_fd, process_events, NULL, NULL);
+        while(true){
+            ring_buffer__poll(ring_buffer, 1000);
+    }
     }
     else
     {

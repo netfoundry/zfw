@@ -341,22 +341,18 @@ sudo zfw -F
 Example: Monitor ebpf trace messages
 
 ```
-sudo zfw -v <ifname>|all
-sudo cat /sys/kernel/debug/tracing/trace_pipe
+sudo zfw -M <ifname>|all
+
 ```
   
 ```
-<idle>-0       [007] dNs.. 167940.070727: bpf_trace_printk: ens33
-<idle>-0       [007] dNs.. 167940.070728: bpf_trace_printk: source_ip = 0xA010101
-<idle>-0       [007] dNs.. 167940.070728: bpf_trace_printk: dest_ip = 0xAC10F001
-<idle>-0       [007] dNs.. 167940.070729: bpf_trace_printk: protocol_id = 17
-<idle>-0       [007] dNs.. 167940.070729: bpf_trace_printk: tproxy_mapping->5060 to 59423
-
-<idle>-0       [007] dNs.. 167954.255414: bpf_trace_printk: ens33
-<idle>-0       [007] dNs.. 167954.255414: bpf_trace_printk: source_ip = 0xA010101
-<idle>-0       [007] dNs.. 167954.255415: bpf_trace_printk: dest_ip = 0xAC10F001
-<idle>-0       [007] dNs.. 167954.255415: bpf_trace_printk: protocol_id = 6
-<idle>-0       [007] dNs.. 167954.255416: bpf_trace_printk: tproxy_mapping->22 to 39839
+Jul 26 2023 01:42:24.108913490 : ens33 : TCP :172.16.240.139:51166[0:c:29:6a:d1:61] > 192.168.1.1:5201[0:c:29:bb:24:a1] redirect ---> ziti0
+Jul 26 2023 01:42:24.108964534 : ziti0 : TCP :192.168.1.1:0[0:c:29:bb:24:a1] > 172.16.240.139:0[0:c:29:6a:d1:61] redirect ---> ens33
+Jul 26 2023 01:42:24.109011595 : ziti0 : TCP :192.168.1.1:0[0:c:29:bb:24:a1] > 172.16.240.139:0[0:c:29:6a:d1:61] redirect ---> ens33
+Jul 26 2023 01:42:24.109036999 : ziti0 : TCP :192.168.1.1:0[0:c:29:bb:24:a1] > 172.16.240.139:0[0:c:29:6a:d1:61] redirect ---> ens33
+Jul 26 2023 01:42:24.108913490 : ens33 : TCP :172.16.240.139:51166[0:c:29:6a:d1:61] > 192.168.1.1:5201[0:c:29:bb:24:a1] redirect ---> ziti0
+Jul 26 2023 01:42:24.108964534 : ziti0 : TCP :192.168.1.1:0[0:c:29:bb:24:a1] > 172.16.240.139:0[0:c:29:6a:d1:61] redirect ---> ens33
+Jul 26 2023 01:42:24.109011595 : ziti0 : TCP :192.168.1.1:0[0:c:29:bb:24:a1] > 172.16.240.139:0[0:c:29:6a:d1:61] redirect ---> ens33
 ```
 
 Example: List all rules in Firewall

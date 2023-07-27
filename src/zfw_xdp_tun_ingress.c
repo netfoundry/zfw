@@ -26,6 +26,25 @@
 #endif
 #define MAX_IF_ENTRIES          30
 #define BPF_MAX_SESSIONS        10000
+#define INGRESS                 0
+#define NO_REDIRECT_STATE_FOUND 10
+
+struct bpf_event{
+    unsigned long long tstamp;
+    __u32 ifindex;
+    __u32 tun_ifindex;
+    __u32 daddr;
+    __u32 saddr;
+    __u16 sport;
+    __u16 dport;
+    __u16 tport;
+    __u8 proto;
+    __u8 direction;
+    __u8 error_code;
+    __u8 tracking_code;
+    unsigned char source[6];
+    unsigned char dest[6];
+};
 
 /*Key to tun_map, tcp_map and udp_map*/
 struct tuple_key {
@@ -67,6 +86,13 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ifindex_tun_map SEC(".maps");
 
+/*Ringbuf map*/
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} rb_map SEC(".maps");
+
 /*Hashmap to track tun interface inbound passthrough connections*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -89,6 +115,29 @@ static inline struct ifindex_tun *get_tun_index(uint32_t key){
 	return iftun;
 }
 
+static inline void send_event(struct bpf_event *new_event){
+    struct bpf_event *rb_event;
+    rb_event = bpf_ringbuf_reserve(&rb_map, sizeof(*rb_event), 0);
+    if(rb_event){
+        rb_event->ifindex = new_event->ifindex;
+        rb_event->tun_ifindex = new_event->tun_ifindex;
+        rb_event->tstamp = new_event->tstamp;   
+        rb_event->daddr = new_event->daddr;
+        rb_event->saddr = new_event->saddr;
+        rb_event->dport = new_event->dport;
+        rb_event->sport = new_event->sport;
+        rb_event->tport = new_event->tport;
+        rb_event->proto = new_event->proto;
+        rb_event->direction = new_event->direction;
+        rb_event->tracking_code = new_event->tracking_code;
+        rb_event->error_code = new_event->error_code;
+        for(int x =0; x < 6; x++){
+            rb_event->source[x] = new_event->source[x];
+            rb_event->dest[x] = new_event->dest[x];
+        }
+        bpf_ringbuf_submit(rb_event, 0);
+    }
+}
 
 SEC("xdp_redirect")
 int xdp_redirect_prog(struct xdp_md *ctx)
@@ -111,9 +160,27 @@ int xdp_redirect_prog(struct xdp_md *ctx)
     }
     /* ip options not allowed */
     if (iph->ihl != 5){
-        //bpf_printk("no options allowed");
-            return XDP_PASS;
+        
+        return XDP_PASS;
     }
+    unsigned long long tstamp = bpf_ktime_get_ns();
+    struct bpf_event event = {
+        tstamp,
+        ctx->ingress_ifindex,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        INGRESS,
+        0,
+        0,
+        {0},
+        {0}
+     };
+   
     struct tun_key tun_state_key;
     tun_state_key.daddr = iph->saddr;
     tun_state_key.saddr = iph->daddr;
@@ -132,19 +199,16 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         }
         /* ip options not allowed */
         if (iph->ihl != 5){
-            //bpf_printk("no options allowed");
-                return XDP_PASS;
+            return XDP_PASS;
         }
-        
-        if(tun_diag->verbose){      
-            bpf_printk("state found!\n");
-            bpf_printk("saddr=%x\n", iph->saddr);
-            bpf_printk("daddr=%x\n", iph->daddr);
-            bpf_printk("insert smac=%x\n", tus->dest);
-            bpf_printk("insert dmac=%x\n", tus->source);
-            bpf_printk("Redirect=%d\n", tus->ifindex);
-        }
-        
+        __u8 protocol = iph->protocol;
+        event.tun_ifindex = tus->ifindex;
+        event.proto = protocol;
+        event.saddr = iph->saddr;
+        event.daddr = iph->daddr;
+        memcpy(&event.source, &tus->dest, 6);
+        memcpy(&event.dest, &tus->source, 6);
+        send_event(&event);
         memcpy(&eth->h_dest, &tus->source,6);
         memcpy(&eth->h_source, &tus->dest,6);
         unsigned short proto = bpf_htons(ETH_P_IP);
@@ -152,7 +216,8 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         return bpf_redirect(tus->ifindex,0);
     }
     if(tun_diag->verbose){
-        bpf_printk("no matching state found!\n");
+        event.error_code = NO_REDIRECT_STATE_FOUND;
+        send_event(&event);
     }
     return XDP_PASS;
 }

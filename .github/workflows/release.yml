@@ -35,7 +35,7 @@ jobs:
           clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
-          clang -D BPF_MAX_ENTRIES=100000 -O2 -Wall -Wextra -o files/bin/zfw src/zfw.c
+          clang -D BPF_MAX_ENTRIES=100000 -O2 -lbpf -Wall -Wextra -o files/bin/zfw src/zfw.c
           gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
       
       - name: Get version
@@ -125,7 +125,7 @@ jobs:
           clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
           clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
           clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/-Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
-          clang -D BPF_MAX_ENTRIES=100000 -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -o files/bin/zfw src/zfw.c
+          clang -D BPF_MAX_ENTRIES=100000 -O2 -lbpf -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -o files/bin/zfw src/zfw.c
           gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
 
       - name: Get version
