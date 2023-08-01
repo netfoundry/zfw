@@ -147,7 +147,7 @@ char *monitor_interface;
 char *tc_interface;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.4.3";
+const char *argp_program_version = "0.4.4";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];

@@ -10,7 +10,7 @@ edge-routers deb package.
 
 ## Build
 
-[To build zfw from source. Click here!](./BUILD.md)
+[To build / install zfw from source. Click here!](./BUILD.md)
 
 ## Ziti-Edge-Tunnel Deployment 
 
@@ -21,9 +21,12 @@ have ziti-edge-tunnel installed and an operational OpenZiti network built, follo
 
 
 - Install
+  ubuntu 22.04 only (binary deb package)
 ```
 sudo dpkg -i zfw-tunnel_<ver>_<arch>.deb
 ```
+Install from source ubuntu 22.04+ / Debian 12
+[build / install zfw from source](./BUILD.md)
 
 ## Ziti-Router Deployment
 
@@ -31,9 +34,12 @@ The program is designed to integrated into an existing Openziti ziti-router inst
  [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeRouter). 
 
 - Install
+  ubuntu 22.04 only (binary deb package)
 ```
 sudo dpkg -i zfw-router_<ver>_<arch>.deb
 ```
+Install from source ubuntu 22.04+ / Debian 12
+[build / install zfw from source](./BUILD.md)
 
 **The following instructions pertain to both zfw-tunnel and zfw-router. Platform specific functions will be noted explicitly**
 
