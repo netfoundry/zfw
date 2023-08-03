@@ -20,6 +20,9 @@
 #include <linux/ip.h>
 #include <stdbool.h>
 #include <linux/if.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
+#include <linux/in.h>
 
 #ifndef memcpy
  #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
@@ -148,11 +151,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
     {
         return XDP_PASS;
     }  
-    struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
-    /* verify its a valid eth header within the packet bounds */
-    if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
-            return XDP_PASS;
-    }
     struct iphdr *iph = (struct iphdr *)(unsigned long)(ctx->data);
     /* ensure ip header is in packet bounds */
     if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
@@ -192,23 +190,36 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
         }
-        struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
-        /* ensure ip header is in packet bounds */
-        if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
-                return XDP_PASS;
+        if(tun_diag->verbose){
+            struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
+            /* ensure ip header is in packet bounds */
+            if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+            }
+            __u8 protocol = iph->protocol;
+            if(protocol == IPPROTO_TCP){
+                struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+                }
+                event.dport = tcph->dest;
+                event.sport = tcph->source;
+            }else if (protocol == IPPROTO_UDP){
+                struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+                }
+                event.dport = udph->dest;
+                event.sport = udph->source;
+            }
+            event.tun_ifindex = tus->ifindex;
+            event.proto = protocol;
+            event.saddr = iph->saddr;
+            event.daddr = iph->daddr;
+            memcpy(&event.source, &tus->dest, 6);
+            memcpy(&event.dest, &tus->source, 6);
+            send_event(&event);
         }
-        /* ip options not allowed */
-        if (iph->ihl != 5){
-            return XDP_PASS;
-        }
-        __u8 protocol = iph->protocol;
-        event.tun_ifindex = tus->ifindex;
-        event.proto = protocol;
-        event.saddr = iph->saddr;
-        event.daddr = iph->daddr;
-        memcpy(&event.source, &tus->dest, 6);
-        memcpy(&event.dest, &tus->source, 6);
-        send_event(&event);
         memcpy(&eth->h_dest, &tus->source,6);
         memcpy(&eth->h_source, &tus->dest,6);
         unsigned short proto = bpf_htons(ETH_P_IP);
