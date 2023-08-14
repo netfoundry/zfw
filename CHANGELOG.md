@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.4.6] - 2023-08-13
+
+###
+
+- Fixed potential race condition if upstream DHCP server is not functioning when FW inits ebpf.
+  Changed address family match to ethernet when applying TC Filters/Diag settings.
+  
 # [0.4.5] - 2023-08-03
 
 ###

@@ -147,7 +147,7 @@ char *monitor_interface;
 char *tc_interface;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.4.5";
+const char *argp_program_version = "0.4.6";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -1017,7 +1017,9 @@ void interface_tc()
      */
     while (address)
     {
-        if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
+        if(address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
+          || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
+           || (address->ifa_addr->sa_family == AF_PACKET)))
         {
             idx = if_nametoindex(address->ifa_name);
             if(!idx){
@@ -1117,7 +1119,9 @@ void interface_diag()
      */
     while (address)
     {
-        if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
+        if (address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
+          || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
+           || (address->ifa_addr->sa_family == AF_PACKET)))
         {
             idx = if_nametoindex(address->ifa_name);
             if(!idx){
