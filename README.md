@@ -2,10 +2,10 @@
 
 --- 
 This firewall application utilizes both tc-ebpf and xdp to provide stateful firewalling
-for an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel installation and is meant as a replacement for ufw for packet
+for an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel installation and is meant as a replacement for packet
 filtering.  It can be used in conjunction with ufw's masquerade feature on a Wan facing interface if
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
-edge-routers deb package.
+edge-routers.
 
 
 ## Build
