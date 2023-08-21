@@ -191,6 +191,7 @@ struct diag_ip4 {
     bool tc_egress;
     bool tun_mode;
     bool vrrp;
+    bool eapol;
 };
 
 /*Value to tun_map*/
@@ -678,6 +679,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
     if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
         return TC_ACT_SHOT;
 	}
+    
+    /*check if 802.1X and passthrough is enabled*/
+    if((bpf_ntohs(eth->h_proto) == 0x888e) && local_diag->eapol){
+        return TC_ACT_OK;
+    }
 
     /* check if incoming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, &vrrp, &event, local_diag);

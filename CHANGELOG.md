@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+
+# [0.5.0] - 2023-08-18
+
+###
+
+- Added make to pre-compile binary package installs listed in BUILD.md
+- Changed bind service lookup from dumpfile to event channel.  0.5.0 will only work with
+  ZET 0.22.4 or above
+- Added passthrough support for eapol (802.1X) frames
+
 # [0.4.6] - 2023-08-13
 
 ###
@@ -28,7 +38,7 @@ All notable changes to this project will be documented in this file. The format 
   properly updating the ziti-router.service file.
 
 # [0.4.3] - 2023-07-25
-
+ 
 ###
 
 -- Refactored monitoring to use ring buffer and removed all bpf_printk() helper calls

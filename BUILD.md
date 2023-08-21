@@ -9,7 +9,7 @@
         sudo apt update
         sudo apt upgrade
         sudo reboot
-        sudo apt install -y gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev libjson-c-dev
+        sudo apt install -y gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev libjson-c-dev make
         ```          
 
     1. Compile:
@@ -32,7 +32,7 @@
         sudo apt update
         sudo apt upgrade
         sudo reboot
-        sudo apt-get install -y gcc clang libbpfcc-dev libbpf-dev libjson-c-dev
+        sudo apt-get install -y gcc clang libbpfcc-dev libbpf-dev libjson-c-dev make
         ```          
 
     1. Compile:

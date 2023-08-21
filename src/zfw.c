@@ -90,6 +90,7 @@ bool route = false;
 bool passthru = false;
 bool intercept = false;
 bool echo = false;
+bool eapol = false;
 bool verbose = false;
 bool vrrp = false;
 bool per_interface = false;
@@ -138,6 +139,7 @@ char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
 char *echo_interface;
+char *eapol_interface;
 char *verbose_interface;
 char *ssh_interface;
 char *prefix_interface;
@@ -147,7 +149,7 @@ char *monitor_interface;
 char *tc_interface;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.4.6";
+const char *argp_program_version = "0.5.0";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -206,6 +208,7 @@ struct diag_ip4
     bool tc_egress;
     bool tun_mode;
     bool vrrp;
+    bool eapol;
 };
 
 struct tproxy_port_mapping
@@ -886,6 +889,18 @@ bool set_diag(uint32_t *idx)
                 }
                 printf("Set verbose to %d for %s\n", !disable, verbose_interface);
             }
+            if (eapol)
+            {
+                if (!disable)
+                {
+                    o_diag.eapol = true;
+                }
+                else
+                {
+                    o_diag.eapol = false;
+                }
+                printf("Set eapol to %d for %s\n", !disable, eapol_interface);
+            }
             if (per_interface)
             {
                 if (!disable)
@@ -992,6 +1007,7 @@ bool set_diag(uint32_t *idx)
             printf("%-24s:%d\n", "tc egress filter", o_diag.tc_egress);
             printf("%-24s:%d\n", "tun mode intercept", o_diag.tun_mode);
             printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
+            printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
             printf("--------------------------\n\n");
         }
     }
@@ -1150,8 +1166,9 @@ void interface_diag()
                 diag_interface = address->ifa_name;
                 tun_interface = address->ifa_name;
                 vrrp_interface = address->ifa_name;
+                eapol_interface = address->ifa_name;
             }
-            if(!strncmp(address->ifa_name, "tun", 3) && (tun || per_interface || ssh_disable || echo || vrrp)){
+            if(!strncmp(address->ifa_name, "tun", 3) && (tun || per_interface || ssh_disable || echo || vrrp || eapol)){
                 if(per_interface && !strncmp(prefix_interface, "tun", 3)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
@@ -1167,10 +1184,13 @@ void interface_diag()
                 if(vrrp && !strncmp(vrrp_interface, "tun", 3)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
+                if(eapol && !strncmp(eapol_interface, "tun", 3)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
                 address = address->ifa_next;
                 continue;
             }
-            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp)){
+            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol)){
                 if(per_interface && !strncmp(prefix_interface, "ziti", 4)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
@@ -1184,6 +1204,9 @@ void interface_diag()
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
                 if(vrrp && !strncmp(vrrp_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
+                if(eapol && !strncmp(eapol_interface, "ziti", 4)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
                 address = address->ifa_next;
@@ -1200,6 +1223,14 @@ void interface_diag()
             if (vrrp)
             {
                 if (!strcmp(vrrp_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (eapol)
+            {
+                if (!strcmp(eapol_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -2159,6 +2190,7 @@ static struct argp_option options[] = {
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"object-file", 'O', "", 0, "Set object file", 0},
     {"direction", 'z', "", 0, "Set direction", 0},
+    {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {0}};
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
@@ -2445,6 +2477,28 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             verbose_interface = arg;
         }
         break;
+    case 'w':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -w, --enable-eapol: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if(strcmp("all", arg) && idx == 0){
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        eapol = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+           eapol_interface = arg;
+        }
+        break;
     case 'x':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
@@ -2606,7 +2660,7 @@ int main(int argc, char **argv)
 
     if (ebpf_disable)
     {
-        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush)
+        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || monitor || eapol)
         {
             usage("Q, --disable-ebpf cannot be used in combination call");
         }
@@ -2631,6 +2685,11 @@ int main(int argc, char **argv)
     if ((tun && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
     {
         usage("-T, --set-tun-mode cannot be set as a part of combination call to zfw");
+    }
+
+    if ((eapol && (monitor || tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp)))
+    {
+        usage("-M, --enable-eapol cannot be set as a part of combination call to zfw");
     }
 
     if (( monitor && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp)))
@@ -2678,9 +2737,9 @@ int main(int argc, char **argv)
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
     }
 
-    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp))
+    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol))
     {
-        usage("Missing argument at least one of -e, -v, -x, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -e, -v, -x, w, or -E, -P, -R, -T, -X");
     }
 
     if (direction && !tcfilter)
@@ -2831,7 +2890,7 @@ int main(int argc, char **argv)
             map_list();
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol)
     {
         interface_diag();
         exit(0);

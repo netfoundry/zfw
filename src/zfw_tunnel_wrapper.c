@@ -63,7 +63,8 @@ void unbind_route_loopback(struct in_addr *address, unsigned short mask);
 void INThandler(int sig);
 void map_delete_key(char *service_id);
 void route_flush();
-int process_bind(char *service_id);
+int process_bind(json_object *jobj, char *action);
+int process_routes(char *service_id);
 
 /*convert integer ip to dotted decimal string*/
 char *nitoa(uint32_t address)
@@ -145,8 +146,28 @@ void route_flush()
         transp_map.key = transp_map.next_key;
         current_key = *(struct transp_key *)transp_map.key;
         //map_delete_key(current_key.service_id);
-        process_bind(current_key.service_id);
+        process_routes(current_key.service_id);
     }
+}
+
+int process_routes(char *service_id){
+    struct transp_key key = {{0}};
+    sprintf(key.service_id, "%s", service_id);
+    struct transp_value o_routes;
+    transp_map.key = (uint64_t)&key;
+    transp_map.value = (uint64_t)&o_routes;
+    transp_map.map_fd = transp_fd;
+    transp_map.flags = BPF_ANY;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &transp_map, sizeof(transp_map));
+    bool changed = false;
+    if (!lookup)
+    {
+        for(int x = 0; x <= o_routes.count; x++){
+            unbind_route_loopback(&o_routes.tentry[x].saddr, o_routes.tentry[x].prefix_len);
+        }
+        map_delete_key(service_id);
+    }
+    return 0;
 }
 
 
@@ -362,184 +383,112 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
     }
 }
 
-int readfile(char *filename){
-    if(transp_fd == -1){
+int process_bind(json_object *jobj, char *action)
+{
+    if (transp_fd == -1)
+    {
         open_transp_map();
     }
-    FILE *textfile;
-    char line[MAX_LINE_LENGTH];
-    bool isIntercept = false;
-    bool isHosting = false;
-    char *rawString, *jString;
-    textfile = fopen(filename, "r");
-    if(textfile == NULL){
-        return 1;
-    }
     char service_id[32];
-    bool valid_id =false;
-    while(fgets(line, MAX_LINE_LENGTH, textfile))
+    struct json_object *id_obj = json_object_object_get(jobj, "Id");
+    if(id_obj)
     {
-        if(strstr((char *)line, "perm(dial=false,bind=true)")){
-            isHosting = true;
-            char *idString = strstr((char *)line, " id[");
-            char *end = strstr((char *)line, " id[");
-            if(idString){
-                char *idStart = idString + 4; 
-                for(int x = 0; x <= 31; x++){
-                   service_id[x] = idStart[x];
-                   if(idStart[x] == ']'){
-                      service_id[x] = '\0';
-                      valid_id = true;
-                      break;
-                   }
-                   if(x == 31){
-                      valid_id = false;
-                   }
-                }
-            }
-            if(valid_id){
-                printf("Found service id = %s\n", service_id);
-            }
-            else{
-                printf("Invalid Service ID\n");
-            }
-        }
-        if(valid_id){
-            if (transp_fd == -1)
+        if((strlen(json_object_get_string(id_obj)) + 1 ) <= 32)
+        {
+            sprintf(service_id, "%s", json_object_get_string(id_obj));
+            struct json_object *addresses_obj = json_object_object_get(jobj, "Addresses");
+            if(addresses_obj && !strcmp(action,"-I"))
             {
-                open_transp_map();
-            }
-            if (strstr((char *)line, "posture queries"))
-            {
-                isHosting = false;
-            }
-            if (strlen(line))
-            {
-                line[strlen(line) - 1] = '\0';
-            }
-            rawString = strstr((char *)line, "config[host.v1]=");
-            if (rawString)
-            {
-                jString = (char *)rawString + 16;
-            }
-            if (isHosting && rawString)
-            {
-                struct json_object *jobj = json_tokener_parse(jString);
-                if (jobj)
+                int addresses_obj_len = json_object_array_length(addresses_obj);
+                // enum json_type type;
+                struct json_object *allowedSourceAddresses = json_object_object_get(jobj, "AllowedSourceAddresses");
+                if (allowedSourceAddresses)
                 {
-                    printf("Service json = %s\n", json_object_to_json_string_ext(jobj, JSON_C_TO_STRING_PLAIN));
-                    // enum json_type type;
-                    struct json_object *allowedSourceAddresses = json_object_object_get(jobj, "allowedSourceAddresses");
-                    if (allowedSourceAddresses)
+                    int allowedSourceAddresses_len = json_object_array_length(allowedSourceAddresses);
+                    printf("allowedSourceAddresses key exists: binding addresses to loopback\n");
+                    int j;
+                    for (j = 0; j < allowedSourceAddresses_len; j++)
                     {
-                        int allowedSourceAddresses_len = json_object_array_length(allowedSourceAddresses);
-                        if (allowedSourceAddresses)
+                        struct json_object *address_obj = json_object_array_get_idx(allowedSourceAddresses, j);
+                        if (address_obj)
                         {
-                            printf("allowedSourceAddresses key exists: binding addresses to loopback\n");
-                            int j;
-                            for (j = 0; j < allowedSourceAddresses_len; j++)
-                            {
-                                struct json_object *addressobj = json_object_array_get_idx(allowedSourceAddresses, j);
-                                if (addressobj)
+                            struct json_object *host_obj = json_object_object_get(address_obj, "IsHost");
+                            if(host_obj){
+                                bool is_host = json_object_get_boolean(host_obj);
+                                char ip[16];
+                                char mask[10];
+                                if(is_host)
                                 {
-                                    char *cidrString = strstr(json_object_get_string(addressobj), "/");
-                                    char mask[3];
-                                    char dest[strlen(json_object_get_string(addressobj)) + 1];
-                                    char prefix[strlen(json_object_get_string(addressobj)) + 1];
-                                    sprintf(prefix, "%s", json_object_get_string(addressobj));
-                                    if ((cidrString) && strlen((char *)(cidrString + 1)) < 3)
-                                    {
-                                        sprintf(mask, "%s", (char *)(cidrString + 1));
-                                        memset(dest, 0, strlen(json_object_get_string(addressobj)) + 1);
-                                        memcpy(dest, prefix, strlen(prefix) - (strlen(cidrString)));
-                                    }
-                                    else
-                                    {
-                                        sprintf(dest, "%s", prefix);
-                                        sprintf(mask, "%s", "32");
-                                    }
-                                    struct in_addr tuncidr;
-                                    if (inet_aton(dest, &tuncidr))
-                                    {
-                                        bind_route(&tuncidr, len2u16(mask));
-                                        if (allowedSourceAddresses_len < MAX_TRANSP_ROUTES)
-                                        {
-                                            struct transp_key key = {{0}};
-                                            sprintf(key.service_id, "%s", service_id);
-                                            struct transp_value o_routes;
-                                            transp_map.key = (uint64_t)&key;
-                                            transp_map.value = (uint64_t)&o_routes;
-                                            transp_map.map_fd = transp_fd;
-                                            transp_map.flags = BPF_ANY;
-                                            int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &transp_map, sizeof(transp_map));
-                                            bool changed = false;
-                                            if (lookup)
-                                            {
-                                                o_routes.tentry[j].saddr = tuncidr;
-                                                o_routes.tentry[j].prefix_len = len2u16(mask);
-                                                o_routes.count = j;
-                                                int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &transp_map, sizeof(transp_map));
-                                                if (result)
+                                    printf("Invalid: Hostnames not supported for AllowedSourceAddress\n");
+                                }else
+                                {
+                                    struct json_object *ip_obj = json_object_object_get(address_obj, "IP");
+                                    printf("\n\nIP intercept:\n");                   
+                                    if(ip_obj)
+                                    {           
+                                        struct json_object *prefix_obj = json_object_object_get(address_obj, "Prefix");
+                                        if(prefix_obj){
+                                            char ip[strlen(json_object_get_string(ip_obj) + 1)];
+                                            sprintf(ip,"%s", json_object_get_string(ip_obj));
+                                            int smask = sprintf(mask, "%d", json_object_get_int(prefix_obj));
+                                            printf("Service_IP=%s\n", ip);
+                                            struct in_addr tuncidr;
+                                            if (inet_aton(ip, &tuncidr)){
+                                                bind_route(&tuncidr, len2u16(mask));
+                                                if (j < MAX_TRANSP_ROUTES)
                                                 {
-                                                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                                                    struct transp_key key = {{0}};
+                                                    sprintf(key.service_id, "%s", service_id);
+                                                    struct transp_value o_routes;
+                                                    transp_map.key = (uint64_t)&key;
+                                                    transp_map.value = (uint64_t)&o_routes;
+                                                    transp_map.map_fd = transp_fd;
+                                                    transp_map.flags = BPF_ANY;
+                                                    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &transp_map, sizeof(transp_map));
+                                                    bool changed = false;
+                                                    if (lookup)
+                                                    {
+                                                        o_routes.tentry[j].saddr = tuncidr;
+                                                        o_routes.tentry[j].prefix_len = len2u16(mask);
+                                                        o_routes.count = j;
+                                                        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &transp_map, sizeof(transp_map));
+                                                        if (result)
+                                                        {
+                                                            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        o_routes.tentry[j].saddr = tuncidr;
+                                                        o_routes.tentry[j].prefix_len = len2u16(mask);
+                                                        o_routes.count = j;                                       
+                                                        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &transp_map, sizeof(transp_map));
+                                                        if (result)
+                                                        {
+                                                            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                                                        }
+                                                    }
+                                                    
+                                                }
+                                                else
+                                                {
+                                                    printf("Can't store more than %d transparency routes per service\n", MAX_TRANSP_ROUTES);
                                                 }
                                             }
-                                            else
-                                            {
-                                                o_routes.tentry[j].saddr = tuncidr;
-                                                o_routes.tentry[j].prefix_len = len2u16(mask);
-                                                o_routes.count = j;                                       
-                                                int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &transp_map, sizeof(transp_map));
-                                                if (result)
-                                                {
-                                                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                                                }
-                                            }
-                                                
                                         }
-                                        else
-                                        {
-                                            printf("Can't store more than %d transparency routes per service\n", MAX_TRANSP_ROUTES);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        printf("Invalid Prefix\n");
                                     }
                                 }
                             }
                         }
                     }
-                }
-                json_object_put(jobj);
+                }       
+            }else{
+                process_routes(service_id);
             }
         }
     }
-    fclose(textfile);
-    return 0;   
-}
-
-int process_bind(char *service_id){
-    struct transp_key key = {{0}};
-    sprintf(key.service_id, "%s", service_id);
-    struct transp_value o_routes;
-    transp_map.key = (uint64_t)&key;
-    transp_map.value = (uint64_t)&o_routes;
-    transp_map.map_fd = transp_fd;
-    transp_map.flags = BPF_ANY;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &transp_map, sizeof(transp_map));
-    bool changed = false;
-    if (!lookup)
-    {
-        for(int x = 0; x <= o_routes.count; x++){
-            unbind_route_loopback(&o_routes.tentry[x].saddr, o_routes.tentry[x].prefix_len);
-        }
-        map_delete_key(service_id);
-    }
     return 0;
 }
-
-
 
 int process_dial(json_object *jobj, char *action){
     struct json_object *addresses_obj = json_object_object_get(jobj, "Addresses");
@@ -678,68 +627,10 @@ void enumerate_service(struct json_object *services_obj, char *action){
                     open_transp_map();
                 }
                 printf("Service policy is Bind\n");
-                if(!strcmp(action,"-D")){
-                    process_bind(service_id);
-                }
+                process_bind(service_obj, action);
             }
         }
     }
-}
-
-void scrape_identity_log(struct json_object *ident_obj){
-    if(ident_obj){
-        struct json_object *name_obj = json_object_object_get(ident_obj, "Name");
-        if(name_obj){
-            char identity[strlen(json_object_get_string(name_obj) + 1)];
-            sprintf(identity, "%s", json_object_get_string(name_obj));
-            printf("Scraping log file for id:%s\n", identity);
-            char ident_dump_file[strlen(identity) + 6];
-            sprintf(ident_dump_file, "%s.ziti", identity);
-            char symlink[strlen(ident_dump_file) + 6];
-            sprintf(symlink,"/tmp/%s", ident_dump_file);
-            setpath("/tmp/", ident_dump_file, symlink);
-            readfile(symlink);
-        }
-    }
-}
-
-int send_command(byte cmdbytes[], int cmd_length){
-    char ctrl_buffer[BUFFER_SIZE];
-    // send command to dump tunnel services to file
-    int ret = send(ctrl_socket, cmdbytes, cmd_length, 0);
-    if (ret == -1)
-    {
-        perror("write");
-        return -1;
-    }
-    memset(&ctrl_buffer, 0, BUFFER_SIZE);
-    ret = recv(ctrl_socket, ctrl_buffer, BUFFER_SIZE, 0);
-    if ((ret == -1) || (ret == 0))
-    {
-        perror("read");
-        return -1;
-    }
-    /* Ensure buffer is 0-terminated. */
-    ctrl_buffer[BUFFER_SIZE - 1] = '\0';
-    char *ctrl_jString = (char *)ctrl_buffer;
-    struct json_object *ctrl_jobj, *success;
-    ctrl_jobj = json_tokener_parse(ctrl_jString);
-    if (ctrl_jobj)
-    {
-        printf("%s\n", json_object_to_json_string_ext(ctrl_jobj, JSON_C_TO_STRING_PLAIN));
-        success = json_object_object_get(ctrl_jobj, "Success");
-    }
-    if (success)
-    {
-        char *result = (char *)json_object_to_json_string_ext(success, JSON_C_TO_STRING_PLAIN);
-        if (!strcmp("false", result))
-        {
-            printf("Command: Failure possible version mismatch\n");
-            return -1;
-        }
-    }
-    json_object_put(ctrl_jobj);
-    return 0;
 }
 
 void get_string(char source[4096], char dest[2048]){
@@ -837,13 +728,6 @@ int run(){
                     printf("%s\n\n",json_object_to_json_string_ext(event_jobj,JSON_C_TO_STRING_PLAIN));
                 }
                 if(!strcmp("status", operation)){
-                    //printf("Received Status Event\n");
-                    // send command to dump tunnel services to file
-                    ret = send_command(cmdbytes, sizeof(cmdbytes));
-                    if (ret == -1)
-                    {
-                        return -1;
-                    }
                     struct json_object *status_obj = json_object_object_get(event_jobj, "Status");
                     
                     if(status_obj){
@@ -873,7 +757,6 @@ int run(){
                                 for(int i = 0; i < identities_len; i++){
                                     struct json_object *ident_obj = json_object_array_get_idx(identities_obj, i);
                                     if(ident_obj){
-                                        scrape_identity_log(ident_obj);
                                         struct json_object *services_obj = json_object_object_get(ident_obj, "Services");
                                         if(services_obj){
                                             enumerate_service(services_obj, "-I");
@@ -901,13 +784,11 @@ int run(){
                         sprintf(action_string, "%s", json_object_get_string(action_obj));
                         if(!strcmp("updated", action_string)){
                             struct json_object *ident_obj = json_object_object_get(event_jobj, "Id");
-                            ret = send_command(cmdbytes, sizeof(cmdbytes));
-                            if (ret == -1)
-                            {
-                                return -1;
-                            }
                             if(ident_obj){
-                                scrape_identity_log(ident_obj);
+                                struct json_object *ident_services_obj = json_object_object_get(ident_obj, "Services");
+                                if(ident_services_obj){
+                                    enumerate_service(ident_services_obj, "-I");
+                                }
                             }
                         }
                     }

@@ -15,7 +15,7 @@ edge-routers deb package.
 ## Ziti-Edge-Tunnel Deployment 
 
 The program is designed to be deployed as systemd services if deployed via .deb package with
-an existing ziti-edge-tunnel(v21.0 +) installation on Ubuntu 22.04(amd64/arm64)service installation. If you don't currently
+an existing ziti-edge-tunnel(v22.5 +) installation on Ubuntu 22.04(amd64/arm64)service installation. If you don't currently
 have ziti-edge-tunnel installed and an operational OpenZiti network built, follow these 
 [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeTunnel).
 
