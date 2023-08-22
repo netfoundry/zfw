@@ -98,6 +98,7 @@ struct diag_ip4 {
     bool tc_egress;
     bool tun_mode;
     bool vrrp;
+    bool eapol;
 };
 
 //map to keep status of diagnostic rules
