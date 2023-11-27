@@ -29,7 +29,7 @@
 #include <linux/if.h>
 #include <stdio.h>
 
-#define MAX_IF_ENTRIES                30
+#define MAX_IF_ENTRIES                256
 #define BPF_MAX_SESSIONS              10000
 #define IP_HEADER_TOO_BIG             1
 #define NO_IP_OPTIONS_ALLOWED         2
@@ -103,11 +103,12 @@ struct diag_ip4 {
 
 //map to keep status of diagnostic rules
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct diag_ip4));
     __uint(max_entries, MAX_IF_ENTRIES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 } diag_map SEC(".maps");
 
 /*Hashmap to track outbound passthrough TCP connections*/

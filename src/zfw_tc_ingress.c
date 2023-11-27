@@ -41,7 +41,7 @@
 #define MATCHED_KEY_DEPTH                   3
 #define MATCHED_INT_DEPTH                   50
 #define MAX_IF_LIST_ENTRIES                 3
-#define MAX_IF_ENTRIES                      30
+#define MAX_IF_ENTRIES                      256
 #define SERVICE_ID_BYTES                    32
 #define MAX_TRANSP_ROUTES                   256
 #define BPF_MAX_SESSIONS                    10000
@@ -247,11 +247,12 @@ struct {
  * ssh to only the attached interface ip 
 */
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct ifindex_ip4));
     __uint(max_entries, MAX_IF_ENTRIES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 } ifindex_ip_map SEC(".maps");
 
 /*tun ifindex map*/
@@ -265,11 +266,12 @@ struct {
 
 //map to keep status of diagnostic rules
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct diag_ip4));
     __uint(max_entries, MAX_IF_ENTRIES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 } diag_map SEC(".maps");
 
 //map to keep track of total entries in zt_tproxy_map
