@@ -1028,12 +1028,13 @@ void interface_tc()
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
     uint32_t cur_idx = 0;
+    uint32_t index_count = 0;
     /*
      * traverse linked list of interfaces and for each non-loopback interface
      *  populate the index into the map with ifindex as the key and ip address
      *  as the value
      */
-    while (address)
+    while (address && (index_count < MAX_IF_ENTRIES))
     {
         if(address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
           || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
@@ -1062,6 +1063,7 @@ void interface_tc()
                 address = address->ifa_next;
                 continue;
             }else{
+                index_count++;
                 cur_idx = idx;
             }
             if (tc || tcfilter)
@@ -1124,7 +1126,8 @@ void interface_diag()
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
     uint32_t cur_idx = 0;
-    while (address)
+    uint32_t index_count =0;
+    while (address && (index_count < MAX_IF_ENTRIES))
     {
         if (address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
           || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
@@ -1141,6 +1144,7 @@ void interface_diag()
                 address = address->ifa_next;
                 continue;
             }else{
+                index_count++;
                 cur_idx = idx;
             }
             if (all_interface)
@@ -1229,7 +1233,7 @@ void interface_diag()
 
             if (list_diag)
             {             
-                if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
+                if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(diag_interface,"ziti", 4)){
                     set_tun_diag();
                 }
                 else if (!strcmp(diag_interface, address->ifa_name))
@@ -1436,7 +1440,7 @@ bool interface_map()
     char *cur_name;
     uint32_t cur_idx;
     uint8_t addr_count = 0;
-    while (address)
+    while (address && (index_count < MAX_IF_ENTRIES))
     {   
         idx = if_nametoindex(address->ifa_name);
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
