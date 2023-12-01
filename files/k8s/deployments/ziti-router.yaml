@@ -1,0 +1,115 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ziti
+  labels:
+      pod-security.kubernetes.io/enforce: baseline
+      pod-security.kubernetes.io/enforce-version: latest
+      pod-security.kubernetes.io/warn: baseline
+      pod-security.kubernetes.io/warn-version: latest
+---
+# apiVersion: v1 
+# kind: ConfigMap 
+# metadata:
+#   name: zfw-bin
+#   namespace: ziti
+# binaryData:
+# #kubectl create configmap zfw-bin -n ziti --from-file=./zfw
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kind-router01-sa
+  namespace: ziti
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: privileged-scc-tc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: kind-router01
+  namespace: ziti
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrolebinding
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: kind-router01
+    app.kubernetes.io/part-of: kind-router01
+    app.kubernetes.io/managed-by: kind-router01
+  name: bpfd-app-rolebinding-go-tc-counter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bpfd-bpfprogram-viewer-role
+subjects:
+- kind: ServiceAccount
+  name: kind-router01-sa
+  namespace: ziti
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kind-router01-ds
+  namespace: ziti
+  labels:
+    k8s-app: kind-router01
+spec:
+  selector:
+    matchLabels:
+      name:  kind-router01
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        name: kind-router01
+    spec:
+      nodeSelector: {}
+      # hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: kind-router01-sa
+      tolerations:
+      # these tolerations are to have the daemonset runnable on control plane nodes
+      # remove them if your control plane nodes should not run pods
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: kind-router01
+        image: elblag91/openziti-router
+        imagePullPolicy: Always
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do echo hello; sleep 10;done"]
+        securityContext:
+          runAsUser: 0
+        env:
+          - name: NODENAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+        volumeMounts:
+        - name: kind-router01-maps
+          mountPath: /run/bpfd/fs/maps
+          readOnly: true
+        - name: kind-router01-zfw
+          mountPath: /usr/local/bin/zfw
+          readOnly: true
+      volumes:
+      - name: kind-router01-maps
+        hostPath:
+          path: /run/bpfd/fs/maps
+      - name: kind-router01-zfw
+        configMap:
+          name: zfw-bin
+          defaultMode: 0755

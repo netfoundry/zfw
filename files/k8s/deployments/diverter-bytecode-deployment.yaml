@@ -1,0 +1,141 @@
+apiVersion: bpfd.dev/v1alpha1
+kind: TcProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: tcprogram
+  name: zfw-tc-ingress-tproxy0
+spec:
+  bpffunctionname: tproxy0
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+    - veth1b4ff726
+  priority: 1
+  direction: ingress
+  proceedon: [pipe,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:tproxy0
+      imagepullpolicy: Always
+  mapownerselector:
+    matchLabels:
+      bpfd.dev/ownedByProgram: zfw-tc-ingress-tproxy5
+---
+apiVersion: bpfd.dev/v1alpha1
+kind: TcProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: tcprogram
+  name: zfw-tc-ingress-tproxy1
+spec:
+  bpffunctionname: tproxy1
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+      - veth1b4ff726
+  priority: 3
+  direction: ingress
+  proceedon: [pipe,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:tproxy1
+      imagepullpolicy: Always
+  mapownerselector:
+    matchLabels:
+      bpfd.dev/ownedByProgram: zfw-tc-ingress-tproxy5
+---
+apiVersion: bpfd.dev/v1alpha1
+kind: TcProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: tcprogram
+  name: zfw-tc-ingress-tproxy2
+spec:
+  bpffunctionname: tproxy2
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+    - veth1b4ff726
+  priority: 5
+  direction: ingress
+  proceedon: [pipe,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:tproxy2
+      imagepullpolicy: Always
+  mapownerselector:
+    matchLabels:
+      bpfd.dev/ownedByProgram: zfw-tc-ingress-tproxy5
+---
+apiVersion: bpfd.dev/v1alpha1
+kind: TcProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: tcprogram
+  name: zfw-tc-ingress-tproxy3
+spec:
+  bpffunctionname: tproxy3
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+      - veth1b4ff726
+  priority: 7
+  direction: ingress
+  proceedon: [pipe,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:tproxy3
+      imagepullpolicy: Always
+  mapownerselector:
+    matchLabels:
+      bpfd.dev/ownedByProgram: zfw-tc-ingress-tproxy5
+---
+apiVersion: bpfd.dev/v1alpha1
+kind: TcProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: tcprogram
+  name: zfw-tc-ingress-tproxy4
+spec:
+  bpffunctionname: tproxy4
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+    - veth1b4ff726
+  priority: 9
+  direction: ingress
+  proceedon: [pipe,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:tproxy4
+      imagepullpolicy: Always
+  mapownerselector:
+    matchLabels:
+      bpfd.dev/ownedByProgram: zfw-tc-ingress-tproxy5
+---
+apiVersion: bpfd.dev/v1alpha1
+kind: TcProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: tcprogram
+  name: zfw-tc-ingress-tproxy5
+spec:
+  bpffunctionname: tproxy5
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+      - veth1b4ff726
+  priority: 11
+  direction: ingress
+  proceedon: [pipe,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:tproxy5
+      imagepullpolicy: Always
+  

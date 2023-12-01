@@ -42,12 +42,12 @@
 #include <signal.h>
 
 #ifndef BPF_MAX_ENTRIES
-#define BPF_MAX_ENTRIES                     100 // MAX # PREFIXES
+#define BPF_MAX_ENTRIES                     20 // MAX # PREFIXES
 #endif
 #define MAX_INDEX_ENTRIES                   100 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE                      65536  // PORT Mapping table size
 #define MAX_IF_LIST_ENTRIES                 3
-#define MAX_IF_ENTRIES                      30
+#define MAX_IF_ENTRIES                      40
 #define MAX_ADDRESSES                       10
 #define IP_HEADER_TOO_BIG                   1
 #define NO_IP_OPTIONS_ALLOWED               2
@@ -73,6 +73,7 @@
 #define TCP_CONNECTION_ESTABLISHED          10
 #define CLIENT_FINAL_ACK_RCVD               11
 #define CLIENT_INITIATED_UDP_SESSION        12
+#define MAP_ROOT_FS                         "/run/tc/maps/"
 
 bool add = false;
 bool delete = false;
@@ -124,17 +125,17 @@ union bpf_attr tun_map;
 int tun_fd = -1;
 union bpf_attr rb_map;
 int rb_fd = -1;
-const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
-const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
-const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
-const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
-const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
-const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
-const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
-const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
-const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
-const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
+const char *tproxy_map_path = MAP_ROOT_FS"/zt_tproxy_map";
+const char *count_map_path = MAP_ROOT_FS"/tuple_count_map";
+const char *diag_map_path = MAP_ROOT_FS"/diag_map";
+const char *if_map_path = MAP_ROOT_FS"/ifindex_ip_map";
+const char *matched_map_path = MAP_ROOT_FS"/matched_map";
+const char *tcp_map_path = MAP_ROOT_FS"/tcp_map";
+const char *udp_map_path = MAP_ROOT_FS"/udp_map";
+const char *tun_map_path = MAP_ROOT_FS"/tun_map";
+const char *if_tun_map_path = MAP_ROOT_FS"/ifindex_tun_map";
+const char *transp_map_path = MAP_ROOT_FS"/zet_transp_map";
+const char *rb_map_path = MAP_ROOT_FS"/rb_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -149,7 +150,7 @@ char *monitor_interface;
 char *tc_interface;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.1";
+const char *argp_program_version = "0.6.0";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -493,7 +494,7 @@ char *nitoa(uint32_t address)
 }
 
 /* convert prefix string to __u16 */
-__u16 len2u16(char *len)
+__u16 len2u16(char *len) 
 {
     char *endPtr;
     int32_t tmpint = strtol(len, &endPtr, 10);
@@ -1674,6 +1675,7 @@ void map_insert()
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
+    printf("insert: %d", fd);
     map.map_fd = fd;
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
@@ -1898,7 +1900,7 @@ void map_delete()
             {
                 union bpf_attr count_map;
                 /*path to pinned ifindex_ip_map*/
-                const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+                //const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
                 memset(&count_map, 0, sizeof(count_map));
                 /* set path name with location of map in filesystem */
                 count_map.pathname = (uint64_t)count_map_path;
@@ -1987,7 +1989,7 @@ void map_flush()
     close(fd);
     union bpf_attr count_map;
     /*path to pinned ifindex_ip_map*/
-    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+    //const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
     count_map.pathname = (uint64_t)count_map_path;
@@ -2081,7 +2083,7 @@ int get_key_count()
 {
     union bpf_attr count_map;
     /*path to pinned ifindex_ip_map*/
-    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+    //const char *count_map_path = count_map_path;
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
     count_map.pathname = (uint64_t)count_map_path;

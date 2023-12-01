@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kind-router02
+  labels:
+    app: kind-router02
+  namespace: ziti
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kind-router02
+  template:
+    metadata:
+      labels:
+        app: kind-router02
+    spec:
+      containers:
+      - name: ziti-cli
+        image: openziti/ziti-cli
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do echo hello; sleep 10;done"]

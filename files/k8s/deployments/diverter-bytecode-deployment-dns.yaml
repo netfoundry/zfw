@@ -1,0 +1,19 @@
+apiVersion: bpfd.dev/v1alpha1
+kind: XdpProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: xdpprogram
+  name: zfw-xdp-dns
+spec:
+  bpffunctionname: xdp_filter
+  # Select all nodes
+  nodeselector: {}
+  interfaceselector:
+    interfaces:
+    - vethbe56455e
+  priority: 1
+  proceedon: [pass,dispatcher_return]
+  bytecode:
+    image:
+      url: docker.io/elblag91/zfw-tc-ingress-bytecode:dns
+      imagepullpolicy: Always

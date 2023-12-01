@@ -30,7 +30,7 @@
 #include <string.h>
 
 #ifndef BPF_MAX_ENTRIES
-#define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
+#define BPF_MAX_ENTRIES   20 //MAX # PREFIXES
 #endif
 #define MAX_INDEX_ENTRIES                   100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE                      65536 //needs to match in userspace
@@ -41,7 +41,7 @@
 #define MATCHED_KEY_DEPTH                   3
 #define MATCHED_INT_DEPTH                   50
 #define MAX_IF_LIST_ENTRIES                 3
-#define MAX_IF_ENTRIES                      30
+#define MAX_IF_ENTRIES                      40
 #define SERVICE_ID_BYTES                    32
 #define MAX_TRANSP_ROUTES                   256
 #define BPF_MAX_SESSIONS                    10000
@@ -219,12 +219,12 @@ struct transp_value{
 };
 
 struct {
-     __uint(type, BPF_MAP_TYPE_HASH);
-     __uint(key_size, sizeof(struct transp_key));
-     __uint(value_size,sizeof(struct transp_value));
-     __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
-     __uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct transp_key));
+    __uint(value_size,sizeof(struct transp_value));
+    __uint(max_entries, BPF_MAX_ENTRIES);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } zet_transp_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming packet search.  Map is 
@@ -272,6 +272,7 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } diag_map SEC(".maps");
 
+
 //map to keep track of total entries in zt_tproxy_map
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -302,37 +303,37 @@ struct {
 *    }
 */
 struct {
-     __uint(type, BPF_MAP_TYPE_HASH);
-     __uint(key_size, sizeof(struct tproxy_key));
-     __uint(value_size,sizeof(struct tproxy_tuple));
-     __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
-     __uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct tproxy_key));
+    __uint(value_size,sizeof(struct tproxy_tuple));
+    __uint(max_entries, BPF_MAX_ENTRIES);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } zt_tproxy_map SEC(".maps");
 
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-     __uint(key_size, sizeof(struct tuple_key));
-     __uint(value_size,sizeof(struct tcp_state));
-     __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(key_size, sizeof(struct tuple_key));
+    __uint(value_size,sizeof(struct tcp_state));
+    __uint(max_entries, BPF_MAX_SESSIONS);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
 
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-     __uint(key_size, sizeof(struct tuple_key));
-     __uint(value_size,sizeof(struct udp_state));
-     __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(key_size, sizeof(struct tuple_key));
+    __uint(value_size,sizeof(struct udp_state));
+    __uint(max_entries, BPF_MAX_SESSIONS);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } udp_map SEC(".maps");
 
 /*Hashmap to track tun interface inbound passthrough connections*/
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-     __uint(key_size, sizeof(struct tun_key));
-     __uint(value_size,sizeof(struct tun_state));
-     __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(key_size, sizeof(struct tun_key));
+    __uint(value_size,sizeof(struct tun_state));
+    __uint(max_entries, BPF_MAX_SESSIONS);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tun_map SEC(".maps");
 
 /* function for ebpf program to access zt_tproxy_map entries
@@ -629,8 +630,8 @@ static inline void iterate_masks(__u32 *mask, __u32 *exponent){
 }
 
 //ebpf tc code entry program
-SEC("action")
-int bpf_sk_splice(struct __sk_buff *skb){
+SEC("classifier/tproxy0")
+int tproxy0(struct __sk_buff *skb){
     struct bpf_sock *sk; 
     struct bpf_sock_tuple *tuple;
     int tuple_len;
@@ -642,6 +643,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool icmp=false;
     bool vrrp=false;
     int ret;
+
+    bpf_printk("Received packet in tproxy0");
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
@@ -783,7 +786,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
      */
     if(tcp){
        /*if tcp based tuple implement stateful inspection to see if they were
-       * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
+       initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to
        outbound initiated from through the router interface. if not pass on to tproxy logic
        to determine if the openziti router has tproxy intercepts defined for the flow*/
        event.proto = IPPROTO_TCP;
@@ -791,7 +794,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
        if(sk){
             if (sk->state != BPF_TCP_LISTEN){
                 if(local_diag->verbose){
-                    send_event(&event);
+                    send_event(&event); //ingress event
                 }
                 goto assign;
             }
@@ -949,11 +952,13 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
 /*Search for keys with Dest mask lengths from /32 down to /25
 * and Source masks /32 down to /0 */
-SEC("action/1")
-int bpf_sk_splice1(struct __sk_buff *skb){
+SEC("classifier/tproxy1")
+int tproxy1(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
     int tuple_len;
     int protocol;
+
+    bpf_printk("Got packet from tproxy0");
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -1021,15 +1026,16 @@ int bpf_sk_splice1(struct __sk_buff *skb){
 
 /*Search for keys with Dest mask lengths from /24 down to /17
 * and Source masks /32 down to /0 */
-SEC("action/2")
-int bpf_sk_splice2(struct __sk_buff *skb){
+SEC("classifier/tproxy2")
+int tproxy2(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
     int tuple_len;
     int protocol;
 
+    bpf_printk("Got packet from tproxy1");
+
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    
 
     /* check if incomming packet is a UDP or TCP tuple */
     struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
@@ -1092,11 +1098,13 @@ int bpf_sk_splice2(struct __sk_buff *skb){
 
 /*Search for keys with Dest mask lengths from /16 down to /9
 * and Source masks /32 down to /0 */
-SEC("action/3")
-int bpf_sk_splice3(struct __sk_buff *skb){
+SEC("classifier/tproxy3")
+int tproxy3(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
     int tuple_len;
     int protocol;
+
+    bpf_printk("Got packet from tproxy2");
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -1162,11 +1170,13 @@ int bpf_sk_splice3(struct __sk_buff *skb){
 
 /*Search for keys with Dest mask lengths from /8 down to /0
 * and Source masks /32 down to /0 */
-SEC("action/4")
-int bpf_sk_splice4(struct __sk_buff *skb){
+SEC("classifier/tproxy4")
+int tproxy4(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
     int tuple_len;
     int protocol;
+
+    bpf_printk("Got packet from tproxy3");
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -1229,15 +1239,18 @@ int bpf_sk_splice4(struct __sk_buff *skb){
             sexponent = 24;
             dexponent++;
     }
+    bpf_printk("tproxy4: no match made");
     return TC_ACT_SHOT;
 }
 
-SEC("action/5")
-int bpf_sk_splice5(struct __sk_buff *skb){
+SEC("classifier/tproxy5")
+int tproxy5(struct __sk_buff *skb){
     struct bpf_sock *sk;
     int ret; 
     struct bpf_sock_tuple *tuple,sockcheck = {0};
     int tuple_len;
+
+    bpf_printk("Got packet from tproxy4");
 
     /*look up attached interface inbound diag status*/
     struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
@@ -1337,7 +1350,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 bpf_sk_release(sk);
                                 return TC_ACT_SHOT;    
                             }
-                            send_event(&event);
+                            send_event(&event); //tproxy event
                             goto assign;
                         }else
                         {
