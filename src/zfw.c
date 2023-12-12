@@ -1363,7 +1363,6 @@ int add_if_index(struct interface intf)
         if_map.key = (uint64_t)&intf.index;
         if_map.flags = BPF_ANY;
         if_map.value = (uint64_t)&o_ifip4;
-        syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
         for(int x = 0; x < MAX_ADDRESSES; x++){
                 if(x < intf.addr_count){
                     o_ifip4.ipaddr[x] = intf.addresses[x];
