@@ -47,7 +47,7 @@
 #define MAX_INDEX_ENTRIES                   100 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE                      65536  // PORT Mapping table size
 #define MAX_IF_LIST_ENTRIES                 3
-#define MAX_IF_ENTRIES                      30
+#define MAX_IF_ENTRIES                      256
 #define MAX_ADDRESSES                       10
 #define IP_HEADER_TOO_BIG                   1
 #define NO_IP_OPTIONS_ALLOWED               2
@@ -149,20 +149,28 @@ char *monitor_interface;
 char *tc_interface;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.1";
+const char *argp_program_version = "0.5.2";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
+struct interface{
+    uint32_t index;
+    char * name;
+    uint16_t addr_count;
+    uint32_t addresses[MAX_ADDRESSES];
+};
 int ifcount = 0;
 int get_key_count();
 void interface_tc();
-int add_if_index(uint32_t *idx, char *ifname, uint32_t ifip[MAX_ADDRESSES], uint8_t count);
+int add_if_index(struct interface intf);
 void open_diag_map();
 void open_if_map();
 void open_rb_map();
 void open_tun_map();
 bool interface_map();
 void close_maps(int code);
+void if_delete_key(uint32_t key);
+void diag_delete_key(uint32_t key);
 char * get_ts(unsigned long long tstamp);
 
 struct ifindex_ip4
@@ -798,7 +806,7 @@ bool set_tun_diag()
         if (!list_diag)
         {
             if(strcmp(o_tdiag.ifname,verbose_interface)){
-                printf("Invalid tun interface only ZET tun supported\n");
+                printf("Invalid tun interface only ziti tun supported\n");
                 return false;
             }
             if (verbose)
@@ -837,6 +845,8 @@ bool set_tun_diag()
     return true;
 }
 
+
+
 bool set_diag(uint32_t *idx)
 {
     if (access(diag_map_path, F_OK) != 0)
@@ -844,172 +854,164 @@ bool set_diag(uint32_t *idx)
         ebpf_usage();
     }
     diag_map.map_fd = diag_fd;
-    struct diag_ip4 o_diag;
+    struct diag_ip4 o_diag = {0};
     diag_map.key = (uint64_t)idx;
     diag_map.flags = BPF_ANY;
     diag_map.value = (uint64_t)&o_diag;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &diag_map, sizeof(diag_map));
-    if (lookup)
+    syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &diag_map, sizeof(diag_map));
+    if (!list_diag)
     {
-        printf("Invalid Index\n");
-        return false;
-    }
-    else
-    {
-        if (!list_diag)
+        if (echo)
         {
-            if (echo)
+            if (!disable || *idx == 1)
             {
-                if (!disable || *idx == 1)
-                {
-                    o_diag.echo = true;
-                }
-                else
-                {
-                    o_diag.echo = false;
-                }
-                if (*idx != 1)
-                {
-                    printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
-                }
-                else
-                {
-                    printf("icmp echo is always set to 1 for lo\n");
-                }
-            }
-            if (verbose)
-            {
-                if (!disable)
-                {
-                    o_diag.verbose = true;
-                }
-                else
-                {
-                    o_diag.verbose = false;
-                }
-                printf("Set verbose to %d for %s\n", !disable, verbose_interface);
-            }
-            if (eapol)
-            {
-                if (!disable)
-                {
-                    o_diag.eapol = true;
-                }
-                else
-                {
-                    o_diag.eapol = false;
-                }
-                printf("Set eapol to %d for %s\n", !disable, eapol_interface);
-            }
-            if (per_interface)
-            {
-                if (!disable)
-                {
-                    o_diag.per_interface = true;
-                }
-                else
-                {
-                    o_diag.per_interface = false;
-                }
-                printf("Set per_interface rule aware to %d for %s\n", !disable, prefix_interface);
-            }
-            if (ssh_disable)
-            {
-                if (!disable && *idx != 1)
-                {
-                    o_diag.ssh_disable = true;
-                }
-                else
-                {
-                    o_diag.ssh_disable = false;
-                }
-                if (*idx != 1)
-                {
-                    printf("Set disable_ssh to %d for %s\n", !disable, ssh_interface);
-                }
-                else
-                {
-                    printf("Set disable_ssh is always set to 0 for lo\n");
-                }
-            }
-            if (tcfilter && !strcmp("ingress", direction_string))
-            {
-                if (!disable)
-                {
-                    o_diag.tc_ingress = true;
-                }
-                else
-                {
-                    o_diag.tc_ingress = false;
-                }
-                printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
-            }
-            if (tcfilter && !strcmp("egress", direction_string))
-            {
-                if (!disable)
-                {
-                    o_diag.tc_egress = true;
-                }
-                else
-                {
-                    o_diag.tc_egress = false;
-                }
-                printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
-            }
-            if (tun)
-            {
-                if (!disable)
-                {
-                    o_diag.tun_mode = true;
-                }
-                else
-                {
-                    o_diag.tun_mode = false;
-                }
-                printf("Set tun mode to %d for %s\n", !disable, tun_interface);
-            }
-            if (vrrp)
-            {
-                if (!disable)
-                {
-                    o_diag.vrrp = true;
-                }
-                else
-                {
-                    o_diag.vrrp = false;
-                }
-                printf("Set vrrp mode to %d for %s\n", !disable, vrrp_interface);
-            }
-            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
-            if (ret)
-            {
-                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                return false;
-            }
-            return true;
-        }
-        else
-        {
-            printf("%s: %d\n", diag_interface, *idx);
-            printf("--------------------------\n");
-            if (*idx != 1)
-            {
-                printf("%-24s:%d\n", "icmp echo", o_diag.echo);
+                o_diag.echo = true;
             }
             else
             {
-                printf("%-24s:%d\n", "icmp echo", 1);
+                o_diag.echo = false;
             }
-            printf("%-24s:%d\n", "verbose", o_diag.verbose);
-            printf("%-24s:%d\n", "ssh disable", o_diag.ssh_disable);
-            printf("%-24s:%d\n", "per interface", o_diag.per_interface);
-            printf("%-24s:%d\n", "tc ingress filter", o_diag.tc_ingress);
-            printf("%-24s:%d\n", "tc egress filter", o_diag.tc_egress);
-            printf("%-24s:%d\n", "tun mode intercept", o_diag.tun_mode);
-            printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
-            printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
-            printf("--------------------------\n\n");
+            if (*idx != 1)
+            {
+                printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
+            }
+            else
+            {
+                printf("icmp echo is always set to 1 for lo\n");
+            }
         }
+        if (verbose)
+        {
+            if (!disable)
+            {
+                o_diag.verbose = true;
+            }
+            else
+            {
+                o_diag.verbose = false;
+            }
+            printf("Set verbose to %d for %s\n", !disable, verbose_interface);
+        }
+        if (eapol)
+        {
+            if (!disable)
+            {
+                o_diag.eapol = true;
+            }
+            else
+            {
+                o_diag.eapol = false;
+            }
+            printf("Set eapol to %d for %s\n", !disable, eapol_interface);
+        }
+        if (per_interface)
+        {
+            if (!disable)
+            {
+                o_diag.per_interface = true;
+            }
+            else
+            {
+                o_diag.per_interface = false;
+            }
+            printf("Set per_interface rule aware to %d for %s\n", !disable, prefix_interface);
+        }
+        if (ssh_disable)
+        {
+            if (!disable && *idx != 1)
+            {
+                o_diag.ssh_disable = true;
+            }
+            else
+            {
+                o_diag.ssh_disable = false;
+            }
+            if (*idx != 1)
+            {
+                printf("Set disable_ssh to %d for %s\n", !disable, ssh_interface);
+            }
+            else
+            {
+                printf("Set disable_ssh is always set to 0 for lo\n");
+            }
+        }
+        if (tcfilter && !strcmp("ingress", direction_string))
+        {
+            if (!disable)
+            {
+                o_diag.tc_ingress = true;
+            }
+            else
+            {
+                o_diag.tc_ingress = false;
+            }
+            printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
+        }
+        if (tcfilter && !strcmp("egress", direction_string))
+        {
+            if (!disable)
+            {
+                o_diag.tc_egress = true;
+            }
+            else
+            {
+                o_diag.tc_egress = false;
+            }
+            printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
+        }
+        if (tun)
+        {
+            if (!disable)
+            {
+                o_diag.tun_mode = true;
+            }
+            else
+            {
+                o_diag.tun_mode = false;
+            }
+            printf("Set tun mode to %d for %s\n", !disable, tun_interface);
+        }
+        if (vrrp)
+        {
+            if (!disable)
+            {
+                o_diag.vrrp = true;
+            }
+            else
+            {
+                o_diag.vrrp = false;
+            }
+            printf("Set vrrp mode to %d for %s\n", !disable, vrrp_interface);
+        }
+        int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
+        if (ret)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            return false;
+        }
+        return true;
+    }
+    else
+    {
+        printf("%s: %d\n", diag_interface, *idx);
+        printf("--------------------------\n");
+        if (*idx != 1)
+        {
+            printf("%-24s:%d\n", "icmp echo", o_diag.echo);
+        }
+        else
+        {
+            printf("%-24s:%d\n", "icmp echo", 1);
+        }
+        printf("%-24s:%d\n", "verbose", o_diag.verbose);
+        printf("%-24s:%d\n", "ssh disable", o_diag.ssh_disable);
+        printf("%-24s:%d\n", "per interface", o_diag.per_interface);
+        printf("%-24s:%d\n", "tc ingress filter", o_diag.tc_ingress);
+        printf("%-24s:%d\n", "tc egress filter", o_diag.tc_egress);
+        printf("%-24s:%d\n", "tun mode intercept", o_diag.tun_mode);
+        printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
+        printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
+        printf("--------------------------\n\n");
     }
     return true;
 }
@@ -1026,12 +1028,13 @@ void interface_tc()
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
     uint32_t cur_idx = 0;
+    uint32_t index_count = 0;
     /*
      * traverse linked list of interfaces and for each non-loopback interface
      *  populate the index into the map with ifindex as the key and ip address
      *  as the value
      */
-    while (address)
+    while (address && (index_count < MAX_IF_ENTRIES))
     {
         if(address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
           || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
@@ -1047,17 +1050,11 @@ void interface_tc()
             {
                 tc_interface = address->ifa_name;
             }
-            if(!strncmp(address->ifa_name,"tun", 3) || !strncmp(address->ifa_name,"ziti", 4))
+            if(!strncmp(address->ifa_name,"ziti", 4))
             {
-                if(!strncmp(tc_interface,"tun", 3) || !strncmp(tc_interface,"ziti", 4)){
-                    printf("%s:zfw does not allow tc filters on tun interfaces!\n", address->ifa_name);
+                if(!strncmp(tc_interface,"ziti", 4)){
+                    printf("%s:zfw does not allow tc filters on ziti tun interfaces!\n", address->ifa_name);
                 }
-                address = address->ifa_next;
-                continue;
-            }
-            if(idx >= MAX_IF_ENTRIES)
-            {
-                printf("%s:zfw does not allow tc filters interfaces with an ifindex above %d!\n", address->ifa_name, MAX_IF_ENTRIES -1);
                 address = address->ifa_next;
                 continue;
             }
@@ -1066,6 +1063,7 @@ void interface_tc()
                 address = address->ifa_next;
                 continue;
             }else{
+                index_count++;
                 cur_idx = idx;
             }
             if (tc || tcfilter)
@@ -1128,12 +1126,8 @@ void interface_diag()
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
     uint32_t cur_idx = 0;
-    /*
-     * traverse linked list of interfaces and for each non-loopback interface
-     *  populate the index into the map with ifindex as the key and ip address
-     *  as the value
-     */
-    while (address)
+    uint32_t index_count =0;
+    while (address && (index_count < MAX_IF_ENTRIES))
     {
         if (address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
           || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
@@ -1145,16 +1139,12 @@ void interface_diag()
                 address = address->ifa_next;
                 continue;
             }
-            if(idx >= MAX_IF_ENTRIES && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
-                printf("%s:zfw does not support interfaces with an ifindex above %d!\n", address->ifa_name, MAX_IF_ENTRIES -1);
-                address = address->ifa_next;
-                continue;
-            }
             if(cur_idx == idx)
             {
                 address = address->ifa_next;
                 continue;
             }else{
+                index_count++;
                 cur_idx = idx;
             }
             if (all_interface)
@@ -1167,28 +1157,6 @@ void interface_diag()
                 tun_interface = address->ifa_name;
                 vrrp_interface = address->ifa_name;
                 eapol_interface = address->ifa_name;
-            }
-            if(!strncmp(address->ifa_name, "tun", 3) && (tun || per_interface || ssh_disable || echo || vrrp || eapol)){
-                if(per_interface && !strncmp(prefix_interface, "tun", 3)){
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
-                }
-                if(tun && !strncmp(tun_interface, "tun", 3)){
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
-                }
-                if(ssh_disable && !strncmp(ssh_interface, "tun", 3)){
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
-                }
-                if(echo && !strncmp(echo_interface, "tun", 3)){
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
-                }
-                if(vrrp && !strncmp(vrrp_interface, "tun", 3)){
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
-                }
-                if(eapol && !strncmp(eapol_interface, "tun", 3)){
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
-                }
-                address = address->ifa_next;
-                continue;
             }
             if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol)){
                 if(per_interface && !strncmp(prefix_interface, "ziti", 4)){
@@ -1212,7 +1180,7 @@ void interface_diag()
                 address = address->ifa_next;
                 continue;
             }
-            if (echo) //&& strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4))
+            if (echo)
             {
                 if (!strcmp(echo_interface, address->ifa_name))
                 {
@@ -1238,10 +1206,7 @@ void interface_diag()
 
             if (verbose)
             {
-                if(!strncmp(address->ifa_name, "tun", 3) && !strncmp(verbose_interface,"tun", 3)){
-                    set_tun_diag();
-                }
-                else if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
+                if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
                     set_tun_diag();
                 }
                 else if(!strcmp(verbose_interface, address->ifa_name))
@@ -1267,11 +1232,8 @@ void interface_diag()
             }
 
             if (list_diag)
-            {
-                if(!strncmp(address->ifa_name, "tun", 3) && !strncmp(diag_interface,"tun", 3)){
-                    set_tun_diag();
-                }
-                else if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
+            {             
+                if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(diag_interface,"ziti", 4)){
                     set_tun_diag();
                 }
                 else if (!strcmp(diag_interface, address->ifa_name))
@@ -1298,51 +1260,119 @@ void interface_diag()
     freeifaddrs(addrs);
 }
 
-/*int get_ifindex_map(uint32_t *idx){
-    if(if_fd == -1){
-        open_if_map();
+//remove stale ifindex_ip_map entries
+int prune_diag_map(struct interface if_array[], uint32_t if_count){
+    if(diag_fd == -1){
+        open_diag_map();
     }
-    uint32_t key = *idx;
-    struct ifindex_ip4 orule;
-    if_map.map_fd = if_fd;
-    if_map.key = (uint64_t)&key;
-    if_map.value = (uint64_t)&orule;
+    uint32_t init_key = {0};
+    uint32_t *key = &init_key;
+    uint32_t current_key;
+    struct diag_ip4 o_diagip4;
+    diag_map.file_flags = BPF_ANY;
+    diag_map.map_fd = diag_fd;
+    diag_map.key = (uint64_t)key;
+    diag_map.value = (uint64_t)&o_diagip4;
     int lookup = 0;
-    lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
-    if (!lookup)
+    int ret = 0;
+    while (true)
     {
-        printf("key=%d\n",*idx);
-        printf("ifname=%s\n",orule.ifname);
-        printf("ifip=%x\n",orule.ipaddr);
-    }
-    return 0;
-}*/
-
-int add_if_index(uint32_t *idx, char *ifname, in_addr_t ifip[MAX_ADDRESSES], uint8_t count)
-{
-    if(if_fd == -1){
-        open_if_map();
-    }
-    if_map.map_fd = if_fd;
-    struct ifindex_ip4 o_ifip4;
-    if_map.key = (uint64_t)idx;
-    if_map.flags = BPF_ANY;
-    if_map.value = (uint64_t)&o_ifip4;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
-    if (lookup)
-    {
-        printf("Unable to access ArrayMap Index\n");
-    }else{
-        for(int x = 0; x < MAX_ADDRESSES; x++){
-            if(x < count){
-                o_ifip4.ipaddr[x] = ifip[x];
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &diag_map, sizeof(diag_map));
+        if (ret == -1)
+        {
+            break;
+        }
+        diag_map.key = diag_map.next_key;
+        current_key = *(uint32_t *)diag_map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &diag_map, sizeof(diag_map));
+        if (!lookup)
+        {
+            bool match = false;
+            for(uint32_t x = 0; x < if_count; x++){
+                if(current_key == if_array[x].index){
+                    match = true;
+                }
             }
-            else{
-                o_ifip4.ipaddr[x] = 0;
+            if(!match){
+                diag_delete_key(current_key);
             }
         }
-        o_ifip4.count = count;
-        sprintf(o_ifip4.ifname, "%s", ifname);
+        else
+        {
+            printf("Not Found\n");
+        }
+        diag_map.key = (uint64_t)&current_key;
+    }
+    return 0;
+}
+
+//remove stale ifindex_ip_map entries
+int prune_if_map(struct interface if_array[], uint32_t if_count){
+    if(if_fd == -1){
+        open_if_map();
+    }
+    uint32_t init_key = {0};
+    uint32_t *key = &init_key;
+    uint32_t current_key;
+    struct ifindex_ip4 o_ifip4;
+    if_map.file_flags = BPF_ANY;
+    if_map.map_fd = if_fd;
+    if_map.key = (uint64_t)key;
+    if_map.value = (uint64_t)&o_ifip4;
+    int lookup = 0;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &if_map, sizeof(if_map));
+        if (ret == -1)
+        {
+            break;
+        }
+        if_map.key = if_map.next_key;
+        current_key = *(uint32_t *)if_map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+        if (!lookup)
+        {
+            bool match = false;
+            for(uint32_t x = 0; x < if_count; x++){
+                if(current_key == if_array[x].index){
+                    match = true;
+                }
+            }
+            if(!match){
+                if_delete_key(current_key);
+            }
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        if_map.key = (uint64_t)&current_key;
+    }
+    return 0;
+}
+
+int add_if_index(struct interface intf)
+{
+    if(intf.addr_count>0){
+        if(if_fd == -1){
+            open_if_map();
+        }
+        if_map.map_fd = if_fd;
+        struct ifindex_ip4 o_ifip4;
+        if_map.key = (uint64_t)&intf.index;
+        if_map.flags = BPF_ANY;
+        if_map.value = (uint64_t)&o_ifip4;
+        for(int x = 0; x < MAX_ADDRESSES; x++){
+                if(x < intf.addr_count){
+                    o_ifip4.ipaddr[x] = intf.addresses[x];
+                }
+                else{
+                    o_ifip4.ipaddr[x] = 0;
+                }
+        }
+        o_ifip4.count = intf.addr_count;
+        sprintf(o_ifip4.ifname, "%s", intf.name);
         int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
         if (ret)
         {
@@ -1402,21 +1432,20 @@ bool interface_map()
      *  populate the index into the map with ifindex as the key and ip address
      *  as the value
      */
+    
+    uint32_t index_count = 0;
     uint32_t addr_array[MAX_ADDRESSES];
-    char * cur_name;
+    struct interface index_array[MAX_IF_ENTRIES];
+    char *cur_name;
     uint32_t cur_idx;
     uint8_t addr_count = 0;
-    while (address)
-    {
+    while (address && (index_count < MAX_IF_ENTRIES))
+    {   
+        idx = if_nametoindex(address->ifa_name);
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
         {
-            idx = if_nametoindex(address->ifa_name);
             if(!idx){
                 printf("unable to get interface index fd!\n");
-                address = address->ifa_next;
-                continue;
-            }
-            if((idx >= MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
                 address = address->ifa_next;
                 continue;
             }
@@ -1441,7 +1470,7 @@ bool interface_map()
                     continue;
                 }
             }
-            if((idx < MAX_IF_ENTRIES) && strncmp(address->ifa_name,"tun", 3) && strncmp(address->ifa_name,"ziti", 4)){
+            if(strncmp(address->ifa_name,"ziti", 4)){
                 if(addr_count == 0){
                     cur_name = address->ifa_name;
                     cur_idx = idx;
@@ -1449,14 +1478,20 @@ bool interface_map()
                     addr_count++;
                 }
                 else if(cur_idx != idx){
-                    add_if_index(&cur_idx, cur_name, addr_array, addr_count);
-                    addr_count = 0;
+                    struct interface intf ={
+                        cur_idx,
+                        cur_name,
+                        addr_count,
+                        {0}
+                    };
+                    memcpy(intf.addresses, addr_array, sizeof(intf.addresses));
+                    index_array[index_count] = intf;
+                    index_count++;
+                    addr_count =0;
                     cur_idx = idx;
                     cur_name = address->ifa_name;
-                    if(addr_count < MAX_ADDRESSES){
-                        addr_array[addr_count] = ifip;
-                        addr_count++;
-                    }
+                    addr_array[addr_count] = ifip;
+                    addr_count++;
                 }
                 else{
                     if(addr_count < MAX_ADDRESSES){
@@ -1464,10 +1499,9 @@ bool interface_map()
                         addr_count++;
                     }
                 }
-                
             }
 
-            if((ifip == tunip) && (!strncmp(address->ifa_name,"tun", 3) || !strncmp(address->ifa_name,"ziti", 4)))
+            if((ifip == tunip) && !strncmp(address->ifa_name,"ziti", 4))
             {
                 bool change_detected =true;
                 struct ifindex_tun o_iftun; 
@@ -1514,11 +1548,34 @@ bool interface_map()
                 }
             }
         }
+        else{
+            struct interface intf ={
+                idx,
+                cur_name,
+                0,
+                {0}
+            };
+            index_array[index_count] = intf;
+            index_count++;
+        }
         address = address->ifa_next;
     }
     if((idx > 0) && (addr_count > 0) && (addr_count <= MAX_ADDRESSES)){
-        add_if_index(&cur_idx, cur_name, addr_array, addr_count);
+        struct interface intf ={
+            cur_idx,
+            cur_name,
+            addr_count,
+            {0}
+        };
+        memcpy(intf.addresses, addr_array, sizeof(addr_array));
+        index_array[index_count] = intf;
+        index_count++;
     }
+    prune_if_map(index_array, index_count);
+    for(uint32_t x =0; x < index_count; x++){
+        add_if_index(index_array[x]);
+    }
+    prune_diag_map(index_array, index_count);
     freeifaddrs(addrs);
     return create_route;
 }
@@ -1729,7 +1786,6 @@ void map_insert()
         else
         {
             union bpf_attr count_map;
-            /*path to pinned ifindex_ip_map*/
             memset(&count_map, 0, sizeof(count_map));
             /* set path name with location of map in filesystem */
             count_map.pathname = (uint64_t)count_map_path;
@@ -1783,6 +1839,60 @@ void map_insert()
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
         exit(1);
+    }
+    close(fd);
+}
+
+void if_delete_key(uint32_t key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)if_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        exit(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        printf("Pruned index %d from ifindex_map\n", key);
+    }
+    close(fd);
+}
+
+void diag_delete_key(uint32_t key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)diag_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        exit(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        printf("Pruned index %d from diag_map\n", key);
     }
     close(fd);
 }
@@ -1897,8 +2007,6 @@ void map_delete()
             else
             {
                 union bpf_attr count_map;
-                /*path to pinned ifindex_ip_map*/
-                const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
                 memset(&count_map, 0, sizeof(count_map));
                 /* set path name with location of map in filesystem */
                 count_map.pathname = (uint64_t)count_map_path;
@@ -1986,8 +2094,6 @@ void map_flush()
     }
     close(fd);
     union bpf_attr count_map;
-    /*path to pinned ifindex_ip_map*/
-    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
     count_map.pathname = (uint64_t)count_map_path;
@@ -2080,8 +2186,6 @@ void map_list()
 int get_key_count()
 {
     union bpf_attr count_map;
-    /*path to pinned ifindex_ip_map*/
-    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
     count_map.pathname = (uint64_t)count_map_path;
