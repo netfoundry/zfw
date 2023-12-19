@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
-- Fixed issue causing valgrind memory error due non-initialized struct in add_if_index() in zfw.c.
+- Fixed issue causing valgrind memory error due to non-initialized struct in add_if_index() in zfw.c.
 
 # [0.5.2] - 2023-11-27
 
