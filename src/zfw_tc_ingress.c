@@ -725,6 +725,74 @@ int bpf_sk_splice(struct __sk_buff *skb){
             else if((icmph->type == 0) && (icmph->code == 0)){
                 return TC_ACT_OK;
             }
+            else if(icmph->type == 3){
+                struct iphdr *inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                    if(local_diag->verbose){
+                        event.error_code = IP_HEADER_TOO_BIG;
+                        send_event(&event);
+                    }
+                    return TC_ACT_SHOT;
+                }
+                if((inner_iph->protocol == IPPROTO_TCP) || ((inner_iph->protocol == IPPROTO_UDP))){
+                    struct bpf_sock_tuple *o_session = (struct bpf_sock_tuple *)(void*)(long)&inner_iph->saddr; 
+                    if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
+                        event.error_code = IP_TUPLE_TOO_BIG;
+                        send_event(&event);
+                        return TC_ACT_SHOT;
+                    }
+                    if(inner_iph->protocol == IPPROTO_TCP){
+                        sk = bpf_skc_lookup_tcp(skb, o_session, sizeof(o_session->ipv4),BPF_F_CURRENT_NETNS, 0);
+                        if(sk){
+                            if (sk->state == BPF_TCP_LISTEN){
+                                if(local_diag->verbose){
+                                    event.proto = IPPROTO_ICMP;
+                                    event.saddr = iph->saddr;
+                                    event.daddr = o_session->ipv4.daddr;
+                                    event.tracking_code = icmph->code;
+                                    if(icmph->code == 4){
+                                        event.sport = icmph->un.frag.mtu;
+                                    }else{
+                                        event.sport = inner_iph->protocol;
+                                    }
+                                    event.dport = o_session->ipv4.dport;
+                                    send_event(&event);
+                                }
+                                bpf_sk_release(sk);
+                                return TC_ACT_OK;
+                            }
+                            bpf_sk_release(sk);
+                        }
+                    }
+                    else{
+                        struct bpf_sock_tuple oudp_session = {0};
+                        oudp_session.ipv4.daddr = o_session->ipv4.saddr;
+                        oudp_session.ipv4.saddr = o_session->ipv4.daddr;
+                        oudp_session.ipv4.dport = o_session->ipv4.sport;
+                        oudp_session.ipv4.sport = o_session->ipv4.dport;
+                        sk = bpf_sk_lookup_udp(skb, &oudp_session, sizeof(oudp_session.ipv4), BPF_F_CURRENT_NETNS, 0);
+                        if(sk){
+                            if(local_diag->verbose){
+                                event.proto = IPPROTO_ICMP;
+                                event.saddr = iph->saddr;
+                                event.daddr = o_session->ipv4.daddr;
+                                event.tracking_code = icmph->code;
+                                if(icmph->code == 4){
+                                    event.sport = icmph->un.frag.mtu;
+                                }else{
+                                    event.sport = inner_iph->protocol;
+                                }
+                                event.dport = o_session->ipv4.dport;
+                                send_event(&event);
+                            }
+                            bpf_sk_release(sk);
+                            return TC_ACT_OK;
+                        }
+                    }
+
+                }
+                return TC_ACT_SHOT;
+            }
             else{
                 return TC_ACT_SHOT;
             }
@@ -734,7 +802,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         }
         else{
             return TC_ACT_SHOT;
-        }
+        }   
     }
 
     /* determine length of tuple */
@@ -766,7 +834,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             for(int x = 0; x < addresses; x++){
                 if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
-                    if(local_diag->verbose){
+                    if(local_diag->verbose && ((event.tstamp % 2) == 0)){
                         event.proto = IPPROTO_TCP;
                         send_event(&event);
                     }

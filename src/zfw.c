@@ -149,7 +149,7 @@ char *monitor_interface;
 char *tc_interface;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.3";
+const char *argp_program_version = "0.5.4";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -246,6 +246,9 @@ struct tproxy_key
 
 void INThandler(int sig){
     signal(sig, SIG_IGN);
+    if(ring_buffer){
+        ring_buffer__free(ring_buffer);
+    }
     close_maps(1);
 }
 
@@ -1624,6 +1627,9 @@ static int process_events(void *ctx, void *data, size_t len){
             char * protocol;
             if(evt->proto == IPPROTO_TCP){
                 protocol = "TCP";
+            }
+            else if(evt->proto == IPPROTO_ICMP){
+                protocol = "ICMP";
             }else{
                 protocol = "UDP";
             }
@@ -1641,7 +1647,7 @@ static int process_events(void *ctx, void *data, size_t len){
                 ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport),
                 daddr, ntohs(evt->dport), ntohs(evt->tport));
             }
-            else if(evt->tracking_code && ifname){
+            else if(((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname){
                 char *state = NULL;
                 __u16 code = evt->tracking_code;
 
@@ -1684,6 +1690,39 @@ static int process_events(void *ctx, void *data, size_t len){
                 if(state){
                     printf("%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
                     (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
+                }
+            }
+            else if(evt->proto == IPPROTO_ICMP && ifname){
+                __u16 code = evt->tracking_code;
+                if(code == 4){
+                    printf("%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
+                    (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                }else{
+                    char *code_string = NULL;
+                    char *protocol_string = NULL;
+                    /*evt->sport is use repurposed store encapsulated higher layer protocol*/
+                    if(evt->sport == IPPROTO_TCP){
+                        protocol_string = "TCP";
+                    }else{
+                        protocol_string = "UDP";
+                    }
+                    if(code == 0){
+                        code_string = "NET UNREACHABLE";
+                    }
+                    else if(code == 1){
+                         code_string = "HOST UNREACHABLE";
+                    }
+                    else if(code == 2){
+                         code_string = "PROTOCOL UNREACHABLE";
+                    }
+                    else if(code == 3){
+                         code_string = "PORT UNREACHABLE";
+                    }
+
+                    if(code_string){
+                        printf("%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d\n", ts, ifname,
+                         (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, code_string, daddr, protocol_string, ntohs(evt->dport));
+                    }
                 }
             }
             else if(ifname){
@@ -3010,7 +3049,7 @@ int main(int argc, char **argv)
         ring_buffer = ring_buffer__new(rb_fd, process_events, NULL, NULL);
         while(true){
             ring_buffer__poll(ring_buffer, 1000);
-    }
+        }
     }
     else
     {
