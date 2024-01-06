@@ -73,6 +73,7 @@
 #define TCP_CONNECTION_ESTABLISHED          10
 #define CLIENT_FINAL_ACK_RCVD               11
 #define CLIENT_INITIATED_UDP_SESSION        12
+#define ICMP_INNER_IP_HEADER_TOO_BIG        13
 
 bool add = false;
 bool delete = false;
@@ -1659,6 +1660,14 @@ static int process_events(void *ctx, void *data, size_t len){
             }
             else if(evt->error_code == ICMP_HEADER_TOO_BIG){
                 sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
+            }
+            else if(evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG){
+                sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if(logging){
                     res = write_log(log_file_name, message);
                 }else{

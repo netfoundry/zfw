@@ -62,6 +62,7 @@
 #define SERVER_FINAL_ACK_RCVD               4
 #define UDP_MATCHED_EXPIRED_STATE           5
 #define UDP_MATCHED_ACTIVE_STATE            6
+#define ICMP_INNER_IP_HEADER_TOO_BIG        13
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -509,10 +510,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         
         /* ensure ip header is in packet bounds */
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-            if(local_diag->verbose){
-                event->error_code = IP_HEADER_TOO_BIG;
-                send_event(event);
-            }
+            event->error_code = IP_HEADER_TOO_BIG;
+            send_event(event);
             return NULL;
 		}
         /* ip options not allowed */
@@ -530,10 +529,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
             /* check outer ip header */
             struct udphdr *udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct iphdr));
             if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
-                if(local_diag->verbose){
-                    event->error_code = UDP_HEADER_TOO_BIG;
-                    send_event(event);
-                }
+                event->error_code = UDP_HEADER_TOO_BIG;
+                send_event(event);
                 return NULL;
             }
 
@@ -542,10 +539,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 /* read receive geneve version and header length */
                 __u8 *genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
                 if ((unsigned long)(genhdr + 1) > (unsigned long)skb->data_end){
-                    if(local_diag->verbose){
-                        event->error_code = GENEVE_HEADER_TOO_BIG;
-                        send_event(event);
-                    }
+                    event->error_code = GENEVE_HEADER_TOO_BIG;
+                    send_event(event);
                     return NULL;
                 }
                 __u32 gen_ver  = genhdr[0] & 0xC0 >> 6;
@@ -553,29 +548,23 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 
                 /* if the length is not equal to 32 bytes and version 0 */
                 if ((gen_hdr_len != AWS_GNV_HDR_OPT_LEN / 4) || (gen_ver != GENEVE_VER)){
-                    if(local_diag->verbose){
-                        event->error_code = GENEVE_HEADER_LENGTH_VERSION_ERROR;
-                        send_event(event);
-                    }
+                    event->error_code = GENEVE_HEADER_LENGTH_VERSION_ERROR;
+                    send_event(event);
                     return NULL;
                 }
 
                 /* Updating the skb to pop geneve header */
                 ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
                 if (ret) {
-                    if(local_diag->verbose){
-                        event->error_code = SKB_ADJUST_ERROR;
-                        send_event(event);
-                    }
+                    event->error_code = SKB_ADJUST_ERROR;
+                    send_event(event);
                     return NULL;
                 }
                 /* Initialize iph for after popping outer */
                 iph = (struct iphdr *)(skb->data + nh_off);
                 if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                    if(local_diag->verbose){
-                        event->error_code = IP_HEADER_TOO_BIG;
-                        send_event(event);
-                    }
+                    event->error_code = IP_HEADER_TOO_BIG;
+                    send_event(event);
                     return NULL;
                 }
                 proto = iph->protocol;
@@ -724,10 +713,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             struct icmphdr *icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
             if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
-                if(local_diag->verbose){
-                    event.error_code = ICMP_HEADER_TOO_BIG;
-                    send_event(&event);
-                }
+                event.error_code = ICMP_HEADER_TOO_BIG;
+                send_event(&event);
                 return TC_ACT_SHOT;
             }
             else if((icmph->type == 8) && (icmph->code == 0)){
@@ -745,7 +732,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 struct iphdr *inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
                 if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
                     if(local_diag->verbose){
-                        event.error_code = IP_HEADER_TOO_BIG;
+                        event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
                         send_event(&event);
                     }
                     return TC_ACT_SHOT;
@@ -1438,10 +1425,12 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                             }
                             struct ifindex_tun *tun_index = get_tun_index(0);
                             if(tun_index){
-                                memcpy(event.source, eth->h_source, 6);
-                                memcpy(event.dest, eth->h_dest, 6);
-                                event.tun_ifindex = tun_index->index;
-                                send_event(&event);
+                                if(local_diag->verbose){
+                                    memcpy(event.source, eth->h_source, 6);
+                                    memcpy(event.dest, eth->h_dest, 6);
+                                    event.tun_ifindex = tun_index->index;
+                                    send_event(&event);
+                                }
                                 return bpf_redirect(tun_index->index, 0);
                             }
                         }
@@ -1485,10 +1474,12 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 }
                                 struct ifindex_tun *tun_index = get_tun_index(0);
                                 if(tun_index){
-                                    memcpy(event.source, eth->h_source, 6);
-                                    memcpy(event.dest, eth->h_dest, 6);
-                                    event.tun_ifindex = tun_index->index;
-                                    send_event(&event);
+                                    if(local_diag->verbose){
+                                        memcpy(event.source, eth->h_source, 6);
+                                        memcpy(event.dest, eth->h_dest, 6);
+                                        event.tun_ifindex = tun_index->index;
+                                        send_event(&event);
+                                    }
                                     return bpf_redirect(tun_index->index, 0);
                                 }
                             }
