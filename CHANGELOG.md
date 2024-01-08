@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.5.5] - 2024-01-05
+
+###
+
+-- Changed ICMP Unreachable logging to default level
+-- Added -L, --write-log option to -M, --monitor output to a specified log file 
+-- Removed redundant check on ifname in process_events
+-- Refactored ring_buffer to report only errors and ICMP Unreachables by default and
+   require verbose for all valid traffic monitoring. 
+-- Added new error code ICMP_INNER_IP_HEADER_TOO_BIG
+-- Code consolidation in zfw_tc_ingress.c
+
 # [0.5.4] - 2023-12-24
 
 ###

@@ -73,6 +73,7 @@
 #define TCP_CONNECTION_ESTABLISHED          10
 #define CLIENT_FINAL_ACK_RCVD               11
 #define CLIENT_INITIATED_UDP_SESSION        12
+#define ICMP_INNER_IP_HEADER_TOO_BIG        13
 
 bool add = false;
 bool delete = false;
@@ -106,6 +107,7 @@ bool ebpf_disable = false;
 bool list_diag = false;
 bool monitor = false;
 bool tun = false;
+bool logging = false;
 struct in_addr dcidr;
 struct in_addr scidr;
 unsigned short dplen;
@@ -147,9 +149,10 @@ char *tun_interface;
 char *vrrp_interface;
 char *monitor_interface;
 char *tc_interface;
+char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.4";
+const char *argp_program_version = "0.5.5";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -1583,42 +1586,109 @@ bool interface_map()
     return create_route;
 }
 
+int write_log(char *dest, char *source){
+    FILE *dstfile;
+    size_t len = strlen(source);
+    if(len){
+        dstfile = fopen(dest, "a");
+        if(dstfile == NULL){
+            return 1;
+        }
+        fprintf(dstfile, "%s", source);
+        fclose(dstfile);
+    }
+    return 0;
+}
+
 static int process_events(void *ctx, void *data, size_t len){
     struct bpf_event * evt = (struct bpf_event *)data;
     char buf[IF_NAMESIZE];
     char *ifname = if_indextoname(evt->ifindex, buf);
     char *ts = get_ts(evt->tstamp);
+    char message[250];
+    int res = 0;
     if(((ifname && monitor_interface && !strcmp(monitor_interface, ifname)) || all_interface) && ts)
     {
         if(evt->error_code){
             if(evt->error_code == IP_HEADER_TOO_BIG){
-                if(ifname){
-                    printf("%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message,"%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
                 }
             }
             else if(evt->error_code == NO_IP_OPTIONS_ALLOWED){
-                printf("%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == UDP_HEADER_TOO_BIG){
-                printf("%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == GENEVE_HEADER_TOO_BIG){
-                printf("%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR){
-                printf("%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message,"%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == SKB_ADJUST_ERROR){
-                printf("%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == ICMP_HEADER_TOO_BIG){
-                printf("%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
+            }
+            else if(evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG){
+                sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == IF_LIST_MATCH_ERROR){
-                printf("%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(evt->error_code == NO_REDIRECT_STATE_FOUND){
-                printf("%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
         }   
         else{
@@ -1637,15 +1707,25 @@ static int process_events(void *ctx, void *data, size_t len){
                 char tbuf[IF_NAMESIZE];
                 char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
                 if(tun_ifname){
-                    printf("%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol,saddr, ntohs(evt->sport),
+                    sprintf(message, "%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol,saddr, ntohs(evt->sport),
                     evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
                     evt->dest[0],evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
+                    if(logging){
+                        res = write_log(log_file_name, message);
+                    }else{
+                        printf("%s", message);
+                    }
                 }
             }
             else if(evt->tport && ifname){
-                printf("%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
+                sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
                 ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport),
                 daddr, ntohs(evt->dport), ntohs(evt->tport));
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             else if(((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname){
                 char *state = NULL;
@@ -1688,15 +1768,25 @@ static int process_events(void *ctx, void *data, size_t len){
                     state = "CLIENT_INITIATED_UDP_SESSION";
                 }
                 if(state){
-                    printf("%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
                     (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
+                    if(logging){
+                        res = write_log(log_file_name, message);
+                    }else{
+                        printf("%s", message);
+                    }
                 }
             }
             else if(evt->proto == IPPROTO_ICMP && ifname){
                 __u16 code = evt->tracking_code;
                 if(code == 4){
-                    printf("%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
+                    sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
                     (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                    if(logging){
+                        res = write_log(log_file_name, message);
+                    }else{
+                        printf("%s", message);
+                    }
                 }else{
                     char *code_string = NULL;
                     char *protocol_string = NULL;
@@ -1720,14 +1810,24 @@ static int process_events(void *ctx, void *data, size_t len){
                     }
 
                     if(code_string){
-                        printf("%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d\n", ts, ifname,
+                        sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d\n", ts, ifname,
                          (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, code_string, daddr, protocol_string, ntohs(evt->dport));
+                        if(logging){
+                            res = write_log(log_file_name, message);
+                        }else{
+                            printf("%s", message);
+                        }
                     }
                 }
             }
             else if(ifname){
-                printf("%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
+                sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
                 (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                if(logging){
+                    res = write_log(log_file_name, message);
+                }else{
+                    printf("%s", message);
+                }
             }
             if(saddr){
                 free(saddr);
@@ -1738,6 +1838,13 @@ static int process_events(void *ctx, void *data, size_t len){
         }
         if(ts){
             free(ts);
+        }
+    }
+    if(res){
+        printf("Unable to write to log\n");
+        if(ring_buffer){
+            ring_buffer__free(ring_buffer);
+            close_maps(1);
         }
     }
     return 0;
@@ -2304,36 +2411,37 @@ void map_list_all()
 
 // commandline parser options
 static struct argp_option options[] = {
-    {"insert", 'I', NULL, 0, "Insert map rule", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
-    {"list", 'L', NULL, 0, "List map rules", 0},
+    {"list-diag", 'E', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
-    {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
-    {"disable-ebpf", 'Q', NULL, 0, "Delete tc from all interface and remove all maps", 0},
-    {"per-interface-rules", 'P', "", 0, "Set interface to per interface rule aware", 0},
-    {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
-    {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
-    {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
-    {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
-    {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
-    {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
-    {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
-    {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
-    {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
-    {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
-    {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
-    {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
-    {"intercepts", 'i', NULL, 0, "List intercept rules <optional for list>", 0},
-    {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
+    {"insert", 'I', NULL, 0, "Insert map rule", 0},
+    {"list", 'L', NULL, 0, "List map rules", 0},
     {"monitor", 'M', "", 0, "Monitor ebpf events for interface", 0},
     {"interface", 'N', "", 0, "Interface <optional insert>", 0},
-    {"list-diag", 'E', NULL, 0, "", 0},
-    {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"object-file", 'O', "", 0, "Set object file", 0},
-    {"direction", 'z', "", 0, "Set direction", 0},
+    {"per-interface-rules", 'P', "", 0, "Set interface to per interface rule aware", 0},
+    {"disable-ebpf", 'Q', NULL, 0, "Delete tc from all interface and remove all maps", 0},
+    {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
+    {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
+    {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
+    {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
+    {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
+    {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
+    {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
+    {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
+    {"intercepts", 'i', NULL, 0, "List intercept rules <optional for list>", 0},
+    {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
+    {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
+    {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
+    {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
+    {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
+    {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
+    {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
+    {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
+    {"direction", 'z', "", 0, "Set direction", 0},
     {0}};
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
@@ -2485,6 +2593,16 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         {
             tun_interface = arg;
         }
+        break;
+    case 'W':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "logfile name -W, --write-log: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        logging = true;
+        log_file_name = arg;
         break;
     case 'X':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
@@ -2799,6 +2917,15 @@ int main(int argc, char **argv)
     if (tcfilter && !direction)
     {
         usage("-X, --set-tc-filter requires -z, --direction for add operation");
+    }
+
+    if (logging)
+    {
+        if ((tcfilter || echo || ssh_disable || verbose || per_interface
+         || add || delete || list || flush || eapol) || (!monitor))
+        {
+            usage("W, --write-log can only be used in combination call to -M, --monitor");
+        }
     }
 
     if (ebpf_disable)
