@@ -905,17 +905,15 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                 }
                 else if(tcph->rst){
-                    if(tstate->est){
-                        del_tcp(tcp_state_key);
-                        tstate = get_tcp(tcp_state_key);
-                        if(!tstate){
-                            if(local_diag->verbose){
-                                event.tracking_code = SERVER_RST_RCVD;
-                                send_event(&event);
-                            }
+                    del_tcp(tcp_state_key);
+                    tstate = get_tcp(tcp_state_key);
+                    if(!tstate){
+                        if(local_diag->verbose){
+                            event.tracking_code = SERVER_RST_RCVD;
+                            send_event(&event);
                         }
-                        return TC_ACT_OK;
                     }
+                    return TC_ACT_OK;
                 }
                 else if(tcph->ack){
                     if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
