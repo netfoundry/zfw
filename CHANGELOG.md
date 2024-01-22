@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. The format 
    cleared when restarting ziti-router.  
 -- Removed deprecated sed entries in start_ebpf_router.py that are no longer required
 -- Fixed inaccurate string parse check in start_ebpf_router.py set_local_rules()
+-- Original changes were merged directly into v0.5.6 so this entry is to allow new release merge.
 
 # [0.5.6] - 2024-01-19
 
