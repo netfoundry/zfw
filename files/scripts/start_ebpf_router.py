@@ -190,14 +190,13 @@ def get_if_ip(intf):
                return ""
 
 def set_local_rules(resolver):
-        default_cidr = '0.0.0.0/0'
         default_ip = '0.0.0.0'
         default_mask = '0'
-        if(len(resolver.split('/'))):
+        if(len(resolver.split('/')) == 2):
             lan_ip = resolver.split('/')[0]
             lan_mask = '32'
         else:
-            lan_ip = default_cidr
+            lan_ip = default_ip
             lan_mask = default_mask
         add_edge_listener_rules(lan_ip, lan_mask)
         add_link_listener_rules(lan_ip, lan_mask)
@@ -369,7 +368,7 @@ if(status.returncode):
         os.system("/opt/openziti/bin/user/user_rules.sh")
 else:
     print("ebpf already running!");
-    os.system("/usr/sbin/zfw -F")
+    os.system("/usr/sbin/zfw -F -r")
     print("Flushed Table")
     for i in internal_list:
         if(not tc_status(i, "ingress")):
@@ -417,8 +416,6 @@ if(len(resolver)):
 if(os.path.exists('/etc/systemd/system/ziti-router.service') and router_config):
     unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_router.py' /etc/systemd/system/ziti-router.service")
     if(unconfigured):
-        os.system("sed -i 's/ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/#ExecStartPre\=-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/g' /etc/systemd/system/ziti-router.service")
-        os.system("sed -i 's/ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/scripts\/tproxy_splicer_startup.sh/#ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/scripts\/tproxy_splicer_startup.sh/g' /etc/systemd/system/ziti-router.service")
         test1 = 1
         test1 = os.system("sed -i '/ExecStart=/i ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_router.py' /etc/systemd/system/ziti-router.service")
         if(not test1):
