@@ -110,7 +110,11 @@ def add_resolver_rules():
                                                 lan_ip = addr_array[1].split('//')[1]
                                                 if((int(port) > 0)):
                                                     os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
-                                                    os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p udp')
+                                                    if(lan_ip == '100.127.255.254'):
+                                                        #special case for NF AWS Gateway loadbalance via DNS over GENEVE using 100.127.255.254 on loopback so add route on loopback
+                                                        os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p udp -r')
+                                                    else:
+                                                        os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p udp')
                                             except Exception as e:
                                                 print(e)
                                                 pass

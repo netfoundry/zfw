@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.5.8] - 2024-01-28
+
+###
+
+-- Modified start_ebpf_router to include a conditional when adding the rules for the ziti-router resolver. 
+   If the ip address of the ziti-router's resolver in the config.yml is set to 100.127.255.254 which is the 
+   ip that NetFoundry uses when setting up AWS Gateway load balancing the -r option is now added in order to 
+   automatically assign the address back to the loopback.  This change was required due to the addition of the -r flag in the zfw -F -r command used to ensure all ziti zfw rules/routes are deleted before restarting ziti-router.service. 
+
 
 # [0.5.7] - 2024-01-21
 
