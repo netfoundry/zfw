@@ -1289,6 +1289,8 @@ int bpf_sk_splice4(struct __sk_buff *skb){
             if(dmask == 0x00000000){
                 if((tracked_key_data->count > 0)){
                     return TC_ACT_PIPE;
+                }else if(skb->ingress_ifindex == 1){
+                    return TC_ACT_OK;
                 }
             }
             iterate_masks(&dmask, &dexponent);
