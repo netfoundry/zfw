@@ -11,7 +11,7 @@ env:
 
 jobs: 
   build_amd64_release:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-20.04.5
     outputs:
       version: ${{ steps.version.outputs.version }}
     strategy:
