@@ -152,7 +152,7 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.10";
+const char *argp_program_version = "0.5.11";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
