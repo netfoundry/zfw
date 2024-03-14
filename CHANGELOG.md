@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. The format 
 
 - Added ddos_protect diag mode
 - Added icmp unrecheable ttl logging. Inner and outer.
+- Fixed BUILD.md incorrect reference to parent repo
 
 # [0.5.11] - 2024-02-27
 
