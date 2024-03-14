@@ -75,6 +75,7 @@
 #define CLIENT_INITIATED_UDP_SESSION        12
 #define ICMP_INNER_IP_HEADER_TOO_BIG        13
 
+bool ddos = false;
 bool add = false;
 bool delete = false;
 bool list = false;
@@ -137,6 +138,7 @@ const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
 const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
+const char *ddos_map_path = "/sys/fs/bpf/tc/globals/ddos_protect_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -147,12 +149,13 @@ char *ssh_interface;
 char *prefix_interface;
 char *tun_interface;
 char *vrrp_interface;
+char *ddos_interface;
 char *monitor_interface;
 char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.11";
+const char *argp_program_version = "0.5.12";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -220,6 +223,7 @@ struct diag_ip4
     bool tun_mode;
     bool vrrp;
     bool eapol;
+    bool ddos_filtering;
 };
 
 struct tproxy_port_mapping
@@ -428,10 +432,10 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[11] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[12] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                             transp_map_path, rb_map_path};
-    for (int map_count = 0; map_count < 11; map_count++)
+                             transp_map_path, rb_map_path, ddos_map_path};
+    for (int map_count = 0; map_count < 12; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -989,6 +993,18 @@ bool set_diag(uint32_t *idx)
             }
             printf("Set vrrp mode to %d for %s\n", !disable, vrrp_interface);
         }
+        if (ddos)
+        {
+            if (!disable)
+            {
+                o_diag.ddos_filtering = true;
+            }
+            else
+            {
+                o_diag.ddos_filtering = false;
+            }
+            printf("Set ddos detect to %d for %s\n", !disable, ddos_interface);
+        }
         int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
         if (ret)
         {
@@ -1017,6 +1033,7 @@ bool set_diag(uint32_t *idx)
         printf("%-24s:%d\n", "tun mode intercept", o_diag.tun_mode);
         printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
         printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
+        printf("%-24s:%d\n", "ddos filtering", o_diag.ddos_filtering);
         printf("--------------------------\n\n");
     }
     return true;
@@ -1163,8 +1180,9 @@ void interface_diag()
                 tun_interface = address->ifa_name;
                 vrrp_interface = address->ifa_name;
                 eapol_interface = address->ifa_name;
+                ddos_interface = address->ifa_name;
             }
-            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol)){
+            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos)){
                 if(per_interface && !strncmp(prefix_interface, "ziti", 4)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
@@ -1183,6 +1201,9 @@ void interface_diag()
                 if(eapol && !strncmp(eapol_interface, "ziti", 4)){
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
+                if(ddos && !strncmp(ddos_interface, "ziti", 4)){
+                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                }
                 address = address->ifa_next;
                 continue;
             }
@@ -1197,6 +1218,14 @@ void interface_diag()
             if (vrrp)
             {
                 if (!strcmp(vrrp_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (ddos)
+            {
+                if (!strcmp(ddos_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -1779,7 +1808,10 @@ static int process_events(void *ctx, void *data, size_t len){
             }
             else if(evt->proto == IPPROTO_ICMP && ifname){
                 __u16 code = evt->tracking_code;
+                __u8 inner_ttl = evt->dest[0];
+                __u8 outer_ttl = evt->source[0];
                 if(code == 4){
+                    /*evt->sport is use repurposed store next hop mtu*/
                     sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
                     (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
                     if(logging){
@@ -1790,8 +1822,7 @@ static int process_events(void *ctx, void *data, size_t len){
                 }else{
                     char *code_string = NULL;
                     char *protocol_string = NULL;
-                    /*evt->sport is use repurposed store encapsulated higher layer protocol*/
-                    if(evt->sport == IPPROTO_TCP){
+                    if(evt->dest[1] == IPPROTO_TCP){
                         protocol_string = "TCP";
                     }else{
                         protocol_string = "UDP";
@@ -1810,8 +1841,8 @@ static int process_events(void *ctx, void *data, size_t len){
                     }
 
                     if(code_string){
-                        sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d\n", ts, ifname,
-                         (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, code_string, daddr, protocol_string, ntohs(evt->dport));
+                        sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d OUTER-TTL:%d INNER-TTL:%d\n", ts, ifname,
+                         (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, code_string, daddr, protocol_string, ntohs(evt->dport), outer_ttl, inner_ttl);
                         if(logging){
                             res = write_log(log_file_name, message);
                         }else{
@@ -2441,6 +2472,7 @@ static struct argp_option options[] = {
     {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
+    {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"direction", 'z', "", 0, "Set direction", 0},
     {0}};
 
@@ -2624,6 +2656,28 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         else
         {
             tc_interface = arg;
+        }
+        break;
+    case 'a':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -a, --ddos-filter: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if(strcmp("all", arg) && idx == 0){
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        ddos = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            ddos_interface = arg;
         }
         break;
     case 'c':
@@ -2922,7 +2976,7 @@ int main(int argc, char **argv)
     if (logging)
     {
         if ((tcfilter || echo || ssh_disable || verbose || per_interface
-         || add || delete || list || flush || eapol) || (!monitor))
+         || add || delete || list || flush || eapol) || ddos || vrrp || (!monitor))
         {
             usage("W, --write-log can only be used in combination call to -M, --monitor");
         }
@@ -2930,7 +2984,7 @@ int main(int argc, char **argv)
 
     if (ebpf_disable)
     {
-        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || monitor || eapol)
+        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || monitor || eapol || vrrp || ddos)
         {
             usage("Q, --disable-ebpf cannot be used in combination call");
         }
@@ -2955,6 +3009,11 @@ int main(int argc, char **argv)
     if ((tun && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
     {
         usage("-T, --set-tun-mode cannot be set as a part of combination call to zfw");
+    }
+
+    if ((ddos && (monitor || tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp || eapol)))
+    {
+        usage("-a, --ddsos-filter cannot be set as a part of combination call to zfw");
     }
 
     if ((eapol && (monitor || tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp)))
@@ -3007,7 +3066,7 @@ int main(int argc, char **argv)
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
     }
 
-    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol))
+    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol && !ddos))
     {
         usage("Missing argument at least one of -e, -v, -x, w, or -E, -P, -R, -T, -X");
     }
@@ -3160,7 +3219,7 @@ int main(int argc, char **argv)
             map_list();
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos)
     {
         interface_diag();
         exit(0);

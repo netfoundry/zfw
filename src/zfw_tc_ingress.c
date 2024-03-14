@@ -201,6 +201,7 @@ struct diag_ip4 {
     bool tun_mode;
     bool vrrp;
     bool eapol;
+    bool ddos_filtering;
 };
 
 /*Value to tun_map*/
@@ -235,6 +236,15 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zet_transp_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(key_size, sizeof(uint32_t));
+     __uint(value_size,sizeof(bool));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     __uint(map_flags, BPF_F_NO_PREALLOC);
+} ddos_protect_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming packet search.  Map is 
 then used to search for port mappings.  This was required when source filtering was 
@@ -456,6 +466,13 @@ static inline __u16 get_matched_count(struct match_key key){
 /*Function to clear matched tracker*/
 static inline void clear_match_tracker(struct match_key key){
     bpf_map_delete_elem(&matched_map, &key);
+}
+
+/*Function to check if ip is in ddos whitelist*/
+static inline bool *get_ddos_list(unsigned int key){
+    bool *match;
+    match = bpf_map_lookup_elem(&ddos_protect_map, &key);
+	return match;
 }
 
 static inline void send_event(struct bpf_event *new_event){
@@ -744,6 +761,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     return TC_ACT_SHOT;
                 }
                 if((inner_iph->protocol == IPPROTO_TCP) || ((inner_iph->protocol == IPPROTO_UDP))){
+                    event.source[0] = iph->ttl;
+                    event.dest[0] = inner_iph->ttl; 
+                    event.dest[1] = inner_iph->protocol;
                     struct bpf_sock_tuple *o_session = (struct bpf_sock_tuple *)(void*)(long)&inner_iph->saddr; 
                     if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
                         event.error_code = IP_TUPLE_TOO_BIG;
@@ -760,8 +780,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 event.tracking_code = icmph->code;
                                 if(icmph->code == 4){
                                     event.sport = icmph->un.frag.mtu;
-                                }else{
-                                    event.sport = inner_iph->protocol;
                                 }
                                 event.dport = o_session->ipv4.dport;
                                 send_event(&event);
@@ -1405,7 +1423,14 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
                     if(!local_diag->per_interface){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                            return TC_ACT_OK;
+                            if(!local_diag->ddos_filtering){
+                                return TC_ACT_OK;
+                            }
+                            else{
+                                if(get_ddos_list(tuple->ipv4.saddr)){
+                                    return TC_ACT_OK;
+                                }
+                            }
                         }
                         if(!local_diag->tun_mode){
                             sk = get_sk(key, skb, sockcheck);
@@ -1454,7 +1479,14 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                         if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                                return TC_ACT_OK;
+                                if(!local_diag->ddos_filtering){
+                                    return TC_ACT_OK;
+                                }
+                                else{
+                                    if(get_ddos_list(tuple->ipv4.saddr)){
+                                        return TC_ACT_OK;
+                                    }
+                                }
                             }
                             if(!local_diag->tun_mode){
                                 sk = get_sk(key, skb, sockcheck);
