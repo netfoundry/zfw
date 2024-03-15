@@ -17,7 +17,7 @@
         ```bash      
         mkdir ~/repos
         cd repos
-        git clone https://github.com/r-caamano/zfw.git 
+        git clone https://github.com/netfoundry/zfw.git 
         cd zfw/src
         make all
         sudo make install ARGS=<router|tunnel>
@@ -40,7 +40,7 @@
         ```bash      
         mkdir ~/repos
         cd repos
-        git clone https://github.com/r-caamano/zfw.git
+        git clone https://github.com/netfoundry/zfw.git
         cd zfw/src
         make all
         sudo make install ARGS=<router|tunnel>

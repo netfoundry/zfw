@@ -99,6 +99,7 @@ struct diag_ip4 {
     bool tun_mode;
     bool vrrp;
     bool eapol;
+    bool ddos_filtering;
 };
 
 //map to keep status of diagnostic rules
