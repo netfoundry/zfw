@@ -1,0 +1,13 @@
+[Unit]
+Description=zfw-logging
+BindsTo=ziti-router.service
+After=ziti-router.service
+
+[Service]
+User=root
+ExecStart=/opt/openziti/bin/zfw -M all -W /var/log/zfw.log
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=ziti-router.service

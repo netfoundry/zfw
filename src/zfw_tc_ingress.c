@@ -238,12 +238,11 @@ struct {
 } zet_transp_map SEC(".maps");
 
 struct {
-     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(uint32_t));
      __uint(value_size,sizeof(bool));
      __uint(max_entries, BPF_MAX_ENTRIES);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
-     __uint(map_flags, BPF_F_NO_PREALLOC);
 } ddos_protect_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming packet search.  Map is 
