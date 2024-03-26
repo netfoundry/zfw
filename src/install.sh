@@ -74,6 +74,10 @@ then
    then
       mkdir -p /opt/openziti/bin/user
    fi
+   if [ ! -d "/opt/openziti/etc" ]
+   then
+       mkdir -p /opt/openziti/etc
+   fi
    cp  zfw /opt/openziti/bin
    cp  zfw_tc_ingress.o /opt/openziti/bin
    cp  zfw_tc_outbound_track.o /opt/openziti/bin
