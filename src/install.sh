@@ -82,6 +82,7 @@ then
    cp  zfw_tc_ingress.o /opt/openziti/bin
    cp  zfw_tc_outbound_track.o /opt/openziti/bin
    cp  ../files/scripts/start_ebpf_controller.py /opt/openziti/bin
+   cp  ../files/scripts/revert_ebpf_controller.py /opt/openziti/bin
    cp  ../files/scripts/zfwlogs /etc/logrotate.d
    cp  ../files/scripts/user_rules.sh.sample /opt/openziti/bin/user
    cp  ../files/json/ebpf_config.json.sample /opt/openziti/etc
