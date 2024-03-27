@@ -100,12 +100,12 @@ if(os.path.exists('/opt/openziti/etc/ebpf_config.json')):
             print("Malformed or missing json object in /opt/openziti/etc/ebpf_config.json can't revert ufw!")
 
 service = False
-if(os.path.exists('/etc/systemd/system/ziti-router.service')):
-    unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_router.py' /etc/systemd/system/ziti-router.service")
+if(os.path.exists('/etc/systemd/system/ziti-controller.service')):
+    unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_controller.py' /etc/systemd/system/ziti-controller.service")
     if(not unconfigured):
-        os.system("sed -i 's/#ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/ExecStartPre\=-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/g' /etc/systemd/system/ziti-router.service")
-        os.system("sed -i 's/#ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/scripts\/tproxy_splicer_startup.sh/ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/scripts\/tproxy_splicer_startup.sh/g' /etc/systemd/system/ziti-router.service")
-        test1 = os.system("sed -i '/ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_router.py/d' /etc/systemd/system/ziti-router.service")
+        os.system("sed -i 's/#ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/ExecStartPre\=-\/opt\/netfoundry\/ebpf\/objects\/etables \-F \-r/g' /etc/systemd/system/ziti-controller.service")
+        os.system("sed -i 's/#ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/scripts\/tproxy_splicer_startup.sh/ExecStartPre\=\-\/opt\/netfoundry\/ebpf\/scripts\/tproxy_splicer_startup.sh/g' /etc/systemd/system/ziti-controller.service")
+        test1 = os.system("sed -i '/ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_controller.py/d' /etc/systemd/system/ziti-controller.service")
         if(not test1):
             test1 = os.system("systemctl daemon-reload")
             if(not test1):
@@ -115,13 +115,13 @@ if(os.path.exists('/etc/systemd/system/ziti-router.service')):
                     os.remove("/opt/openziti/etc/ebpf_config.json")
                 if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
                     os.remove("/opt/openziti/bin/user/user_rules.sh")
-                print("Successfully reverted ziti-router.service!")
+                print("Successfully reverted ziti-controller.service!")
         else:
-            print("Failed to revert ziti-router.service!")
+            print("Failed to revert ziti-controller.service!")
     else:
-        print("ziti-router.service already reverted. Nothing to do!")
+        print("ziti-controller.service already reverted. Nothing to do!")
 else:
-    print("Skipping ziti-router.service reversal. File does not exist!")
+    print("Skipping ziti-controller.service reversal. File does not exist!")
 
 if service:
     print("config.yml successfully reverted. restarting ziti-controller.service")
@@ -132,7 +132,7 @@ if service:
             print("Detected Netfoundry controller install!")
             if(os.path.exists('/opt/openziti/ziti-controller/controller01.config.yml')):
                 print("Removing symlink from /opt/openziti/ziti-controller to /opt/netfoundry/ziti/ziti-controller/conf")
-                os.unlink('/opt/openziti/ziti-controller/conf')
+                os.unlink('/opt/openziti/ziti-controller')
             else:
                 print("No symlink found nothing to do!")
         if(os.path.exists('/opt/netfoundry/ziti/ziti-router/config.yml')):
