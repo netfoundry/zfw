@@ -25,6 +25,7 @@ then
    cp ../files/scripts/user_rules.sh.sample /opt/openziti/bin/user
    cp ../files/json/ebpf_config.json.sample /opt/openziti/etc
    cp ../files/services/zfw-logging.service /etc/systemd/system
+   cp ../files/services/fw-init.service /etc/systemd/system
    chmod 744 /opt/openziti/bin/start_ebpf_router.py
    chmod 744 /opt/openziti/bin/revert_ebpf_router.py
    chmod 744 /opt/openziti/bin/user/user_rules.sh.sample
@@ -52,7 +53,7 @@ then
       cp ../files/scripts/user_rules.sh.sample /opt/openziti/bin/user
       cp ../files/json/ebpf_config.json.sample /opt/openziti/etc
       cp ../files/services/ziti-wrapper.service /etc/systemd/system
-      cp ../files/services/fw-init.service /etc/systemd/system
+      cp ../files/services/ziti-fw-init.service /etc/systemd/system
       cp ../files/services/zfw-logging.service /etc/systemd/system
       chmod 744 /opt/openziti/bin/start_ebpf_tunnel.py
       chmod 744 /opt/openziti/bin/set_xdp_redirect.py
