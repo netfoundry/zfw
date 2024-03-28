@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
-# [0.5.13] - 2024-03-16
+# [0.5.13] - 2024-03-28
 
 ###
 
@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file. The format 
 - Added optional logging systemd service with log rotation support
 - Updated make install.sh for controller install and logging service files
 - Removed -p from cp commands in make install.sh so files are installed as owned by root user   
+- Added fw-init-router.service for standalone firewall deployment in make install.sh
+- Updated workflows to add new / updated files
+
 # [0.5.12] - 2024-03-14
 
 ###

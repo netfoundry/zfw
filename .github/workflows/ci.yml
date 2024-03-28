@@ -89,7 +89,11 @@ jobs:
         run: |
           cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/scripts/revert_ebpf_router.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/revert_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
 
       - name: Build Deb package    
         run: |
@@ -181,7 +185,11 @@ jobs:
         run: |
           cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/scripts/revert_ebpf_router.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/revert_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
 
       - name: Build Deb package    
         run: |
