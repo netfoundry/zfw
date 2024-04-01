@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
-- Changed ddos_protect_map to typr BPF_MAP_TYPE_LRU_HASH to allow cycling of entries
+- Changed ddos_protect_map to type BPF_MAP_TYPE_LRU_HASH to allow cycling of entries
 - Added controller startup script
 - Added optional logging systemd service with log rotation support
 - Updated make install.sh for controller install and logging service files
