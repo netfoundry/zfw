@@ -59,7 +59,6 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
-          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
@@ -81,6 +80,7 @@ jobs:
           cp -p files/services/ziti-wrapper.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/bin/zfw_tunnwrapper ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
       
@@ -155,7 +155,6 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
-          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
@@ -177,6 +176,7 @@ jobs:
           cp -p files/services/ziti-wrapper.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/bin/zfw_tunnwrapper ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
 
