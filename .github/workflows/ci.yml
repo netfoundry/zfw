@@ -58,16 +58,16 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
-          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
-          cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
+          cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
           cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
+          cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
-          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
@@ -79,14 +79,21 @@ jobs:
           cp -p files/services/ziti-fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/services/ziti-wrapper.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/bin/zfw_tunnwrapper ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
       
       - name: Standalone FW service and router revert
         if: ${{ matrix.ziti_type == 'router' }}
         run: |
           cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/scripts/revert_ebpf_router.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/revert_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
 
       - name: Build Deb package    
         run: |
@@ -147,16 +154,16 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
-          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
-          cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
+          cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
           cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
+          cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
-          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
@@ -168,14 +175,21 @@ jobs:
           cp -p files/services/ziti-fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/services/ziti-wrapper.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/bin/zfw_tunnwrapper ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
 
       - name: Standalone FW service and router revert
         if: ${{ matrix.ziti_type == 'router' }}
         run: |
           cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           cp -p files/scripts/revert_ebpf_router.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/revert_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
 
       - name: Build Deb package    
         run: |

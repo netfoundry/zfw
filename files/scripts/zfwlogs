@@ -1,0 +1,15 @@
+/var/log/zfw.log {
+        weekly
+        maxsize 1G
+        minsize 500M
+        rotate 7
+        compress
+        delaycompress
+        missingok
+        notifempty
+        dateext
+	create 644 root root
+        postrotate
+        /usr/bin/killall -HUP rsyslogd
+        endscript
+}
