@@ -1,4 +1,5 @@
 /var/log/zfw.log {
+        su root root
         weekly
         maxsize 1G
         minsize 500M
