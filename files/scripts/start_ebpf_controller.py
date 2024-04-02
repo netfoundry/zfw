@@ -137,6 +137,24 @@ def add_controller_web_listener_rules(lan_ip, lan_mask):
         except Exception as e:
             print(e)
 
+def add_controller_salt_api_listener_rules(lan_ip, lan_mask):
+    if(os.path.exists('/etc/salt/master.d/nf_master.conf')):
+        try:
+            with open('/etc/salt/master.d/nf_master.conf') as config_file:
+                config = yaml.load(config_file, Loader=yaml.FullLoader)
+                if(config):
+                    if('rest_cherrypy' in config.keys()):
+                        if('port' in config['rest_cherrypy'].keys()):
+                            try:
+                                port = config['rest_cherrypy']['port']
+                                if(port > 0):
+                                    os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + str(port) + ' -h ' + str(port) + ' -t 0  -p tcp')
+                            except Exception as e:
+                                print(e)
+                                pass
+        except Exception as e:
+            print(e)
+
 
 def add_controller_port_forwarding_rule(lan_ip, lan_mask):
     test = os.system("grep -rnw \'A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 443\' /etc/ufw/before.rules")
@@ -234,6 +252,7 @@ def set_local_rules(ip):
         add_controller_edge_listener_rules(lan_ip, lan_mask)
         add_controller_web_listener_rules(lan_ip, lan_mask)
         add_controller_port_forwarding_rule(lan_ip, lan_mask)
+        add_controller_salt_api_listener_rules(lan_ip, lan_mask)
     if router:
         add_link_listener_rules(lan_ip, lan_mask)
     
