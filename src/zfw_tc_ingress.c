@@ -238,6 +238,14 @@ struct {
 } zet_transp_map SEC(".maps");
 
 struct {
+     __uint(type, BPF_MAP_TYPE_ARRAY);
+     __uint(key_size, sizeof(uint32_t));
+     __uint(value_size,sizeof(uint32_t));
+     __uint(max_entries, 1);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} syn_count_map SEC(".maps");
+
+struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(uint32_t));
      __uint(value_size,sizeof(bool));
@@ -465,6 +473,32 @@ static inline __u16 get_matched_count(struct match_key key){
 /*Function to clear matched tracker*/
 static inline void clear_match_tracker(struct match_key key){
     bpf_map_delete_elem(&matched_map, &key);
+}
+
+/*Function to get stored syn count*/
+static inline __u32 get_syn_count(__u32  key){
+    __u32 *sc;
+    sc = bpf_map_lookup_elem(&syn_count_map,&key);
+    if(sc){
+        return *sc;
+    }
+    return -1;
+}
+
+/*Function to clear matched tracker*/
+static inline void clear_syn_count(__u32 key){
+    uint32_t sc = 0;
+    bpf_map_update_elem(&syn_count_map, &key, &sc,0);
+}
+
+/*Function to increment syn count*/
+static inline void inc_syn_count(__u32 key){
+    __u32 *sc;
+    sc = bpf_map_lookup_elem(&syn_count_map,&key);
+    if(sc){
+        *sc += 1;
+        bpf_map_update_elem(&syn_count_map, &key, sc,0);
+    }
 }
 
 /*Function to check if ip is in ddos whitelist*/
@@ -897,6 +931,23 @@ int bpf_sk_splice(struct __sk_buff *skb){
             struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
             if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;
+            }
+            if(tcph->syn && (bpf_ntohs(tuple->ipv4.dport) == 443) && local_ip4 && local_ip4->count){
+                uint8_t addresses = 0;
+                if(local_ip4->count < MAX_ADDRESSES){
+                    addresses = local_ip4->count;
+                }else{
+                    addresses = MAX_ADDRESSES;
+                }
+                for(int x = 0; x < addresses; x++){
+                    if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                        if(local_diag->verbose){
+                            event.proto = IPPROTO_TCP;
+                            send_event(&event);
+                        }
+                        inc_syn_count(0);
+                    }
+                }
             }
             tcp_state_key.daddr = tuple->ipv4.saddr;
             tcp_state_key.saddr = tuple->ipv4.daddr;

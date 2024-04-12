@@ -139,6 +139,7 @@ const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *ddos_map_path = "/sys/fs/bpf/tc/globals/ddos_protect_map";
+const char *syn_count_map = "/sys/fs/bpf/tc/globals/syn_count_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -155,7 +156,7 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.14";
+const char *argp_program_version = "0.5.15";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -432,10 +433,10 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[12] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[13] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                             transp_map_path, rb_map_path, ddos_map_path};
-    for (int map_count = 0; map_count < 12; map_count++)
+                             transp_map_path, rb_map_path, ddos_map_path, syn_count_map};
+    for (int map_count = 0; map_count < 13; map_count++)
     {
 
         int stat = remove(maps[map_count]);
