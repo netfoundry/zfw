@@ -476,20 +476,20 @@ static inline void clear_match_tracker(struct match_key key){
 }
 
 /*Function to get stored syn count*/
-static inline __u32 get_syn_count(__u32  key){
+/*static inline __u32 get_syn_count(__u32  key){
     __u32 *sc;
     sc = bpf_map_lookup_elem(&syn_count_map,&key);
     if(sc){
         return *sc;
     }
     return -1;
-}
+}*/
 
 /*Function to clear matched tracker*/
-static inline void clear_syn_count(__u32 key){
+/*static inline void clear_syn_count(__u32 key){
     uint32_t sc = 0;
     bpf_map_update_elem(&syn_count_map, &key, &sc,0);
-}
+}*/
 
 /*Function to increment syn count*/
 static inline void inc_syn_count(__u32 key){
