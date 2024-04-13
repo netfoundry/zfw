@@ -908,13 +908,21 @@ int bpf_sk_splice(struct __sk_buff *skb){
      * openziti router has tproxy intercepts defined for the flow
      */
     if(tcp){
-       /*if tcp based tuple implement stateful inspection to see if they were
-       * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
-       outbound initiated from through the router interface. if not pass on to tproxy logic
-       to determine if the openziti router has tproxy intercepts defined for the flow*/
-       event.proto = IPPROTO_TCP;
-       sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
-       if(sk){
+        /*if tcp based tuple implement stateful inspection to see if they were
+        * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
+        outbound initiated from through the router interface. if not pass on to tproxy logic
+        to determine if the openziti router has tproxy intercepts defined for the flow*/
+        event.proto = IPPROTO_TCP;
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
+        if(sk){
             if (sk->state != BPF_TCP_LISTEN){
                 if(local_diag->verbose){
                     send_event(&event);
@@ -922,16 +930,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
             }
             bpf_sk_release(sk);
-        /*reply to outbound passthrough check*/
-       }else{
-            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                return TC_ACT_SHOT;
-            }
-            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
-                return TC_ACT_SHOT;
-            }
             if(tcph->syn && (bpf_ntohs(tuple->ipv4.dport) == 443) && local_ip4 && local_ip4->count){
                 uint8_t addresses = 0;
                 if(local_ip4->count < MAX_ADDRESSES){
@@ -949,6 +947,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                 }
             }
+        /*reply to outbound passthrough check*/
+        }else{
             tcp_state_key.daddr = tuple->ipv4.saddr;
             tcp_state_key.saddr = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.dport;
@@ -1015,7 +1015,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             else if(tstate){
                 del_tcp(tcp_state_key);
             }
-       }
+        }
     }else{
        /* if udp based tuple implement stateful inspection to 
         * implement stateful inspection to see if they were initiated by the local OS and If yes jump
