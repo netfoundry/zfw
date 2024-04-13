@@ -237,12 +237,21 @@ struct {
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zet_transp_map SEC(".maps");
 
-struct {
+/*struct {
      __uint(type, BPF_MAP_TYPE_ARRAY);
      __uint(key_size, sizeof(uint32_t));
      __uint(value_size,sizeof(uint32_t));
      __uint(max_entries, 1);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
+} syn_count_map SEC(".maps");*/
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, MAX_IF_ENTRIES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 } syn_count_map SEC(".maps");
 
 struct {
@@ -485,7 +494,7 @@ static inline void clear_match_tracker(struct match_key key){
     return -1;
 }*/
 
-/*Function to clear matched tracker*/
+/*Function to clear syn_count tracker*/
 /*static inline void clear_syn_count(__u32 key){
     uint32_t sc = 0;
     bpf_map_update_elem(&syn_count_map, &key, &sc,0);
@@ -498,6 +507,9 @@ static inline void inc_syn_count(__u32 key){
     if(sc){
         *sc += 1;
         bpf_map_update_elem(&syn_count_map, &key, sc,0);
+    }else{
+	    uint32_t scnew = 1;
+	    bpf_map_update_elem(&syn_count_map, &key, &scnew,0);
     }
 }
 
@@ -930,23 +942,33 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
             }
             bpf_sk_release(sk);
-            if(tcph->syn && (bpf_ntohs(tuple->ipv4.dport) == 443) && local_ip4 && local_ip4->count){
-                uint8_t addresses = 0;
-                if(local_ip4->count < MAX_ADDRESSES){
-                    addresses = local_ip4->count;
-                }else{
-                    addresses = MAX_ADDRESSES;
-                }
-                for(int x = 0; x < addresses; x++){
-                    if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
-                        if(local_diag->verbose){
-                            event.proto = IPPROTO_TCP;
-                            send_event(&event);
-                        }
-                        inc_syn_count(0);
+            if(((bpf_ntohs(tuple->ipv4.dport) == 443) || (bpf_ntohs(tuple->ipv4.dport) == 6262))
+             && local_ip4 && local_ip4->count){
+                    uint8_t addresses = 0;
+                    if(local_ip4->count < MAX_ADDRESSES){
+                        addresses = local_ip4->count;
+                    }else{
+                        addresses = MAX_ADDRESSES;
                     }
-                }
-            }
+                    for(int x = 0; x < addresses; x++){
+                        if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                            if(local_diag->verbose){
+                                event.proto = IPPROTO_TCP;
+                                send_event(&event);
+                            }
+			    if(tcph->syn){
+                                inc_syn_count(skb->ifindex);
+			    }
+			    if(local_diag->ddos_filtering){
+				if(get_ddos_list(tuple->ipv4.saddr)){
+                                   return TC_ACT_OK;
+                                }else{
+                                   return TC_ACT_SHOT;
+				}
+                            }
+                        }
+                    }
+             }   
         /*reply to outbound passthrough check*/
         }else{
             tcp_state_key.daddr = tuple->ipv4.saddr;
@@ -1473,13 +1495,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
                     if(!local_diag->per_interface){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                            if(!local_diag->ddos_filtering){
-                                return TC_ACT_OK;
-                            }
-                            else{
-                                if(get_ddos_list(tuple->ipv4.saddr)){
-                                    return TC_ACT_OK;
-                                }
+                            return TC_ACT_OK;
+                            if(local_diag->verbose){
+                                send_event(&event);
                             }
                         }
                         if(!local_diag->tun_mode){
@@ -1529,13 +1547,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                         if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                                if(!local_diag->ddos_filtering){
-                                    return TC_ACT_OK;
-                                }
-                                else{
-                                    if(get_ddos_list(tuple->ipv4.saddr)){
-                                        return TC_ACT_OK;
-                                    }
+                                return TC_ACT_OK;
+                                if(local_diag->verbose){
+                                    send_event(&event);
                                 }
                             }
                             if(!local_diag->tun_mode){
