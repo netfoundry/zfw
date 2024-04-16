@@ -956,15 +956,15 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 event.proto = IPPROTO_TCP;
                                 send_event(&event);
                             }
-			    if(tcph->syn){
+			                if(tcph->syn){
                                 inc_syn_count(skb->ifindex);
-			    }
-			    if(local_diag->ddos_filtering){
-				if(get_ddos_list(tuple->ipv4.saddr)){
-                                   return TC_ACT_OK;
+			                }
+			                if(local_diag->ddos_filtering){
+				                if(get_ddos_list(tuple->ipv4.saddr)){
+                                    return TC_ACT_OK;
                                 }else{
-                                   return TC_ACT_SHOT;
-				}
+                                    return TC_ACT_SHOT;
+				                }
                             }
                         }
                     }
