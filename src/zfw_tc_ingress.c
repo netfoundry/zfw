@@ -942,8 +942,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
             }
             bpf_sk_release(sk);
-            if(((bpf_ntohs(tuple->ipv4.dport) == 443) || (bpf_ntohs(tuple->ipv4.dport) == 6262))
-             && local_ip4 && local_ip4->count){
+            if(((bpf_ntohs(tuple->ipv4.dport) == 80) || (bpf_ntohs(tuple->ipv4.dport) == 443)
+            || (bpf_ntohs(tuple->ipv4.dport) == 6262)) && local_ip4 && local_ip4->count){
                     uint8_t addresses = 0;
                     if(local_ip4->count < MAX_ADDRESSES){
                         addresses = local_ip4->count;
