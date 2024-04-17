@@ -971,6 +971,32 @@ int bpf_sk_splice(struct __sk_buff *skb){
              }   
         /*reply to outbound passthrough check*/
         }else{
+            if((bpf_ntohs(tuple->ipv4.dport) == 80) && local_ip4 && local_ip4->count){
+                    uint8_t addresses = 0;
+                    if(local_ip4->count < MAX_ADDRESSES){
+                        addresses = local_ip4->count;
+                    }else{
+                        addresses = MAX_ADDRESSES;
+                    }
+                    for(int x = 0; x < addresses; x++){
+                        if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                            if(local_diag->verbose){
+                                event.proto = IPPROTO_TCP;
+                                send_event(&event);
+                            }
+			                if(tcph->syn){
+                                inc_syn_count(skb->ifindex);
+			                }
+			                if(local_diag->ddos_filtering){
+				                if(get_ddos_list(tuple->ipv4.saddr)){
+                                    return TC_ACT_OK;
+                                }else{
+                                    return TC_ACT_SHOT;
+				                }
+                            }
+                        }
+                    }
+             }
             tcp_state_key.daddr = tuple->ipv4.saddr;
             tcp_state_key.saddr = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.dport;
