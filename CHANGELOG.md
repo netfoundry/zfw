@@ -8,9 +8,11 @@ All notable changes to this project will be documented in this file. The format 
 ###
 
 - Added map to track tcp syn count for packets sent to the firewall ip address on port 443.
-- Ddos protection is meant for the FW host accept/deny logic was moved to first bpf program and
-  and addresses in ddos_protect_map supersede fw rules for locally terminated service on port 443.
-  Currently only for ports 80,443 and 6262. 
+- Ddos protection is meant for the FW host accept/deny logic was moved to first bpf program. 
+- ddos dport map was created to specify ports to be protected when an interface is in 
+  ddos_protect mode.
+- ddos saddr map was created to specify whitelisted IP addresses to be allowed to reach protected ports
+  when an interface is in ddos_protect mode.
   
 # [0.5.14] - 2024-04-02
 

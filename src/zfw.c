@@ -42,38 +42,38 @@
 #include <signal.h>
 
 #ifndef BPF_MAX_ENTRIES
-#define BPF_MAX_ENTRIES                     100 // MAX # PREFIXES
+#define BPF_MAX_ENTRIES 100 // MAX # PREFIXES
 #endif
-#define MAX_INDEX_ENTRIES                   100 // MAX port ranges per prefix
-#define MAX_TABLE_SIZE                      65536  // PORT Mapping table size
-#define MAX_IF_LIST_ENTRIES                 3
-#define MAX_IF_ENTRIES                      256
-#define MAX_ADDRESSES                       10
-#define IP_HEADER_TOO_BIG                   1
-#define NO_IP_OPTIONS_ALLOWED               2
-#define UDP_HEADER_TOO_BIG                  3
-#define GENEVE_HEADER_TOO_BIG               4
-#define GENEVE_HEADER_LENGTH_VERSION_ERROR  5
-#define SKB_ADJUST_ERROR                    6
-#define ICMP_HEADER_TOO_BIG                 7
-#define IP_TUPLE_TOO_BIG                    8
-#define IF_LIST_MATCH_ERROR                 9
-#define NO_REDIRECT_STATE_FOUND             10
-#define INGRESS                             0
-#define EGRESS                              1
-#define SERVER_SYN_ACK_RCVD                 1
-#define SERVER_FIN_RCVD                     2
-#define SERVER_RST_RCVD                     3
-#define SERVER_FINAL_ACK_RCVD               4
-#define UDP_MATCHED_EXPIRED_STATE           5
-#define UDP_MATCHED_ACTIVE_STATE            6
-#define CLIENT_SYN_RCVD                     7
-#define CLIENT_FIN_RCVD                     8
-#define CLIENT_RST_RCVD                     9
-#define TCP_CONNECTION_ESTABLISHED          10
-#define CLIENT_FINAL_ACK_RCVD               11
-#define CLIENT_INITIATED_UDP_SESSION        12
-#define ICMP_INNER_IP_HEADER_TOO_BIG        13
+#define MAX_INDEX_ENTRIES 100 // MAX port ranges per prefix
+#define MAX_TABLE_SIZE 65536  // PORT Mapping table size
+#define MAX_IF_LIST_ENTRIES 3
+#define MAX_IF_ENTRIES 256
+#define MAX_ADDRESSES 10
+#define IP_HEADER_TOO_BIG 1
+#define NO_IP_OPTIONS_ALLOWED 2
+#define UDP_HEADER_TOO_BIG 3
+#define GENEVE_HEADER_TOO_BIG 4
+#define GENEVE_HEADER_LENGTH_VERSION_ERROR 5
+#define SKB_ADJUST_ERROR 6
+#define ICMP_HEADER_TOO_BIG 7
+#define IP_TUPLE_TOO_BIG 8
+#define IF_LIST_MATCH_ERROR 9
+#define NO_REDIRECT_STATE_FOUND 10
+#define INGRESS 0
+#define EGRESS 1
+#define SERVER_SYN_ACK_RCVD 1
+#define SERVER_FIN_RCVD 2
+#define SERVER_RST_RCVD 3
+#define SERVER_FINAL_ACK_RCVD 4
+#define UDP_MATCHED_EXPIRED_STATE 5
+#define UDP_MATCHED_ACTIVE_STATE 6
+#define CLIENT_SYN_RCVD 7
+#define CLIENT_FIN_RCVD 8
+#define CLIENT_RST_RCVD 9
+#define TCP_CONNECTION_ESTABLISHED 10
+#define CLIENT_FINAL_ACK_RCVD 11
+#define CLIENT_INITIATED_UDP_SESSION 12
+#define ICMP_INNER_IP_HEADER_TOO_BIG 13
 
 bool ddos = false;
 bool add = false;
@@ -109,6 +109,13 @@ bool list_diag = false;
 bool monitor = false;
 bool tun = false;
 bool logging = false;
+bool dsip = false;
+bool ddos_saddr_list = false;
+bool ddport =false;
+bool ddos_dport_list = false;
+char *ddos_saddr;
+char *ddos_dport;
+struct in_addr ddos_scidr;
 struct in_addr dcidr;
 struct in_addr scidr;
 unsigned short dplen;
@@ -121,6 +128,10 @@ char *protocol_name;
 unsigned short protocol;
 union bpf_attr if_map;
 int if_fd = -1;
+union bpf_attr ddos_saddr_map;
+int ddos_saddr_fd = -1;
+union bpf_attr ddos_dport_map;
+int ddos_dport_fd = -1;
 union bpf_attr diag_map;
 int diag_fd = -1;
 union bpf_attr tun_map;
@@ -138,8 +149,9 @@ const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
 const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
-const char *ddos_map_path = "/sys/fs/bpf/tc/globals/ddos_protect_map";
-const char *syn_count_map = "/sys/fs/bpf/tc/globals/syn_count_map";
+const char *ddos_saddr_map_path = "/sys/fs/bpf/tc/globals/ddos_saddr_map";
+const char *ddos_dport_map_path = "/sys/fs/bpf/tc/globals/ddos_dport_map";
+const char *syn_count_map_path = "/sys/fs/bpf/tc/globals/syn_count_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -160,9 +172,10 @@ const char *argp_program_version = "0.5.15";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
-struct interface{
+struct interface
+{
     uint32_t index;
-    char * name;
+    char *name;
     uint16_t addr_count;
     uint32_t addresses[MAX_ADDRESSES];
 };
@@ -174,11 +187,13 @@ void open_diag_map();
 void open_if_map();
 void open_rb_map();
 void open_tun_map();
+void open_ddos_saddr_map();
+void open_ddos_dport_map();
 bool interface_map();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
 void diag_delete_key(uint32_t key);
-char * get_ts(unsigned long long tstamp);
+char *get_ts(unsigned long long tstamp);
 
 struct ifindex_ip4
 {
@@ -188,7 +203,8 @@ struct ifindex_ip4
 };
 
 /*value to ifindex_tun_map*/
-struct ifindex_tun {
+struct ifindex_tun
+{
     uint32_t index;
     char ifname[IF_NAMESIZE];
     char cidr[16];
@@ -196,7 +212,8 @@ struct ifindex_tun {
     bool verbose;
 };
 
-struct bpf_event{
+struct bpf_event
+{
     unsigned long long tstamp;
     __u32 ifindex;
     __u32 tun_ifindex;
@@ -252,9 +269,11 @@ struct tproxy_key
     __u16 pad;
 };
 
-void INThandler(int sig){
+void INThandler(int sig)
+{
     signal(sig, SIG_IGN);
-    if(ring_buffer){
+    if (ring_buffer)
+    {
         ring_buffer__free(ring_buffer);
     }
     close_maps(1);
@@ -264,7 +283,7 @@ void ebpf_usage()
 {
     if (access(tproxy_map_path, F_OK) != 0)
     {
-        printf("Not enough privileges or ebpf not enabled!\n"); 
+        printf("Not enough privileges or ebpf not enabled!\n");
         printf("Run as \"sudo\" with ingress tc filter [filter -X, --set-tc-filter] set on at least one interface\n");
         close_maps(1);
     }
@@ -371,20 +390,26 @@ void set_tc_filter(char *action)
     if (!strcmp(action, "add"))
     {
         set_tc(action);
-        for(int x = 0; x < 6; x++){
+        for (int x = 0; x < 6; x++)
+        {
             char prio[10];
             sprintf(prio, "%d", x + 1);
             char section[10];
-            if(x ==0){
-                sprintf(section, "action");;
-            }else{
-                if(!strcmp(direction_string,"egress")){
+            if (x == 0)
+            {
+                sprintf(section, "action");
+                ;
+            }
+            else
+            {
+                if (!strcmp(direction_string, "egress"))
+                {
                     break;
                 }
                 sprintf(section, "action/%d", x);
             }
             char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", tc_interface, direction_string, "prio", prio, "bpf",
-                                    "da", "obj", object_file, "sec", section, NULL};
+                                      "da", "obj", object_file, "sec", section, NULL};
             if ((pid = fork()) == -1)
             {
                 perror("fork error: can't attach filter");
@@ -404,9 +429,9 @@ void set_tc_filter(char *action)
                         printf("tc %s filter not set : %s\n", direction_string, tc_interface);
                     }
                 }
-                if(status)
+                if (status)
                 {
-                    printf("tc %s filter action/%d not set : %s\n", direction_string, x,tc_interface);
+                    printf("tc %s filter action/%d not set : %s\n", direction_string, x, tc_interface);
                     exit(1);
                 }
             }
@@ -433,10 +458,10 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[13] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[14] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                             transp_map_path, rb_map_path, ddos_map_path, syn_count_map};
-    for (int map_count = 0; map_count < 13; map_count++)
+                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path};
+    for (int map_count = 0; map_count < 14; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -456,7 +481,6 @@ uint32_t bits2Mask(int bits)
     uint32_t mask = __UINT32_MAX__ << (32 - bits);
     return mask;
 }
-
 
 /*function to check if prefix is subset of interface subnet*/
 int is_subset(__u32 network, __u32 netmask, __u32 prefix)
@@ -589,10 +613,12 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple)
 
 void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_count)
 {
-    if(if_fd == -1){
+    if (if_fd == -1)
+    {
         open_if_map();
     }
-    if(tun_fd == -1){
+    if (tun_fd == -1)
+    {
         open_tun_map();
     }
     uint32_t tun_key = 0;
@@ -604,7 +630,8 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tun_map, sizeof(tun_map));
     if (!lookup)
     {
-        if(o_tunif.index != 0){
+        if (o_tunif.index != 0)
+        {
             tun_mode = true;
         }
     }
@@ -637,14 +664,16 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
                 ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
         if (intercept && !passthru)
-        {   bool entry_exists = false;
-            if(tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535){
+        {
+            bool entry_exists = false;
+            if (tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535)
+            {
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", "TUNMODE", proto, scidr_block, dcidr_block,
                        dpts, o_tunif.ifname);
                 entry_exists = true;
                 *rule_count += 1;
             }
-            else if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
+            else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
             {
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
                        dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
@@ -671,11 +700,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             {
                 printf("%s%.*s%s\n", "[", (int)(strlen(interfaces) - 1), interfaces, "]");
             }
-            else if(entry_exists)
+            else if (entry_exists)
             {
                 printf("%s\n", "[]");
             }
-            
         }
         else if (passthru && !intercept)
         {
@@ -712,11 +740,12 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         }
         else
         {
-            if(tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535){
+            if (tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535)
+            {
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", "TUNMODE", proto, scidr_block, dcidr_block,
                        dpts, o_tunif.ifname);
             }
-            else if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
+            else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
             {
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
                        dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
@@ -796,7 +825,8 @@ bool set_tun_diag()
     {
         ebpf_usage();
     }
-    if(tun_fd == -1){
+    if (tun_fd == -1)
+    {
         open_tun_map();
     }
     interface_map();
@@ -816,7 +846,8 @@ bool set_tun_diag()
     {
         if (!list_diag)
         {
-            if(strcmp(o_tdiag.ifname,verbose_interface)){
+            if (strcmp(o_tdiag.ifname, verbose_interface))
+            {
                 printf("Invalid tun interface only ziti tun supported\n");
                 return false;
             }
@@ -842,7 +873,8 @@ bool set_tun_diag()
         }
         else
         {
-            if(strcmp(o_tdiag.ifname,diag_interface)){
+            if (strcmp(o_tdiag.ifname, diag_interface))
+            {
                 return false;
             }
             printf("%s: %d\n", o_tdiag.ifname, o_tdiag.index);
@@ -856,7 +888,135 @@ bool set_tun_diag()
     return true;
 }
 
+void update_ddos_saddr_map(char *source)
+{
+    if (ddos_saddr_fd == -1)
+    {
+        open_ddos_saddr_map();
+    }
+    struct in_addr cidr;
+    if (inet_aton(source, &cidr))
+    {
+        uint32_t key = cidr.s_addr;
+        bool state = false;
+        ddos_saddr_map.key = (uint64_t)&key;
+        ddos_saddr_map.value = (uint64_t)&state;
+        ddos_saddr_map.map_fd = ddos_saddr_fd;
+        ddos_saddr_map.flags = BPF_ANY;
+        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &ddos_saddr_map, sizeof(ddos_saddr_map));
+        if (lookup)
+        {
+            state = true;
+            int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &ddos_saddr_map, sizeof(ddos_saddr_map));
+            if (result)
+            {
+                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            }
+            printf("%s: Added to DDOS Whitelist\n", (char *)source);
+        }
+        else
+        {
+            printf("Key already exists: %s, state=%d\n", source, state);
+        }
+    }
+    else
+    {
+        printf("Invalid Source Address");
+    }
+}
 
+void delete_ddos_saddr_map(char *source)
+{
+    struct in_addr cidr;
+    if (inet_aton(source, &cidr))
+    {
+        union bpf_attr map;
+        memset(&map, 0, sizeof(map));
+        map.pathname = (uint64_t)ddos_saddr_map_path;
+        map.bpf_fd = 0;
+        int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+        if (fd == -1)
+        {
+            printf("BPF_OBJ_GET: %s\n", strerror(errno));
+            close_maps(1);
+        }
+        // delete element with specified key
+        uint32_t key = cidr.s_addr;
+        map.map_fd = fd;
+        map.key = (uint64_t)&key;
+        int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+        if (result)
+        {
+            printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+        }
+        else
+        {
+            printf("Removed source address %s from ddos_saddr_map\n", source);
+        }
+        close(fd);
+    }
+    else
+    {
+        printf("Invalid Source Address");
+    }
+}
+
+void update_ddos_dport_map(char *dport)
+{
+    if (ddos_dport_fd == -1)
+    {
+        open_ddos_dport_map();
+    }
+    uint16_t key = htons(port2s(dport));   
+    bool state = false;
+    ddos_dport_map.key = (uint64_t)&key;
+    ddos_dport_map.value = (uint64_t)&state;
+    ddos_dport_map.map_fd = ddos_dport_fd;
+    ddos_dport_map.flags = BPF_ANY;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &ddos_dport_map, sizeof(ddos_dport_map));
+    if (lookup)
+    {
+        state = true;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &ddos_dport_map, sizeof(ddos_dport_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        }
+        printf("%s: Added to ddos port list\n", (char *)dport);
+    }
+    else
+    {
+        printf("Key already exists: %s, state=%d\n", dport, state);
+    }
+}
+
+void delete_ddos_dport_map(char *dport)
+{
+    uint16_t key = htons(port2s(dport));   
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)ddos_dport_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        printf("Removed destination port %s from ddos_dport_map\n", dport);
+    }
+    close(fd);
+}
 
 bool set_diag(uint32_t *idx)
 {
@@ -1060,12 +1220,11 @@ void interface_tc()
      */
     while (address && (index_count < MAX_IF_ENTRIES))
     {
-        if(address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
-          || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
-           || (address->ifa_addr->sa_family == AF_PACKET)))
+        if (address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET)) || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET)) || (address->ifa_addr->sa_family == AF_PACKET)))
         {
             idx = if_nametoindex(address->ifa_name);
-            if(!idx){
+            if (!idx)
+            {
                 printf("unable to get interface index fd!\n");
                 address = address->ifa_next;
                 continue;
@@ -1074,19 +1233,22 @@ void interface_tc()
             {
                 tc_interface = address->ifa_name;
             }
-            if(!strncmp(address->ifa_name,"ziti", 4))
+            if (!strncmp(address->ifa_name, "ziti", 4))
             {
-                if(!strncmp(tc_interface,"ziti", 4)){
+                if (!strncmp(tc_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow tc filters on ziti tun interfaces!\n", address->ifa_name);
                 }
                 address = address->ifa_next;
                 continue;
             }
-            if(cur_idx == idx)
+            if (cur_idx == idx)
             {
                 address = address->ifa_next;
                 continue;
-            }else{
+            }
+            else
+            {
                 index_count++;
                 cur_idx = idx;
             }
@@ -1111,7 +1273,8 @@ void interface_tc()
                         {
                             set_tc_filter("add");
                             interface_map();
-                            if(diag_fd == -1){
+                            if (diag_fd == -1)
+                            {
                                 open_diag_map();
                             }
                             set_diag(&idx);
@@ -1119,7 +1282,8 @@ void interface_tc()
                         else
                         {
                             set_tc_filter("del");
-                            if(diag_fd == -1){
+                            if (diag_fd == -1)
+                            {
                                 open_diag_map();
                             }
                             set_diag(&idx);
@@ -1135,7 +1299,8 @@ void interface_tc()
 
 void interface_diag()
 {
-    if(diag_fd == -1){
+    if (diag_fd == -1)
+    {
         open_diag_map();
     }
     interface_map();
@@ -1150,24 +1315,25 @@ void interface_diag()
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
     uint32_t cur_idx = 0;
-    uint32_t index_count =0;
+    uint32_t index_count = 0;
     while (address && (index_count < MAX_IF_ENTRIES))
     {
-        if (address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET))
-          || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET))
-           || (address->ifa_addr->sa_family == AF_PACKET)))
+        if (address->ifa_addr && ((!strncmp(address->ifa_name, "ziti0", 4) && (address->ifa_addr->sa_family == AF_INET)) || (!strncmp(address->ifa_name, "tun", 3) && (address->ifa_addr->sa_family == AF_INET)) || (address->ifa_addr->sa_family == AF_PACKET)))
         {
             idx = if_nametoindex(address->ifa_name);
-            if(!idx){
+            if (!idx)
+            {
                 printf("unable to get interface index fd!\n");
                 address = address->ifa_next;
                 continue;
             }
-            if(cur_idx == idx)
+            if (cur_idx == idx)
             {
                 address = address->ifa_next;
                 continue;
-            }else{
+            }
+            else
+            {
                 index_count++;
                 cur_idx = idx;
             }
@@ -1183,26 +1349,34 @@ void interface_diag()
                 eapol_interface = address->ifa_name;
                 ddos_interface = address->ifa_name;
             }
-            if(!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos)){
-                if(per_interface && !strncmp(prefix_interface, "ziti", 4)){
+            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos))
+            {
+                if (per_interface && !strncmp(prefix_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
-                if(tun && !strncmp(tun_interface, "ziti", 4)){
+                if (tun && !strncmp(tun_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
-                if(ssh_disable && !strncmp(ssh_interface, "ziti", 4)){
+                if (ssh_disable && !strncmp(ssh_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
-                if(echo && !strncmp(echo_interface, "ziti", 4)){
+                if (echo && !strncmp(echo_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
-                if(vrrp && !strncmp(vrrp_interface, "ziti", 4)){
+                if (vrrp && !strncmp(vrrp_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
-                if(eapol && !strncmp(eapol_interface, "ziti", 4)){
+                if (eapol && !strncmp(eapol_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
-                if(ddos && !strncmp(ddos_interface, "ziti", 4)){
+                if (ddos && !strncmp(ddos_interface, "ziti", 4))
+                {
                     printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
                 }
                 address = address->ifa_next;
@@ -1242,10 +1416,11 @@ void interface_diag()
 
             if (verbose)
             {
-                if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface,"ziti", 4)){
+                if (!strncmp(address->ifa_name, "ziti", 4) && !strncmp(verbose_interface, "ziti", 4))
+                {
                     set_tun_diag();
                 }
-                else if(!strcmp(verbose_interface, address->ifa_name))
+                else if (!strcmp(verbose_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -1268,8 +1443,9 @@ void interface_diag()
             }
 
             if (list_diag)
-            {             
-                if(!strncmp(address->ifa_name, "ziti", 4) && !strncmp(diag_interface,"ziti", 4)){
+            {
+                if (!strncmp(address->ifa_name, "ziti", 4) && !strncmp(diag_interface, "ziti", 4))
+                {
                     set_tun_diag();
                 }
                 else if (!strcmp(diag_interface, address->ifa_name))
@@ -1296,9 +1472,11 @@ void interface_diag()
     freeifaddrs(addrs);
 }
 
-//remove stale ifindex_ip_map entries
-int prune_diag_map(struct interface if_array[], uint32_t if_count){
-    if(diag_fd == -1){
+// remove stale ifindex_ip_map entries
+int prune_diag_map(struct interface if_array[], uint32_t if_count)
+{
+    if (diag_fd == -1)
+    {
         open_diag_map();
     }
     uint32_t init_key = {0};
@@ -1324,12 +1502,15 @@ int prune_diag_map(struct interface if_array[], uint32_t if_count){
         if (!lookup)
         {
             bool match = false;
-            for(uint32_t x = 0; x < if_count; x++){
-                if(current_key == if_array[x].index){
+            for (uint32_t x = 0; x < if_count; x++)
+            {
+                if (current_key == if_array[x].index)
+                {
                     match = true;
                 }
             }
-            if(!match){
+            if (!match)
+            {
                 diag_delete_key(current_key);
             }
         }
@@ -1342,9 +1523,11 @@ int prune_diag_map(struct interface if_array[], uint32_t if_count){
     return 0;
 }
 
-//remove stale ifindex_ip_map entries
-int prune_if_map(struct interface if_array[], uint32_t if_count){
-    if(if_fd == -1){
+// remove stale ifindex_ip_map entries
+int prune_if_map(struct interface if_array[], uint32_t if_count)
+{
+    if (if_fd == -1)
+    {
         open_if_map();
     }
     uint32_t init_key = {0};
@@ -1370,12 +1553,15 @@ int prune_if_map(struct interface if_array[], uint32_t if_count){
         if (!lookup)
         {
             bool match = false;
-            for(uint32_t x = 0; x < if_count; x++){
-                if(current_key == if_array[x].index){
+            for (uint32_t x = 0; x < if_count; x++)
+            {
+                if (current_key == if_array[x].index)
+                {
                     match = true;
                 }
             }
-            if(!match){
+            if (!match)
+            {
                 if_delete_key(current_key);
             }
         }
@@ -1390,8 +1576,10 @@ int prune_if_map(struct interface if_array[], uint32_t if_count){
 
 int add_if_index(struct interface intf)
 {
-    if(intf.addr_count>0){
-        if(if_fd == -1){
+    if (intf.addr_count > 0)
+    {
+        if (if_fd == -1)
+        {
             open_if_map();
         }
         if_map.map_fd = if_fd;
@@ -1399,13 +1587,16 @@ int add_if_index(struct interface intf)
         if_map.key = (uint64_t)&intf.index;
         if_map.flags = BPF_ANY;
         if_map.value = (uint64_t)&o_ifip4;
-        for(int x = 0; x < MAX_ADDRESSES; x++){
-                if(x < intf.addr_count){
-                    o_ifip4.ipaddr[x] = intf.addresses[x];
-                }
-                else{
-                    o_ifip4.ipaddr[x] = 0;
-                }
+        for (int x = 0; x < MAX_ADDRESSES; x++)
+        {
+            if (x < intf.addr_count)
+            {
+                o_ifip4.ipaddr[x] = intf.addresses[x];
+            }
+            else
+            {
+                o_ifip4.ipaddr[x] = 0;
+            }
         }
         o_ifip4.count = intf.addr_count;
         sprintf(o_ifip4.ifname, "%s", intf.name);
@@ -1421,7 +1612,8 @@ int add_if_index(struct interface intf)
 
 bool interface_map()
 {
-    if(tun_fd == -1){
+    if (tun_fd == -1)
+    {
         open_tun_map();
     }
     struct ifaddrs *addrs;
@@ -1445,20 +1637,24 @@ bool interface_map()
     char *dns_range = "ZITI_DNS_IP_RANGE";
     char *tunif = getenv(dns_range);
     char *tmptun = NULL;
-    if(tunif){
+    if (tunif)
+    {
         tmptun = strdup(tunif);
     }
-    if(tmptun){
+    if (tmptun)
+    {
         if (tmptun && ((strlen(tmptun) > 8) && (strlen(tmptun) < 19)))
         {
-            tunipstr = strsep(&tmptun,"/");
-            if(tunipstr){
+            tunipstr = strsep(&tmptun, "/");
+            if (tunipstr)
+            {
                 if (inet_aton(tunipstr, &tuncidr))
                 {
                     tunip = tuncidr.s_addr;
                 }
-                if(tmptun && (strlen(tmptun) > 0) && (strlen(tmptun) <= 2)){
-                    sprintf(tunmask,"%s", tmptun);
+                if (tmptun && (strlen(tmptun) > 0) && (strlen(tmptun) <= 2))
+                {
+                    sprintf(tunmask, "%s", tmptun);
                 }
             }
         }
@@ -1468,7 +1664,7 @@ bool interface_map()
      *  populate the index into the map with ifindex as the key and ip address
      *  as the value
      */
-    
+
     uint32_t index_count = 0;
     uint32_t addr_array[MAX_ADDRESSES];
     struct interface index_array[MAX_IF_ENTRIES];
@@ -1476,11 +1672,12 @@ bool interface_map()
     uint32_t cur_idx;
     uint8_t addr_count = 0;
     while (address && (index_count < MAX_IF_ENTRIES))
-    {   
+    {
         idx = if_nametoindex(address->ifa_name);
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
         {
-            if(!idx){
+            if (!idx)
+            {
                 printf("unable to get interface index fd!\n");
                 address = address->ifa_next;
                 continue;
@@ -1501,46 +1698,51 @@ bool interface_map()
             {
                 ifip = 0x0100007f;
                 lo_count++;
-                if(lo_count > 1){
+                if (lo_count > 1)
+                {
                     address = address->ifa_next;
                     continue;
                 }
             }
-            if(strncmp(address->ifa_name,"ziti", 4)){
-                if(addr_count == 0){
+            if (strncmp(address->ifa_name, "ziti", 4))
+            {
+                if (addr_count == 0)
+                {
                     cur_name = address->ifa_name;
                     cur_idx = idx;
                     addr_array[addr_count] = ifip;
                     addr_count++;
                 }
-                else if(cur_idx != idx){
-                    struct interface intf ={
+                else if (cur_idx != idx)
+                {
+                    struct interface intf = {
                         cur_idx,
                         cur_name,
                         addr_count,
-                        {0}
-                    };
+                        {0}};
                     memcpy(intf.addresses, addr_array, sizeof(intf.addresses));
                     index_array[index_count] = intf;
                     index_count++;
-                    addr_count =0;
+                    addr_count = 0;
                     cur_idx = idx;
                     cur_name = address->ifa_name;
                     addr_array[addr_count] = ifip;
                     addr_count++;
                 }
-                else{
-                    if(addr_count < MAX_ADDRESSES){
+                else
+                {
+                    if (addr_count < MAX_ADDRESSES)
+                    {
                         addr_array[addr_count] = ifip;
                         addr_count++;
                     }
                 }
             }
 
-            if((ifip == tunip) && !strncmp(address->ifa_name,"ziti", 4))
+            if ((ifip == tunip) && !strncmp(address->ifa_name, "ziti", 4))
             {
-                bool change_detected =true;
-                struct ifindex_tun o_iftun; 
+                bool change_detected = true;
+                struct ifindex_tun o_iftun;
                 int tun_key = 0;
                 tun_map.map_fd = tun_fd;
                 tun_map.key = (uint64_t)&tun_key;
@@ -1550,30 +1752,38 @@ bool interface_map()
                 if (lookup)
                 {
                     printf("Unable to access tun ArrayMap Index\n");
-                }else{
-                    if(o_iftun.index != idx){
+                }
+                else
+                {
+                    if (o_iftun.index != idx)
+                    {
                         o_iftun.index = idx;
-                        change_detected =true;
+                        change_detected = true;
                     }
-                    if(strcmp(o_iftun.mask, tunmask)){
+                    if (strcmp(o_iftun.mask, tunmask))
+                    {
                         sprintf(o_iftun.mask, "%s", tunmask);
-                        change_detected =true;
+                        change_detected = true;
                     }
-                    if(strcmp(o_iftun.ifname, address->ifa_name)){
+                    if (strcmp(o_iftun.ifname, address->ifa_name))
+                    {
                         sprintf(o_iftun.ifname, "%s", address->ifa_name);
-                        change_detected =true;
+                        change_detected = true;
                     }
                     uint32_t tun_net_integer = ntohl(ifip) & bits2Mask(len2u16(tunmask));
                     char *tuncidr_string = nitoa(tun_net_integer);
-                    if(tuncidr_string){
-                        if(strcmp(o_iftun.cidr, tuncidr_string)){
-                            sprintf(o_iftun.cidr, "%s", tuncidr_string);                      
-                            change_detected =true;
+                    if (tuncidr_string)
+                    {
+                        if (strcmp(o_iftun.cidr, tuncidr_string))
+                        {
+                            sprintf(o_iftun.cidr, "%s", tuncidr_string);
+                            change_detected = true;
                         }
                         free(tuncidr_string);
                     }
-                    
-                    if(change_detected){
+
+                    if (change_detected)
+                    {
                         int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &tun_map, sizeof(tun_map));
                         if (ret)
                         {
@@ -1584,31 +1794,32 @@ bool interface_map()
                 }
             }
         }
-        else{
-            struct interface intf ={
+        else
+        {
+            struct interface intf = {
                 idx,
                 cur_name,
                 0,
-                {0}
-            };
+                {0}};
             index_array[index_count] = intf;
             index_count++;
         }
         address = address->ifa_next;
     }
-    if((idx > 0) && (addr_count > 0) && (addr_count <= MAX_ADDRESSES)){
-        struct interface intf ={
+    if ((idx > 0) && (addr_count > 0) && (addr_count <= MAX_ADDRESSES))
+    {
+        struct interface intf = {
             cur_idx,
             cur_name,
             addr_count,
-            {0}
-        };
+            {0}};
         memcpy(intf.addresses, addr_array, sizeof(addr_array));
         index_array[index_count] = intf;
         index_count++;
     }
     prune_if_map(index_array, index_count);
-    for(uint32_t x =0; x < index_count; x++){
+    for (uint32_t x = 0; x < index_count; x++)
+    {
         add_if_index(index_array[x]);
     }
     prune_diag_map(index_array, index_count);
@@ -1616,12 +1827,15 @@ bool interface_map()
     return create_route;
 }
 
-int write_log(char *dest, char *source){
+int write_log(char *dest, char *source)
+{
     FILE *dstfile;
     size_t len = strlen(source);
-    if(len){
+    if (len)
+    {
         dstfile = fopen(dest, "a");
-        if(dstfile == NULL){
+        if (dstfile == NULL)
+        {
             return 1;
         }
         fprintf(dstfile, "%s", source);
@@ -1630,251 +1844,351 @@ int write_log(char *dest, char *source){
     return 0;
 }
 
-static int process_events(void *ctx, void *data, size_t len){
-    struct bpf_event * evt = (struct bpf_event *)data;
+static int process_events(void *ctx, void *data, size_t len)
+{
+    struct bpf_event *evt = (struct bpf_event *)data;
     char buf[IF_NAMESIZE];
     char *ifname = if_indextoname(evt->ifindex, buf);
     char *ts = get_ts(evt->tstamp);
     char message[250];
     int res = 0;
-    if(((ifname && monitor_interface && !strcmp(monitor_interface, ifname)) || all_interface) && ts)
+    if (((ifname && monitor_interface && !strcmp(monitor_interface, ifname)) || all_interface) && ts)
     {
-        if(evt->error_code){
-            if(evt->error_code == IP_HEADER_TOO_BIG){
-                sprintf(message,"%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+        if (evt->error_code)
+        {
+            if (evt->error_code == IP_HEADER_TOO_BIG)
+            {
+                sprintf(message, "%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == NO_IP_OPTIONS_ALLOWED){
+            else if (evt->error_code == NO_IP_OPTIONS_ALLOWED)
+            {
                 sprintf(message, "%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == UDP_HEADER_TOO_BIG){
+            else if (evt->error_code == UDP_HEADER_TOO_BIG)
+            {
                 sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == GENEVE_HEADER_TOO_BIG){
+            else if (evt->error_code == GENEVE_HEADER_TOO_BIG)
+            {
                 sprintf(message, "%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR){
-                sprintf(message,"%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+            else if (evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR)
+            {
+                sprintf(message, "%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == SKB_ADJUST_ERROR){
+            else if (evt->error_code == SKB_ADJUST_ERROR)
+            {
                 sprintf(message, "%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == ICMP_HEADER_TOO_BIG){
+            else if (evt->error_code == ICMP_HEADER_TOO_BIG)
+            {
                 sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG){
+            else if (evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG)
+            {
                 sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == IF_LIST_MATCH_ERROR){
+            else if (evt->error_code == IF_LIST_MATCH_ERROR)
+            {
                 sprintf(message, "%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(evt->error_code == NO_REDIRECT_STATE_FOUND){
+            else if (evt->error_code == NO_REDIRECT_STATE_FOUND)
+            {
                 sprintf(message, "%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if(logging){
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-        }   
-        else{
-            char *saddr = nitoa(ntohl(evt->saddr)); 
-            char *daddr = nitoa(ntohl(evt->daddr)); 
-            char * protocol;
-            if(evt->proto == IPPROTO_TCP){
+        }
+        else
+        {
+            char *saddr = nitoa(ntohl(evt->saddr));
+            char *daddr = nitoa(ntohl(evt->daddr));
+            char *protocol;
+            if (evt->proto == IPPROTO_TCP)
+            {
                 protocol = "TCP";
             }
-            else if(evt->proto == IPPROTO_ICMP){
+            else if (evt->proto == IPPROTO_ICMP)
+            {
                 protocol = "ICMP";
-            }else{
+            }
+            else
+            {
                 protocol = "UDP";
             }
-            if(evt->tun_ifindex && ifname){
+            if (evt->tun_ifindex && ifname)
+            {
                 char tbuf[IF_NAMESIZE];
                 char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
-                if(tun_ifname){
-                    sprintf(message, "%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol,saddr, ntohs(evt->sport),
-                    evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
-                    evt->dest[0],evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
-                    if(logging){
+                if (tun_ifname)
+                {
+                    sprintf(message, "%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol, saddr, ntohs(evt->sport),
+                            evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
+                            evt->dest[0], evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
+                    if (logging)
+                    {
                         res = write_log(log_file_name, message);
-                    }else{
+                    }
+                    else
+                    {
                         printf("%s", message);
                     }
                 }
             }
-            else if(evt->tport && ifname){
+            else if (evt->tport && ifname)
+            {
                 sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
-                ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport),
-                daddr, ntohs(evt->dport), ntohs(evt->tport));
-                if(logging){
+                        ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
+                        daddr, ntohs(evt->dport), ntohs(evt->tport));
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            else if(((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname){
+            else if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
+            {
                 char *state = NULL;
                 __u16 code = evt->tracking_code;
 
-                if(code == SERVER_SYN_ACK_RCVD){
+                if (code == SERVER_SYN_ACK_RCVD)
+                {
                     state = "SERVER_SYN_ACK_RCVD";
                 }
-                else if(code == SERVER_FIN_RCVD){
+                else if (code == SERVER_FIN_RCVD)
+                {
                     state = "SERVER_FIN_RCVD";
                 }
-                else if(code == SERVER_RST_RCVD){
+                else if (code == SERVER_RST_RCVD)
+                {
                     state = "SERVER_RST_RCVD";
                 }
-                else if(code == SERVER_FINAL_ACK_RCVD){
+                else if (code == SERVER_FINAL_ACK_RCVD)
+                {
                     state = "SERVER_FINAL_ACK_RCVD";
                 }
-                else if(code == UDP_MATCHED_EXPIRED_STATE){
+                else if (code == UDP_MATCHED_EXPIRED_STATE)
+                {
                     state = "UDP_MATCHED_EXPIRED_STATE";
                 }
-                else if(code == UDP_MATCHED_ACTIVE_STATE){
+                else if (code == UDP_MATCHED_ACTIVE_STATE)
+                {
                     state = "UDP_MATCHED_ACTIVE_STATE";
                 }
-                else if(code == CLIENT_SYN_RCVD){
+                else if (code == CLIENT_SYN_RCVD)
+                {
                     state = "CLIENT_SYN_RCVD";
                 }
-                else if(code == CLIENT_FIN_RCVD){
+                else if (code == CLIENT_FIN_RCVD)
+                {
                     state = "CLIENT_FIN_RCVD";
                 }
-                else if(code ==  CLIENT_RST_RCVD){
+                else if (code == CLIENT_RST_RCVD)
+                {
                     state = "CLIENT_RST_RCVD";
                 }
-                else if(code == TCP_CONNECTION_ESTABLISHED){
+                else if (code == TCP_CONNECTION_ESTABLISHED)
+                {
                     state = "TCP_CONNECTION_ESTABLISHED";
                 }
-                else if(code == CLIENT_FINAL_ACK_RCVD){
+                else if (code == CLIENT_FINAL_ACK_RCVD)
+                {
                     state = "CLIENT_FINAL_ACK_RCVD";
                 }
-                else if(code ==  CLIENT_INITIATED_UDP_SESSION){
+                else if (code == CLIENT_INITIATED_UDP_SESSION)
+                {
                     state = "CLIENT_INITIATED_UDP_SESSION";
                 }
-                if(state){
+                if (state)
+                {
                     sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
-                    (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
-                    if(logging){
+                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
+                    if (logging)
+                    {
                         res = write_log(log_file_name, message);
-                    }else{
+                    }
+                    else
+                    {
                         printf("%s", message);
                     }
                 }
             }
-            else if(evt->proto == IPPROTO_ICMP && ifname){
+            else if (evt->proto == IPPROTO_ICMP && ifname)
+            {
                 __u16 code = evt->tracking_code;
                 __u8 inner_ttl = evt->dest[0];
                 __u8 outer_ttl = evt->source[0];
-                if(code == 4){
+                if (code == 4)
+                {
                     /*evt->sport is use repurposed store next hop mtu*/
                     sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
-                    (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
-                    if(logging){
+                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                    if (logging)
+                    {
                         res = write_log(log_file_name, message);
-                    }else{
+                    }
+                    else
+                    {
                         printf("%s", message);
                     }
-                }else{
+                }
+                else
+                {
                     char *code_string = NULL;
                     char *protocol_string = NULL;
-                    if(evt->dest[1] == IPPROTO_TCP){
+                    if (evt->dest[1] == IPPROTO_TCP)
+                    {
                         protocol_string = "TCP";
-                    }else{
+                    }
+                    else
+                    {
                         protocol_string = "UDP";
                     }
-                    if(code == 0){
+                    if (code == 0)
+                    {
                         code_string = "NET UNREACHABLE";
                     }
-                    else if(code == 1){
-                         code_string = "HOST UNREACHABLE";
+                    else if (code == 1)
+                    {
+                        code_string = "HOST UNREACHABLE";
                     }
-                    else if(code == 2){
-                         code_string = "PROTOCOL UNREACHABLE";
+                    else if (code == 2)
+                    {
+                        code_string = "PROTOCOL UNREACHABLE";
                     }
-                    else if(code == 3){
-                         code_string = "PORT UNREACHABLE";
+                    else if (code == 3)
+                    {
+                        code_string = "PORT UNREACHABLE";
                     }
 
-                    if(code_string){
+                    if (code_string)
+                    {
                         sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d OUTER-TTL:%d INNER-TTL:%d\n", ts, ifname,
-                         (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, code_string, daddr, protocol_string, ntohs(evt->dport), outer_ttl, inner_ttl);
-                        if(logging){
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, code_string, daddr, protocol_string, ntohs(evt->dport), outer_ttl, inner_ttl);
+                        if (logging)
+                        {
                             res = write_log(log_file_name, message);
-                        }else{
+                        }
+                        else
+                        {
                             printf("%s", message);
                         }
                     }
                 }
             }
-            else if(ifname){
+            else if (ifname)
+            {
                 sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
-                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol,saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
-                if(logging){
+                        (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                if (logging)
+                {
                     res = write_log(log_file_name, message);
-                }else{
+                }
+                else
+                {
                     printf("%s", message);
                 }
             }
-            if(saddr){
+            if (saddr)
+            {
                 free(saddr);
             }
-            if(saddr){
+            if (saddr)
+            {
                 free(daddr);
             }
         }
-        if(ts){
+        if (ts)
+        {
             free(ts);
         }
     }
-    if(res){
+    if (res)
+    {
         printf("Unable to write to log\n");
-        if(ring_buffer){
+        if (ring_buffer)
+        {
             ring_buffer__free(ring_buffer);
             close_maps(1);
         }
@@ -1890,7 +2204,8 @@ void map_insert()
         exit(1);
     }
     bool route_insert = false;
-    if(route){
+    if (route)
+    {
         route_insert = interface_map();
     }
     union bpf_attr map;
@@ -2117,7 +2432,8 @@ void map_delete_key(struct tproxy_key key)
 void map_delete()
 {
     bool route_delete = false;
-    if(route){
+    if (route)
+    {
         route_delete = interface_map();
     }
     union bpf_attr map;
@@ -2361,6 +2677,135 @@ void map_list()
     close(fd);
 }
 
+void ddos_saddr_map_list()
+{
+    if (ddos_saddr_fd == -1)
+    {
+        open_ddos_saddr_map();
+    }
+    union bpf_attr map;
+    uint32_t init_key = 0;
+    uint32_t *key = &init_key;
+    uint32_t reference_key;
+    uint32_t lookup_key;
+    bool value;
+    bool state;
+    // Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)ddos_saddr_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&value;
+    ddos_saddr_map.value = (uint64_t)&state;
+    int lookup = 0;
+    int ret = 0;
+    int saddr_count = 0;
+    ddos_saddr_map.map_fd = ddos_saddr_fd;
+    printf("ddos source ip whitelist\n");
+    printf("------------------------\n");
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            printf("------------------------\n");
+            printf("address count: %d\n", saddr_count);
+            break;
+        }
+        map.key = map.next_key;
+        reference_key = *(uint32_t *)map.key;
+        lookup_key = *(uint32_t *)map.key;
+        ddos_saddr_map.key = (uint64_t)&lookup_key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &ddos_saddr_map, sizeof(ddos_saddr_map));
+        if (!lookup)
+        {
+            char *sprefix = nitoa(ntohl(lookup_key));
+            if(sprefix){
+                printf("host: %s\n",sprefix);
+                free(sprefix);
+            }
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        map.key = (uint64_t)&reference_key;
+        saddr_count++;
+    }
+    close(fd);
+}
+
+void ddos_dport_map_list()
+{
+    if (ddos_dport_fd == -1)
+    {
+        open_ddos_dport_map();
+    }
+    union bpf_attr map;
+    uint16_t init_key = 0;
+    uint16_t *key = &init_key;
+    uint16_t reference_key;
+    uint16_t lookup_key;
+    bool value;
+    bool state;
+    // Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)ddos_dport_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&value;
+    ddos_dport_map.value = (uint64_t)&state;
+    int lookup = 0;
+    int ret = 0;
+    int dport_count = 0;
+    ddos_dport_map.map_fd = ddos_dport_fd;
+    printf("ddos destination port list\n");
+    printf("-------------------------------\n");
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            printf("-------------------------------\n");
+            printf("port count: %d\n", dport_count);
+            break;
+        }
+        map.key = map.next_key;
+        reference_key = *(uint16_t *)map.key;
+        lookup_key = *(uint16_t *)map.key;
+        ddos_dport_map.key = (uint64_t)&lookup_key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &ddos_dport_map, sizeof(ddos_dport_map));
+        if (!lookup)
+        {
+            printf("%d\n", ntohs(lookup_key));
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        map.key = (uint64_t)&reference_key;
+        dport_count++;
+    }
+    close(fd);
+}
+
+
 int get_key_count()
 {
     union bpf_attr count_map;
@@ -2455,8 +2900,10 @@ static struct argp_option options[] = {
     {"disable-ebpf", 'Q', NULL, 0, "Delete tc from all interface and remove all maps", 0},
     {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
     {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
+    {"list-ddos-dports", 'U', NULL, 0, "List destination ports to protect from DDOS", 0},
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
+    {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
@@ -2471,8 +2918,10 @@ static struct argp_option options[] = {
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
+    {"ddos-dport-add", 'u', "", 0, "Add destination port to DDOS port list i.e. (1-65535)", 0},
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
+    {"ddos-saddr-add", 'y', "", 0, "Add source IP Address to DDOS IP whitelist i.e. 192.168.1.1", 0},
     {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"direction", 'z', "", 0, "Set direction", 0},
     {0}};
@@ -2507,7 +2956,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2530,7 +2980,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         interface = true;
         idx = if_nametoindex(arg);
-        if(!idx){
+        if (!idx)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2566,7 +3017,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2591,7 +3043,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2613,7 +3066,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2626,6 +3080,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         {
             tun_interface = arg;
         }
+        break;
+    case 'U':
+        ddos_dport_list = true;
         break;
     case 'W':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
@@ -2645,7 +3102,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2659,6 +3117,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             tc_interface = arg;
         }
         break;
+    case 'Y':
+        ddos_saddr_list = true;
+        break;
     case 'a':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
@@ -2667,7 +3128,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2698,7 +3160,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2771,6 +3234,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         tproxy_port = port2s(arg);
         tpt = true;
         break;
+    case 'u':
+        ddport = true;
+        ddos_dport = arg;
+        break;
     case 'v':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
@@ -2779,7 +3246,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2801,7 +3269,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2812,7 +3281,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-           eapol_interface = arg;
+            eapol_interface = arg;
         }
         break;
     case 'x':
@@ -2823,7 +3292,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         idx = if_nametoindex(arg);
-        if(strcmp("all", arg) && idx == 0){
+        if (strcmp("all", arg) && idx == 0)
+        {
             printf("Interface not found: %s\n", arg);
             exit(1);
         }
@@ -2836,6 +3306,16 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         {
             ssh_interface = arg;
         }
+        break;
+    case 'y':
+        if (!inet_aton(arg, &ddos_scidr))
+        {
+            fprintf(stderr, "Invalid IP Address for arg -Y, --ddos-saddr-add: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        dsip = true;
+        ddos_saddr = arg;
         break;
     case 'z':
         if (!strlen(arg) || (strcmp("ingress", arg) && strcmp("egress", arg)))
@@ -2855,53 +3335,100 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
 
-void close_maps(int code){
-    if(diag_fd != -1){
+void close_maps(int code)
+{
+    if (diag_fd != -1)
+    {
         close(diag_fd);
     }
-    if(if_fd != -1){
+    if (if_fd != -1)
+    {
         close(if_fd);
     }
-    if(tun_fd != -1){
+    if (tun_fd != -1)
+    {
         close(if_fd);
-    } 
-    if(rb_fd != -1){
+    }
+    if (rb_fd != -1)
+    {
         close(rb_fd);
+    }
+    if (ddos_saddr_fd != -1)
+    {
+        close(ddos_saddr_fd);
+    }
+    if (ddos_dport_fd != -1)
+    {
+        close(ddos_dport_fd);
     }
     exit(code);
 }
 
-char * get_ts(unsigned long long tstamp){
-    time_t ns; 
-    time_t s; 
+char *get_ts(unsigned long long tstamp)
+{
+    time_t ns;
+    time_t s;
     struct timespec spec;
-    const char *format = "%b %d %Y %H:%M:%S";;
+    const char *format = "%b %d %Y %H:%M:%S";
+    ;
     clock_gettime(CLOCK_REALTIME, &spec);
 
-    s  = spec.tv_sec;
-    ns  = spec.tv_nsec;
-    time_t now = s + (ns/1000000000);
+    s = spec.tv_sec;
+    ns = spec.tv_nsec;
+    time_t now = s + (ns / 1000000000);
     char ftime[22];
     struct tm local_t;
     struct sysinfo si;
- 	sysinfo (&si);
-    time_t t = (now + tstamp/1000000000) - (time_t)si.uptime;
-    time_t t_ns = tstamp%1000000000;
+    sysinfo(&si);
+    time_t t = (now + tstamp / 1000000000) - (time_t)si.uptime;
+    time_t t_ns = tstamp % 1000000000;
     localtime_r(&t, &local_t);
-    if (strftime(ftime, sizeof(ftime), format, &local_t) == 0) {
+    if (strftime(ftime, sizeof(ftime), format, &local_t) == 0)
+    {
         return NULL;
     }
     char *result = malloc(31);
     sprintf(result, "%s.%09ld", ftime, t_ns);
-    if(result){
+    if (result)
+    {
         return result;
     }
-    else{
+    else
+    {
         return NULL;
     }
 }
 
-void open_diag_map(){
+void open_ddos_saddr_map()
+{
+    memset(&ddos_saddr_map, 0, sizeof(ddos_saddr_map));
+    ddos_saddr_map.pathname = (uint64_t)ddos_saddr_map_path;
+    ddos_saddr_map.bpf_fd = 0;
+    ddos_saddr_map.file_flags = 0;
+    /* make system call to get fd for map */
+    ddos_saddr_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ddos_saddr_map, sizeof(ddos_saddr_map));
+    if (ddos_saddr_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_ddos_dport_map()
+{
+    memset(&ddos_dport_map, 0, sizeof(ddos_dport_map));
+    ddos_dport_map.pathname = (uint64_t)ddos_dport_map_path;
+    ddos_dport_map.bpf_fd = 0;
+    ddos_dport_map.file_flags = 0;
+    /* make system call to get fd for map */
+    ddos_dport_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ddos_dport_map, sizeof(ddos_dport_map));
+    if (ddos_dport_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_diag_map()
+{
     /*path to pinned ifindex_ip_map*/
     /* open BPF ifindex_ip_map */
     memset(&diag_map, 0, sizeof(diag_map));
@@ -2917,7 +3444,8 @@ void open_diag_map(){
     }
 }
 
-void open_if_map(){
+void open_if_map()
+{
     memset(&if_map, 0, sizeof(if_map));
     /* set path name with location of map in filesystem */
     if_map.pathname = (uint64_t)if_map_path;
@@ -2931,7 +3459,8 @@ void open_if_map(){
     }
 }
 
-void open_rb_map(){
+void open_rb_map()
+{
     memset(&rb_map, 0, sizeof(rb_map));
     rb_map.pathname = (uint64_t)rb_map_path;
     rb_map.bpf_fd = 0;
@@ -2944,7 +3473,8 @@ void open_rb_map(){
     }
 }
 
-void open_tun_map(){
+void open_tun_map()
+{
     memset(&tun_map, 0, sizeof(tun_map));
     tun_map.pathname = (uint64_t)if_tun_map_path;
     tun_map.bpf_fd = 0;
@@ -2974,10 +3504,27 @@ int main(int argc, char **argv)
         usage("-X, --set-tc-filter requires -z, --direction for add operation");
     }
 
+    if (ddport)
+    {
+        if ((dsip ||tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush 
+        || eapol) || ddos || vrrp || monitor || logging)
+        {
+            usage("Y, --ddos-dport-add can not be used in combination call");
+        }
+    }
+
+    if (dsip)
+    {
+        if ((tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list 
+        || flush || eapol) || ddos || vrrp || monitor || logging)
+        {
+            usage("Y, --ddos-saddr-add can not be used in combination call");
+        }
+    }
+
     if (logging)
     {
-        if ((tcfilter || echo || ssh_disable || verbose || per_interface
-         || add || delete || list || flush || eapol) || ddos || vrrp || (!monitor))
+        if ((tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol) || ddos || vrrp || (!monitor))
         {
             usage("W, --write-log can only be used in combination call to -M, --monitor");
         }
@@ -2985,7 +3532,8 @@ int main(int argc, char **argv)
 
     if (ebpf_disable)
     {
-        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || monitor || eapol || vrrp || ddos)
+        if ( ddport || dsip ||tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || monitor || eapol 
+        || vrrp || ddos || logging)
         {
             usage("Q, --disable-ebpf cannot be used in combination call");
         }
@@ -3002,6 +3550,16 @@ int main(int argc, char **argv)
         usage("Missing argument -I, --insert");
     }
 
+    if (ddos_saddr_list && !list)
+    {
+        usage("-Y, --list-ddos-saddr requires -L --list");
+    }
+
+    if (ddos_dport_list && !list)
+    {
+        usage("-U, --list-ddos-dports requires -L --list");
+    }
+    
     if (list_diag && !list)
     {
         usage("-E, --list-diag requires -L --list");
@@ -3022,12 +3580,12 @@ int main(int argc, char **argv)
         usage("-M, --enable-eapol cannot be set as a part of combination call to zfw");
     }
 
-    if (( monitor && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp)))
+    if ((monitor && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter || vrrp)))
     {
         usage("-M, --monitor cannot be set as a part of combination call to zfw");
     }
 
-    if (( vrrp && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
+    if ((vrrp && (tun || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
     {
         usage("-R, --vrrp-enable cannot be set as a part of combination call to zfw");
     }
@@ -3067,9 +3625,10 @@ int main(int argc, char **argv)
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
     }
 
-    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol && !ddos))
+    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol && !ddos 
+    && !dsip && !ddport))
     {
-        usage("Missing argument at least one of -e, -v, -x, w, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
 
     if (direction && !tcfilter)
@@ -3184,12 +3743,30 @@ int main(int argc, char **argv)
         }
         if (list_diag)
         {
-            if (cd || dl || cs || sl || prot)
+            if (cd || dl || cs || sl || prot || ddos_saddr_list)
             {
-                printf("-E, --list-diag cannot be combined with cidr list arguments -c,-o, -m, -n, -p");
+                usage("-E, --list-diag cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -Y");
             }
             interface_diag();
-            exit(0);
+            close_maps(0);
+        }
+        if (ddos_saddr_list)
+        {
+            if (cd || dl || cs || sl || prot || ddos_dport_list)
+            {
+                usage("-Y, --list-ddos-saddr cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -E, -U");
+            }
+            ddos_saddr_map_list();
+            close_maps(0);
+        }
+        if (ddos_dport_list)
+        {
+            if (cd || dl || cs || sl || prot)
+            {
+                usage("-Y, --list-ddos-dports cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -E");
+            }
+            ddos_dport_map_list();
+            close_maps(0);
         }
         if (!cd && !dl)
         {
@@ -3223,21 +3800,35 @@ int main(int argc, char **argv)
     else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos)
     {
         interface_diag();
-        exit(0);
     }
     else if (tcfilter)
     {
         interface_tc();
-        exit(0);
     }
     else if (monitor)
     {
-        open_rb_map();    
+        open_rb_map();
         ring_buffer = ring_buffer__new(rb_fd, process_events, NULL, NULL);
-        while(true){
+        while (true)
+        {
             ring_buffer__poll(ring_buffer, 1000);
         }
     }
+    else if (dsip)
+    {
+        if(disable){
+            delete_ddos_saddr_map(ddos_saddr);
+        }else{
+            update_ddos_saddr_map(ddos_saddr);
+        }
+    }
+    else if (ddport)
+        if(disable){
+            delete_ddos_dport_map(ddos_dport);
+        }
+        else{
+            update_ddos_dport_map(ddos_dport);
+        }
     else
     {
         usage("No arguments specified");

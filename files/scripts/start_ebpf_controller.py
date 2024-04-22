@@ -62,6 +62,7 @@ def add_link_listener_rules(lan_ip, lan_mask):
                                                 port = addr_array[-1].strip()
                                                 if((int(port) > 0) and (addr_array[0] == 'tls')):
                                                     os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp') 
+                                                    os.system('/opt/openziti/bin/zfw --ddos-dport-add ' + port)
                                             except Exception as e:
                                                 print(e) 
                                                 pass
@@ -85,6 +86,7 @@ def add_controller_edge_listener_rules(lan_ip, lan_mask):
                                         port = addr_array[-1].strip()
                                         if((int(port) > 0)):
                                             os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
+                                            os.system('/opt/openziti/bin/zfw --ddos-dport-add ' + port)
                                     except Exception as e:
                                         print(e)
                                         pass
@@ -107,6 +109,7 @@ def add_controller_ctrl_listener_rules(lan_ip, lan_mask):
                                     port = addr_array[-1].strip()
                                     if((int(port) > 0) and (addr_array[0] == 'tls')):
                                         os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
+                                        os.system('/opt/openziti/bin/zfw --ddos-dport-add ' + port)
                                 except Exception as e:
                                     print(e)
                                     pass
@@ -161,6 +164,7 @@ def add_controller_port_forwarding_rule(lan_ip, lan_mask):
     if(not test):
         port = "80"
         os.system('/opt/openziti/bin/zfw -I -c ' + lan_ip + ' -m ' + lan_mask + ' -l ' + port + ' -h ' + port + ' -t 0  -p tcp')
+        os.system('/opt/openziti/bin/zfw --ddos-dport-add ' + port)
     else:
         print("Port forwarding rul not found")
 

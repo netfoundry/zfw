@@ -260,7 +260,15 @@ struct {
      __uint(value_size,sizeof(bool));
      __uint(max_entries, BPF_MAX_ENTRIES);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
-} ddos_protect_map SEC(".maps");
+} ddos_saddr_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(uint16_t));
+     __uint(value_size,sizeof(bool));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} ddos_dport_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming packet search.  Map is 
 then used to search for port mappings.  This was required when source filtering was 
@@ -514,9 +522,15 @@ static inline void inc_syn_count(__u32 key){
 }
 
 /*Function to check if ip is in ddos whitelist*/
-static inline bool *get_ddos_list(unsigned int key){
+static inline bool *check_ddos_saddr(unsigned int key){
     bool *match;
-    match = bpf_map_lookup_elem(&ddos_protect_map, &key);
+    match = bpf_map_lookup_elem(&ddos_saddr_map, &key);
+	return match;
+}
+
+static inline bool *check_ddos_dport(unsigned short key){
+    bool *match;
+    match = bpf_map_lookup_elem(&ddos_dport_map, &key);
 	return match;
 }
 
@@ -942,8 +956,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
             }
             bpf_sk_release(sk);
-            if(((bpf_ntohs(tuple->ipv4.dport) == 80) || (bpf_ntohs(tuple->ipv4.dport) == 443)
-            || (bpf_ntohs(tuple->ipv4.dport) == 6262)) && local_ip4 && local_ip4->count){
+            if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
                     uint8_t addresses = 0;
                     if(local_ip4->count < MAX_ADDRESSES){
                         addresses = local_ip4->count;
@@ -960,7 +973,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 inc_syn_count(skb->ifindex);
 			                }
 			                if(local_diag->ddos_filtering){
-				                if(get_ddos_list(tuple->ipv4.saddr)){
+				                if(check_ddos_saddr(tuple->ipv4.saddr)){
                                     return TC_ACT_OK;
                                 }else{
                                     return TC_ACT_SHOT;
@@ -971,7 +984,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
              }   
         /*reply to outbound passthrough check*/
         }else{
-            if((bpf_ntohs(tuple->ipv4.dport) == 80) && local_ip4 && local_ip4->count){
+            if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
                     uint8_t addresses = 0;
                     if(local_ip4->count < MAX_ADDRESSES){
                         addresses = local_ip4->count;
@@ -988,7 +1001,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 inc_syn_count(skb->ifindex);
 			                }
 			                if(local_diag->ddos_filtering){
-				                if(get_ddos_list(tuple->ipv4.saddr)){
+				                if(check_ddos_saddr(tuple->ipv4.saddr)){
                                     return TC_ACT_OK;
                                 }else{
                                     return TC_ACT_SHOT;
@@ -996,7 +1009,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             }
                         }
                     }
-             }
+            }
             tcp_state_key.daddr = tuple->ipv4.saddr;
             tcp_state_key.saddr = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.dport;
