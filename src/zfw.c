@@ -337,7 +337,7 @@ void set_tc(char *action)
     if (access("/usr/sbin/tc", F_OK) != 0)
     {
         printf("tc not installed\n");
-        exit(0);
+        close_maps(0);
     }
     pid_t pid;
     char *const parmList[] = {"/usr/sbin/tc", "qdisc", action, "dev", tc_interface, "clsact", NULL};
@@ -379,12 +379,12 @@ void set_tc_filter(char *action)
     if (access("/usr/sbin/tc", F_OK) != 0)
     {
         printf("tc not installed\n");
-        exit(0);
+        close_maps(0);
     }
     if (!strcmp("add", action) && access(object_file, F_OK) != 0)
     {
         printf("object file %s not in path\n", object_file);
-        exit(1);
+        close_maps(1);
     }
     pid_t pid;
     if (!strcmp(action, "add"))
@@ -432,7 +432,7 @@ void set_tc_filter(char *action)
                 if (status)
                 {
                     printf("tc %s filter action/%d not set : %s\n", direction_string, x, tc_interface);
-                    exit(1);
+                    close_maps(1);
                 }
             }
         }
@@ -503,7 +503,7 @@ unsigned short port2s(char *port)
     if ((tmpint < 0) || (tmpint > 65535) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Port: %s\n", port);
-        exit(1);
+        close_maps(1);
     }
     unsigned short usint = (unsigned short)tmpint;
     return usint;
@@ -517,7 +517,7 @@ __u8 proto2u8(char *protocol)
     if ((tmpint <= 0) || (tmpint > 255) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Protocol: %s\n", protocol);
-        exit(1);
+        close_maps(1);
     }
     __u8 usint = (__u8)tmpint;
     return usint;
@@ -543,7 +543,7 @@ __u16 len2u16(char *len)
     if ((tmpint < 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Prefix Length: %s\n", len);
-        exit(1);
+        close_maps(1);
     }
     __u16 u16int = (__u16)tmpint;
     return u16int;
@@ -816,7 +816,7 @@ void usage(char *message)
     fprintf(stderr, "       zfw --vrrp-enable <ifname>\n");
     fprintf(stderr, "       zfw -V\n");
     fprintf(stderr, "       zfw --help\n");
-    exit(1);
+    close_maps(1);
 }
 
 bool set_tun_diag()
@@ -1207,7 +1207,7 @@ void interface_tc()
     if (getifaddrs(&addrs) == -1)
     {
         printf("can't get addrs");
-        exit(1);
+        close_maps(1);
     }
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
@@ -1310,7 +1310,7 @@ void interface_diag()
     if (getifaddrs(&addrs) == -1)
     {
         printf("can't get addrs");
-        exit(1);
+        close_maps(1);
     }
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
@@ -1621,7 +1621,7 @@ bool interface_map()
     if (getifaddrs(&addrs) == -1)
     {
         printf("can't get addrs");
-        exit(1);
+        close_maps(1);
     }
     struct ifaddrs *address = addrs;
     uint32_t idx = 0;
@@ -2201,7 +2201,7 @@ void map_insert()
     if (get_key_count() == BPF_MAX_ENTRIES)
     {
         printf("INSERT FAILURE -- MAX PREFIX TUPLES REACHED\n");
-        exit(1);
+        close_maps(1);
     }
     bool route_insert = false;
     if (route)
@@ -2222,7 +2222,7 @@ void map_insert()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)&key;
@@ -2259,7 +2259,7 @@ void map_insert()
     {
         printf("Unsupported Protocol\n");
         close(fd);
-        exit(1);
+        close_maps(1);
     }
     if (lookup)
     {
@@ -2274,7 +2274,7 @@ void map_insert()
         {
             printf("memcpy failed");
             close(fd);
-            exit(1);
+            close_maps(1);
         }
         else
         {
@@ -2289,7 +2289,7 @@ void map_insert()
             if (count_fd == -1)
             {
                 printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                exit(1);
+                close_maps(1);
             }
             uint32_t count_key = 0;
             uint32_t count_value = 0;
@@ -2323,7 +2323,7 @@ void map_insert()
         {
             printf("Insert failed\n");
             close(fd);
-            exit(1);
+            close_maps(1);
         }
     }
     map.flags = BPF_ANY;
@@ -2331,7 +2331,7 @@ void map_insert()
     if (result)
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     close(fd);
 }
@@ -2346,7 +2346,7 @@ void if_delete_key(uint32_t key)
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s\n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     // delete element with specified key
     map.map_fd = fd;
@@ -2373,7 +2373,7 @@ void diag_delete_key(uint32_t key)
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s\n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     // delete element with specified key
     map.map_fd = fd;
@@ -2409,7 +2409,7 @@ void map_delete_key(struct tproxy_key key)
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s\n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     // delete element with specified key
     map.map_fd = fd;
@@ -2448,7 +2448,7 @@ void map_delete()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)&key;
@@ -2458,7 +2458,7 @@ void map_delete()
     if (lookup)
     {
         printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     else
     {
@@ -2474,7 +2474,7 @@ void map_delete()
         else
         {
             printf("Unsupported Protocol\n");
-            exit(1);
+            close_maps(1);
         }
         remove_index(index, &orule);
         if (orule.index_len == 0)
@@ -2486,7 +2486,7 @@ void map_delete()
             if (fd == -1)
             {
                 printf("BPF_OBJ_GET: %s\n", strerror(errno));
-                exit(1);
+                close_maps(1);
             }
             // delete element with specified key
             map.map_fd = fd;
@@ -2496,7 +2496,7 @@ void map_delete()
             {
                 printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
                 close(fd);
-                exit(1);
+                close_maps(1);
             }
             else
             {
@@ -2511,7 +2511,7 @@ void map_delete()
                 if (count_fd == -1)
                 {
                     printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                    exit(1);
+                    close_maps(1);
                 }
                 uint32_t count_key = 0;
                 uint32_t count_value = 0;
@@ -2535,7 +2535,7 @@ void map_delete()
                 {
                     unbind_prefix(&dcidr, dplen);
                 }
-                exit(0);
+                close_maps(0);
             }
         }
         map.value = (uint64_t)&orule;
@@ -2547,7 +2547,7 @@ void map_delete()
         {
             printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
             close(fd);
-            exit(1);
+            close_maps(1);
         }
     }
     close(fd);
@@ -2569,7 +2569,7 @@ void map_flush()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)key;
@@ -2598,7 +2598,7 @@ void map_flush()
     if (count_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     uint32_t count_key = 0;
     uint32_t count_value = 0;
@@ -2633,7 +2633,7 @@ void map_list()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)&key;
@@ -2699,7 +2699,7 @@ void ddos_saddr_map_list()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)key;
@@ -2765,7 +2765,7 @@ void ddos_dport_map_list()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)key;
@@ -2819,7 +2819,7 @@ int get_key_count()
     if (count_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     uint32_t count_key = 0;
     uint32_t count_value = 0;
@@ -2851,7 +2851,7 @@ void map_list_all()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
+        close_maps(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)key;
@@ -2953,13 +2953,13 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         {
             fprintf(stderr, "Interface name or all required as arg to -M, --monitor: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
-            exit(1);
+            close_maps(1);
         }
         idx = if_nametoindex(arg);
         if (strcmp("all", arg) && idx == 0)
         {
             printf("Interface not found: %s\n", arg);
-            exit(1);
+            close_maps(1);
         }
         monitor = true;
         if (!strcmp("all", arg))
@@ -3542,7 +3542,7 @@ int main(int argc, char **argv)
             ebpf_usage();
         }
         disable_ebpf();
-        exit(0);
+        close_maps(0);
     }
 
     if (interface && !(add || delete))
