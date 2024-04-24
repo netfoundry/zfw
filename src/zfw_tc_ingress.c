@@ -237,13 +237,38 @@ struct {
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zet_transp_map SEC(".maps");
 
+/*struct {
+     __uint(type, BPF_MAP_TYPE_ARRAY);
+     __uint(key_size, sizeof(uint32_t));
+     __uint(value_size,sizeof(uint32_t));
+     __uint(max_entries, 1);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} syn_count_map SEC(".maps");*/
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, MAX_IF_ENTRIES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} syn_count_map SEC(".maps");
+
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(uint32_t));
      __uint(value_size,sizeof(bool));
      __uint(max_entries, BPF_MAX_ENTRIES);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
-} ddos_protect_map SEC(".maps");
+} ddos_saddr_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(uint16_t));
+     __uint(value_size,sizeof(bool));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} ddos_dport_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming packet search.  Map is 
 then used to search for port mappings.  This was required when source filtering was 
@@ -467,10 +492,45 @@ static inline void clear_match_tracker(struct match_key key){
     bpf_map_delete_elem(&matched_map, &key);
 }
 
+/*Function to get stored syn count*/
+/*static inline __u32 get_syn_count(__u32  key){
+    __u32 *sc;
+    sc = bpf_map_lookup_elem(&syn_count_map,&key);
+    if(sc){
+        return *sc;
+    }
+    return -1;
+}*/
+
+/*Function to clear syn_count tracker*/
+/*static inline void clear_syn_count(__u32 key){
+    uint32_t sc = 0;
+    bpf_map_update_elem(&syn_count_map, &key, &sc,0);
+}*/
+
+/*Function to increment syn count*/
+static inline void inc_syn_count(__u32 key){
+    __u32 *sc;
+    sc = bpf_map_lookup_elem(&syn_count_map,&key);
+    if(sc){
+        *sc += 1;
+        bpf_map_update_elem(&syn_count_map, &key, sc,0);
+    }else{
+	    uint32_t scnew = 1;
+	    bpf_map_update_elem(&syn_count_map, &key, &scnew,0);
+    }
+}
+
 /*Function to check if ip is in ddos whitelist*/
-static inline bool *get_ddos_list(unsigned int key){
+static inline bool *check_ddos_saddr(unsigned int key){
     bool *match;
-    match = bpf_map_lookup_elem(&ddos_protect_map, &key);
+    match = bpf_map_lookup_elem(&ddos_saddr_map, &key);
+	return match;
+}
+
+static inline bool *check_ddos_dport(unsigned short key){
+    bool *match;
+    match = bpf_map_lookup_elem(&ddos_dport_map, &key);
 	return match;
 }
 
@@ -874,13 +934,21 @@ int bpf_sk_splice(struct __sk_buff *skb){
      * openziti router has tproxy intercepts defined for the flow
      */
     if(tcp){
-       /*if tcp based tuple implement stateful inspection to see if they were
-       * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
-       outbound initiated from through the router interface. if not pass on to tproxy logic
-       to determine if the openziti router has tproxy intercepts defined for the flow*/
-       event.proto = IPPROTO_TCP;
-       sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
-       if(sk){
+        /*if tcp based tuple implement stateful inspection to see if they were
+        * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
+        outbound initiated from through the router interface. if not pass on to tproxy logic
+        to determine if the openziti router has tproxy intercepts defined for the flow*/
+        event.proto = IPPROTO_TCP;
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
+        if(sk){
             if (sk->state != BPF_TCP_LISTEN){
                 if(local_diag->verbose){
                     send_event(&event);
@@ -888,15 +956,59 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
             }
             bpf_sk_release(sk);
+            if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
+                    uint8_t addresses = 0;
+                    if(local_ip4->count < MAX_ADDRESSES){
+                        addresses = local_ip4->count;
+                    }else{
+                        addresses = MAX_ADDRESSES;
+                    }
+                    for(int x = 0; x < addresses; x++){
+                        if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                            if(local_diag->verbose){
+                                event.proto = IPPROTO_TCP;
+                                send_event(&event);
+                            }
+			                if(tcph->syn){
+                                inc_syn_count(skb->ifindex);
+			                }
+			                if(local_diag->ddos_filtering){
+				                if(check_ddos_saddr(tuple->ipv4.saddr)){
+                                    return TC_ACT_OK;
+                                }else{
+                                    return TC_ACT_SHOT;
+				                }
+                            }
+                        }
+                    }
+             }   
         /*reply to outbound passthrough check*/
-       }else{
-            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                return TC_ACT_SHOT;
-            }
-            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
-                return TC_ACT_SHOT;
+        }else{
+            if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
+                    uint8_t addresses = 0;
+                    if(local_ip4->count < MAX_ADDRESSES){
+                        addresses = local_ip4->count;
+                    }else{
+                        addresses = MAX_ADDRESSES;
+                    }
+                    for(int x = 0; x < addresses; x++){
+                        if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                            if(local_diag->verbose){
+                                event.proto = IPPROTO_TCP;
+                                send_event(&event);
+                            }
+			                if(tcph->syn){
+                                inc_syn_count(skb->ifindex);
+			                }
+			                if(local_diag->ddos_filtering){
+				                if(check_ddos_saddr(tuple->ipv4.saddr)){
+                                    return TC_ACT_OK;
+                                }else{
+                                    return TC_ACT_SHOT;
+				                }
+                            }
+                        }
+                    }
             }
             tcp_state_key.daddr = tuple->ipv4.saddr;
             tcp_state_key.saddr = tuple->ipv4.daddr;
@@ -964,7 +1076,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             else if(tstate){
                 del_tcp(tcp_state_key);
             }
-       }
+        }
     }else{
        /* if udp based tuple implement stateful inspection to 
         * implement stateful inspection to see if they were initiated by the local OS and If yes jump
@@ -1422,13 +1534,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
                     if(!local_diag->per_interface){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                            if(!local_diag->ddos_filtering){
-                                return TC_ACT_OK;
-                            }
-                            else{
-                                if(get_ddos_list(tuple->ipv4.saddr)){
-                                    return TC_ACT_OK;
-                                }
+                            return TC_ACT_OK;
+                            if(local_diag->verbose){
+                                send_event(&event);
                             }
                         }
                         if(!local_diag->tun_mode){
@@ -1478,13 +1586,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                         if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                                if(!local_diag->ddos_filtering){
-                                    return TC_ACT_OK;
-                                }
-                                else{
-                                    if(get_ddos_list(tuple->ipv4.saddr)){
-                                        return TC_ACT_OK;
-                                    }
+                                return TC_ACT_OK;
+                                if(local_diag->verbose){
+                                    send_event(&event);
                                 }
                             }
                             if(!local_diag->tun_mode){
