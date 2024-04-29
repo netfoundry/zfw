@@ -168,7 +168,7 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.15";
+const char *argp_program_version = "0.5.16";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -1632,7 +1632,8 @@ bool interface_map()
     bool create_route = true;
     struct in_addr tuncidr;
     uint32_t tunip = 0x01004064;
-    char tunmask[3] = "10";
+    char *tunmask = NULL;
+    char *static_tun_mask = "10";
     char *tunipstr;
     char *dns_range = "ZITI_DNS_IP_RANGE";
     char *tunif = getenv(dns_range);
@@ -1643,19 +1644,32 @@ bool interface_map()
     }
     if (tmptun)
     {
+    
         if (tmptun && ((strlen(tmptun) > 8) && (strlen(tmptun) < 19)))
         {
-            tunipstr = strsep(&tmptun, "/");
-            if (tunipstr)
+            char *tok = strtok(tmptun, "/");
+            tunipstr = strdup(tok);
+            while(tok != NULL){
+                if(tunmask){
+                    free(tunmask);
+                }
+                tunmask = strdup(tok);
+                tok = strtok(NULL, "/");
+            }
+            if(tmptun){
+                free(tmptun);
+            }
+            if (!((strlen(tunmask) > 0) && (strlen(tunmask) <= 2)))
+            {
+                free(tunmask);
+                free(tunipstr);       
+            }else
             {
                 if (inet_aton(tunipstr, &tuncidr))
                 {
                     tunip = tuncidr.s_addr;
                 }
-                if (tmptun && (strlen(tmptun) > 0) && (strlen(tmptun) <= 2))
-                {
-                    sprintf(tunmask, "%s", tmptun);
-                }
+                free(tunipstr);
             }
         }
     }
@@ -1738,7 +1752,7 @@ bool interface_map()
                     }
                 }
             }
-
+            
             if ((ifip == tunip) && !strncmp(address->ifa_name, "ziti", 4))
             {
                 bool change_detected = true;
@@ -1760,17 +1774,34 @@ bool interface_map()
                         o_iftun.index = idx;
                         change_detected = true;
                     }
-                    if (strcmp(o_iftun.mask, tunmask))
-                    {
-                        sprintf(o_iftun.mask, "%s", tunmask);
-                        change_detected = true;
+                    uint32_t tun_net_integer = 0;
+                    if(tunmask){
+                        if (strcmp(o_iftun.mask, tunmask))
+                        {
+                            sprintf(o_iftun.mask, "%s", tunmask);
+                            change_detected = true;
+                        }
+                        if (strcmp(o_iftun.ifname, address->ifa_name))
+                        {
+                            sprintf(o_iftun.ifname, "%s", address->ifa_name);
+                            change_detected = true;
+                        }
+                        tun_net_integer = ntohl(ifip) & bits2Mask(len2u16(tunmask));
+                        free(tunmask);
                     }
-                    if (strcmp(o_iftun.ifname, address->ifa_name))
-                    {
-                        sprintf(o_iftun.ifname, "%s", address->ifa_name);
-                        change_detected = true;
+                    else{
+                        if (strcmp(o_iftun.mask, static_tun_mask))
+                        {
+                            sprintf(o_iftun.mask, "%s", static_tun_mask);
+                            change_detected = true;
+                        }
+                        if (strcmp(o_iftun.ifname, address->ifa_name))
+                        {
+                            sprintf(o_iftun.ifname, "%s", address->ifa_name);
+                            change_detected = true;
+                        }
+                        tun_net_integer = ntohl(ifip) & bits2Mask(len2u16(static_tun_mask));
                     }
-                    uint32_t tun_net_integer = ntohl(ifip) & bits2Mask(len2u16(tunmask));
                     char *tuncidr_string = nitoa(tun_net_integer);
                     if (tuncidr_string)
                     {
@@ -1792,6 +1823,8 @@ bool interface_map()
                         }
                     }
                 }
+            }else if(!strncmp(address->ifa_name, "ziti", 4) && tunmask){
+                free(tunmask);
             }
         }
         else
