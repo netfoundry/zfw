@@ -71,7 +71,7 @@ struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple {

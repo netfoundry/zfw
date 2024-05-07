@@ -168,7 +168,7 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.17";
+const char *argp_program_version = "0.5.16";
 struct ring_buffer *ring_buffer;
 
 __u8 if_list[MAX_IF_LIST_ENTRIES];
@@ -249,7 +249,7 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple
