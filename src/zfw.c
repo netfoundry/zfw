@@ -2256,6 +2256,7 @@ void map_insert()
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        free(orule);
         close_maps(1);
     }
     map.map_fd = fd;
@@ -2292,6 +2293,8 @@ void map_insert()
     else
     {
         printf("Unsupported Protocol\n");
+        free(port_mapping);
+        free(orule);
         close(fd);
         close_maps(1);
     }
@@ -2307,6 +2310,8 @@ void map_insert()
         if (!rule.port_mapping[index].low_port)
         {
             printf("memcpy failed");
+            free(port_mapping);
+            free(orule);
             close(fd);
             close_maps(1);
         }
@@ -2323,6 +2328,9 @@ void map_insert()
             if (count_fd == -1)
             {
                 printf("BPF_OBJ_GET: %s \n", strerror(errno));
+                free(port_mapping);
+                free(orule);
+                close(fd);
                 close_maps(1);
             }
             uint32_t count_key = 0;
@@ -2356,6 +2364,8 @@ void map_insert()
         if (!(orule->port_mapping[index].low_port == index))
         {
             printf("Insert failed\n");
+            free(port_mapping);
+            free(orule);
             close(fd);
             close_maps(1);
         }
@@ -2365,6 +2375,9 @@ void map_insert()
     if (result)
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        free(port_mapping);
+        free(orule);
+        close(fd);
         close_maps(1);
     }
     free(port_mapping);
