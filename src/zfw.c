@@ -168,10 +168,10 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.5.16";
+const char *argp_program_version = "0.5.18";
 struct ring_buffer *ring_buffer;
 
-__u8 if_list[MAX_IF_LIST_ENTRIES];
+__u32 if_list[MAX_IF_LIST_ENTRIES];
 struct interface
 {
     uint32_t index;
@@ -249,7 +249,7 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u8 if_list[MAX_IF_LIST_ENTRIES];
+    __u32 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple
@@ -2243,7 +2243,8 @@ void map_insert()
     }
     union bpf_attr map;
     struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
-    struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
+    struct tproxy_tuple *orule = (struct tproxy_tuple *)malloc(sizeof(struct tproxy_tuple));
+    memset(orule, 0, sizeof(struct tproxy_tuple)); 
     /* open BPF zt_tproxy_map map */
     memset(&map, 0, sizeof(map));
     /* set path name with location of map in filesystem */
@@ -2259,21 +2260,21 @@ void map_insert()
     }
     map.map_fd = fd;
     map.key = (uint64_t)&key;
-    map.value = (uint64_t)&orule;
+    map.value = (uint64_t)orule;
     /* make system call to lookup prefix/mask in map */
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     unsigned short index = htons(low_port);
     /* pupulate a struct for a port mapping */
-    struct tproxy_port_mapping port_mapping = {
-        htons(low_port),
-        htons(high_port),
-        htons(tproxy_port),
-        {}};
+    struct tproxy_port_mapping *port_mapping = (struct tproxy_port_mapping *)malloc(sizeof(struct tproxy_port_mapping));
+    memset(port_mapping, 0, sizeof(struct tproxy_port_mapping)); 
+    port_mapping->low_port = htons(low_port);
+    port_mapping->high_port = htons(high_port);
+    port_mapping->tproxy_port = htons(tproxy_port);  
     if (interface)
     {
         for (int x = 0; x < MAX_IF_LIST_ENTRIES; x++)
         {
-            port_mapping.if_list[x] = if_list[x];
+            port_mapping->if_list[x] = if_list[x];
         }
     }
     /*
@@ -2301,7 +2302,7 @@ void map_insert()
             1,
             {index},
             {}};
-        memcpy((void *)&rule.port_mapping[index], (void *)&port_mapping, sizeof(struct tproxy_port_mapping));
+        memcpy((void *)&rule.port_mapping[index], (void *)port_mapping, sizeof(struct tproxy_port_mapping));
         map.value = (uint64_t)&rule;
         if (!rule.port_mapping[index].low_port)
         {
@@ -2351,8 +2352,8 @@ void map_insert()
     {
         /* modify existing prefix entry and add or modify existing port mapping entry  */
         printf("lookup success\n");
-        add_index(index, &port_mapping, &orule);
-        if (!(orule.port_mapping[index].low_port == index))
+        add_index(index, port_mapping, orule);
+        if (!(orule->port_mapping[index].low_port == index))
         {
             printf("Insert failed\n");
             close(fd);
@@ -2366,6 +2367,8 @@ void map_insert()
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
         close_maps(1);
     }
+    free(port_mapping);
+    free(orule);
     close(fd);
 }
 
@@ -3020,7 +3023,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         if (ifcount < MAX_IF_LIST_ENTRIES)
         {
-            if ((idx > 0) && (idx < MAX_IF_ENTRIES))
+            if ((idx > 0) && (idx < UINT32_MAX))
             {
                 if_list[ifcount] = idx;
             }
