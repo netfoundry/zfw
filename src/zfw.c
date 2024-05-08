@@ -1679,13 +1679,15 @@ bool interface_map()
      *  as the value
      */
 
-    uint32_t index_count = 0;
+    uint32_t ip_index_count = 0;
+    uint32_t all_index_count = 0;
     uint32_t addr_array[MAX_ADDRESSES];
-    struct interface index_array[MAX_IF_ENTRIES];
+    struct interface ip_index_array[MAX_IF_ENTRIES];
+    struct interface all_index_array[MAX_IF_ENTRIES];
     char *cur_name;
     uint32_t cur_idx;
     uint8_t addr_count = 0;
-    while (address && (index_count < MAX_IF_ENTRIES))
+    while (address && (ip_index_count < MAX_IF_ENTRIES))
     {
         idx = if_nametoindex(address->ifa_name);
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -1735,8 +1737,12 @@ bool interface_map()
                         addr_count,
                         {0}};
                     memcpy(intf.addresses, addr_array, sizeof(intf.addresses));
-                    index_array[index_count] = intf;
-                    index_count++;
+                    ip_index_array[ip_index_count] = intf;
+		            if(all_index_count < MAX_ADDRESSES){
+                	    all_index_array[all_index_count] = intf;
+        	        }
+                    ip_index_count++;
+                    all_index_count++;
                     addr_count = 0;
                     cur_idx = idx;
                     cur_name = address->ifa_name;
@@ -1833,9 +1839,14 @@ bool interface_map()
                 idx,
                 cur_name,
                 0,
-                {0}};
-            index_array[index_count] = intf;
-            index_count++;
+                {0}
+            };
+            if(all_index_count < MAX_ADDRESSES){
+                all_index_array[all_index_count] = intf;
+            }
+            all_index_count++;
+            address = address->ifa_next;
+            continue;
         }
         address = address->ifa_next;
     }
@@ -1845,17 +1856,22 @@ bool interface_map()
             cur_idx,
             cur_name,
             addr_count,
-            {0}};
+            {0}
+        };
         memcpy(intf.addresses, addr_array, sizeof(addr_array));
-        index_array[index_count] = intf;
-        index_count++;
+        ip_index_array[ip_index_count] = intf;
+        if(all_index_count < MAX_ADDRESSES){
+            all_index_array[all_index_count] = intf;
+        }
+        ip_index_count++;
+        all_index_count++;
     }
-    prune_if_map(index_array, index_count);
-    for (uint32_t x = 0; x < index_count; x++)
+    prune_if_map(ip_index_array, ip_index_count);
+    for (uint32_t x = 0; x < ip_index_count; x++)
     {
-        add_if_index(index_array[x]);
+        add_if_index(ip_index_array[x]);
     }
-    prune_diag_map(index_array, index_count);
+    prune_diag_map(all_index_array, all_index_count);
     freeifaddrs(addrs);
     return create_route;
 }
