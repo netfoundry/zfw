@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.6.0] - 2024-05-09
+
+###
+
+- Added support for ziti service id tracking.  Will need to update ziti-router and zfw_tunnel_wrapper to add service id
+  when a rule is inserted.
+
 # [0.5.18] - 2024-05-08
 
 ###

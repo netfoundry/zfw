@@ -72,7 +72,7 @@ struct tproxy_port_mapping {
     __u16 high_port;
     __u16 tproxy_port;
     __u32 if_list[MAX_IF_LIST_ENTRIES];
-    char service_id[23]; 
+    char service_id[32]; 
 };
 
 struct tproxy_tuple {
