@@ -100,6 +100,7 @@ bool interface = false;
 bool disable = false;
 bool all_interface = false;
 bool ssh_disable = false;
+bool service = false;
 bool tc = false;
 bool tcfilter = false;
 bool direction = false;
@@ -165,6 +166,7 @@ char *vrrp_interface;
 char *ddos_interface;
 char *monitor_interface;
 char *tc_interface;
+char *service_string;
 char *log_file_name;
 char *object_file;
 char *direction_string;
@@ -250,6 +252,7 @@ struct tproxy_port_mapping
     __u16 high_port;
     __u16 tproxy_port;
     __u32 if_list[MAX_IF_LIST_ENTRIES];
+    char service_id[23];
 };
 
 struct tproxy_tuple
@@ -2280,7 +2283,9 @@ void map_insert()
     map.value = (uint64_t)orule;
     /* make system call to lookup prefix/mask in map */
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    unsigned short index = htons(low_port);
+    unsigned short *index = (unsigned short *)malloc(sizeof(unsigned short));
+    memset(index, 0, sizeof(unsigned short));
+    *index = htons(low_port);
     /* pupulate a struct for a port mapping */
     struct tproxy_port_mapping *port_mapping = (struct tproxy_port_mapping *)malloc(sizeof(struct tproxy_port_mapping));
     memset(port_mapping, 0, sizeof(struct tproxy_port_mapping)); 
@@ -2294,8 +2299,13 @@ void map_insert()
             port_mapping->if_list[x] = if_list[x];
         }
     }
+    if(service){
+        sprintf(port_mapping->service_id, "%s", service_string);
+    }else{
+        sprintf(port_mapping->service_id, "%s", "ID NOT SET");
+    }
     /*
-     * Check result of lookup if not 0 then create a new entery
+     * Check result of lookup if not 0 then create a new entry
      * else edit an existing entry
      */
     if (protocol == IPPROTO_UDP)
@@ -2309,6 +2319,7 @@ void map_insert()
     else
     {
         printf("Unsupported Protocol\n");
+        free(index);
         free(port_mapping);
         free(orule);
         close(fd);
@@ -2319,13 +2330,14 @@ void map_insert()
         /* create a new tproxy prefix entry and add port range to it */
         struct tproxy_tuple rule = {
             1,
-            {index},
+            {*index},
             {}};
-        memcpy((void *)&rule.port_mapping[index], (void *)port_mapping, sizeof(struct tproxy_port_mapping));
+        memcpy((void *)&rule.port_mapping[*index], (void *)port_mapping, sizeof(struct tproxy_port_mapping));
         map.value = (uint64_t)&rule;
-        if (!rule.port_mapping[index].low_port)
+        if (!rule.port_mapping[*index].low_port)
         {
             printf("memcpy failed");
+            free(index);
             free(port_mapping);
             free(orule);
             close(fd);
@@ -2344,6 +2356,7 @@ void map_insert()
             if (count_fd == -1)
             {
                 printf("BPF_OBJ_GET: %s \n", strerror(errno));
+                free(index);
                 free(port_mapping);
                 free(orule);
                 close(fd);
@@ -2376,16 +2389,18 @@ void map_insert()
     {
         /* modify existing prefix entry and add or modify existing port mapping entry  */
         printf("lookup success\n");
-        add_index(index, port_mapping, orule);
-        if (!(orule->port_mapping[index].low_port == index))
+        add_index(*index, port_mapping, orule);
+        if (!(orule->port_mapping[*index].low_port == *index))
         {
             printf("Insert failed\n");
+            free(index);
             free(port_mapping);
             free(orule);
             close(fd);
             close_maps(1);
         }
     }
+    free(index);
     map.flags = BPF_ANY;
     int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
     if (result)
@@ -2980,6 +2995,7 @@ static struct argp_option options[] = {
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
+    {"service-id", 's', "", 0, "set ziti service id", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
@@ -3294,6 +3310,20 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'r':
         route = true;
+        break;
+    case 's':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "service id required as arg to -s, --service-id: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        if(strlen(arg) > 31){
+            printf("Invalid service ID: ID too long\n");
+            exit(1);
+        }
+        service = true;
+        service_string = arg;
         break;
     case 't':
         tproxy_port = port2s(arg);
