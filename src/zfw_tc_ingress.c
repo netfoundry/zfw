@@ -72,7 +72,7 @@ struct tproxy_port_mapping {
     __u16 high_port;
     __u16 tproxy_port;
     __u32 if_list[MAX_IF_LIST_ENTRIES];
-    char service_id[29];
+    char service_id[29]; 
 };
 
 struct tproxy_tuple {
@@ -119,7 +119,7 @@ struct bpf_event{
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
-    char service_id[29];
+    
 };
 
 /*Key to tcp_map*/
@@ -437,14 +437,6 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } rb_map SEC(".maps");
 
-/*MAP to hold event data when stack is full*/
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, int);
-    __type(value, struct bpf_event);
- } heap SEC(".maps");
-
 /* Function used by ebpf program to access ifindex_ip_map
  * in order to lookup the ip associated with its attached interface
  * This allows distinguishing between socket to the local system i.e. ssh
@@ -563,9 +555,6 @@ static inline void send_event(struct bpf_event *new_event){
         for(int x =0; x < 6; x++){
             rb_event->source[x] = new_event->source[x];
             rb_event->dest[x] = new_event->dest[x];
-        }
-        for(int i = 0; i < 29; i++){
-            rb_event->service_id[i] = new_event->service_id[i];
         }
         bpf_ringbuf_submit(rb_event, 0);
     }
@@ -759,12 +748,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
         0,
         0,
         {0},
-        {0},
-        {0},
+        {0}
      };
-
-    char service_id[23] = {'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','\0'};
-    memcpy(event.service_id, service_id, sizeof(service_id));
     
     /*look up attached interface inbound diag status*/
     struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
@@ -1484,27 +1469,24 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     if(!tuple){
        return TC_ACT_SHOT;
     }
-    if ((unsigned long)(tuple + 1) > (unsigned long)skb->data_end){
-        return TC_ACT_SHOT;
-    }
+
     unsigned long long tstamp = bpf_ktime_get_ns();
-    int ekey = 0;
-    struct bpf_event *event = bpf_map_lookup_elem(&heap, &ekey);
-    if(!event){
-       return TC_ACT_SHOT;
-    }
-    event->tstamp = tstamp;
-    event->ifindex = skb->ifindex;
-    event->tun_ifindex = 0;
-    event->saddr = tuple->ipv4.saddr;
-    event->daddr = tuple->ipv4.daddr;
-    event->dport = tuple->ipv4.dport;
-    event->sport = tuple->ipv4.sport;
-    event->tport = 0;
-    event->proto = 0;
-    event->direction = INGRESS;
-    event->error_code = 0;
-    event->tracking_code = 0;
+    struct bpf_event event = {
+        tstamp,
+        skb->ifindex,
+        0,
+        tuple->ipv4.daddr,
+        tuple->ipv4.saddr,
+        tuple->ipv4.sport,
+        tuple->ipv4.dport,
+        0,
+        0,
+        INGRESS,
+        0,
+        0,
+        {},
+        {}
+     };
 
     /* determine length of tuple */
     tuple_len = sizeof(tuple->ipv4);
@@ -1532,6 +1514,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         }else{
             break;
         }
+    
         if((tproxy = get_tproxy(key)) && tuple)
         {
             __u16 max_entries = tproxy->index_len;
@@ -1544,9 +1527,8 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                      && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) 
                 {
-                    event->proto = key.protocol;
-                    event->tport = tproxy->port_mapping[port_key].tproxy_port;
-                    memcpy(event->service_id, tproxy->port_mapping[port_key].service_id, sizeof(event->service_id));
+                    event.proto = key.protocol;
+                    event.tport = tproxy->port_mapping[port_key].tproxy_port;
                     /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                     the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
                     sockcheck.ipv4.daddr = 0x0100007f;
@@ -1554,7 +1536,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     if(!local_diag->per_interface){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
                             if(local_diag->verbose){
-                                send_event(event);
+                                send_event(&event);
                             }
                             return TC_ACT_OK;
                         }
@@ -1564,7 +1546,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 return TC_ACT_SHOT;
                             }
                             if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
-                                send_event(event);
+                                send_event(&event);
                             }
                             goto assign;
                         }else
@@ -1579,9 +1561,8 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     tstamp,
                                     skb->ifindex,
                                     {0},
-                                    {0},
+                                    {0}
                                 };
-                                //memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
                                 memcpy(&tus.source, &eth->h_source, 6);
                                 memcpy(&tus.dest, &eth->h_dest, 6);
                                 insert_tun(tus, tun_state_key);
@@ -1593,10 +1574,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                             struct ifindex_tun *tun_index = get_tun_index(0);
                             if(tun_index){
                                 if(local_diag->verbose){
-                                    memcpy(event->source, eth->h_source, 6);
-                                    memcpy(event->dest, eth->h_dest, 6);
-                                    event->tun_ifindex = tun_index->index;
-                                    send_event(event);
+                                    memcpy(event.source, eth->h_source, 6);
+                                    memcpy(event.dest, eth->h_dest, 6);
+                                    event.tun_ifindex = tun_index->index;
+                                    send_event(&event);
                                 }
                                 return bpf_redirect(tun_index->index, 0);
                             }
@@ -1607,7 +1588,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                         if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){
                                 if(local_diag->verbose){
-                                    send_event(event);
+                                    send_event(&event);
                                 }
                                 return TC_ACT_OK;
                             }
@@ -1617,7 +1598,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     return TC_ACT_SHOT;
                                 }
                                 if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
-                                    send_event(event);
+                                    send_event(&event);
                                 }
                                 goto assign;
                             }else{
@@ -1632,9 +1613,8 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         tstamp,
                                         skb->ifindex,
                                         {0},
-                                        {0},
+                                        {0}
                                     };
-                                    //memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
                                     memcpy(&tus.source, &eth->h_source, 6);
                                     memcpy(&tus.dest, &eth->h_dest, 6);
                                     insert_tun(tus, tun_state_key);
@@ -1646,10 +1626,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 struct ifindex_tun *tun_index = get_tun_index(0);
                                 if(tun_index){
                                     if(local_diag->verbose){
-                                        memcpy(event->source, eth->h_source, 6);
-                                        memcpy(event->dest, eth->h_dest, 6);
-                                        event->tun_ifindex = tun_index->index;
-                                        send_event(event);
+                                        memcpy(event.source, eth->h_source, 6);
+                                        memcpy(event.dest, eth->h_dest, 6);
+                                        event.tun_ifindex = tun_index->index;
+                                        send_event(&event);
                                     }
                                     return bpf_redirect(tun_index->index, 0);
                                 }
@@ -1658,13 +1638,13 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     }
 
                     if(skb->ifindex == 1){
-                        event->error_code = IF_LIST_MATCH_ERROR;
-                        send_event(event);
+                        event.error_code = IF_LIST_MATCH_ERROR;
+                        send_event(&event);
                         return TC_ACT_OK;
                     }
                     else{
-                        event->error_code = IF_LIST_MATCH_ERROR;
-                        send_event(event);
+                        event.error_code = IF_LIST_MATCH_ERROR;
+                        send_event(&event);
                         return TC_ACT_SHOT;
                     }
                 }

@@ -31,8 +31,7 @@
 #define BPF_MAX_SESSIONS        10000
 #define INGRESS                 0
 #define NO_REDIRECT_STATE_FOUND 10
-bool udp = false;
-bool tcp = false;
+
 struct bpf_event{
     unsigned long long tstamp;
     __u32 ifindex;
@@ -48,7 +47,6 @@ struct bpf_event{
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
-    char service_id[29];
 };
 
 /*Key to tun_map, tcp_map and udp_map*/
@@ -140,10 +138,6 @@ static inline void send_event(struct bpf_event *new_event){
             rb_event->source[x] = new_event->source[x];
             rb_event->dest[x] = new_event->dest[x];
         }
-        for (int i = 0; i < 29; i++)
-        {
-            rb_event->service_id[i] = new_event->service_id[i];
-        }
         bpf_ringbuf_submit(rb_event, 0);
     }
 }
@@ -181,10 +175,10 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         INGRESS,
         0,
         0,
+        {0},
+        {0}
      };
    
-    char service_id[23] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '\0'};
-    memcpy(event.service_id, service_id, sizeof(service_id));
     struct tun_key tun_state_key;
     tun_state_key.daddr = iph->saddr;
     tun_state_key.saddr = iph->daddr;

@@ -7,8 +7,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
-- Added support for ziti service id tracking.  Will need to update ziti-router and zfw_tunnel_wrapper to add service id
-  when a rule is inserted.
+- Added support for ziti service id tracking.  Will need to update ziti-router via pr.
 - Fixed issue where passthrough rules would not generate log data when in verbose mode.
 
 # [0.5.18] - 2024-05-08
