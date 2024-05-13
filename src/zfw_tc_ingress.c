@@ -1580,7 +1580,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     skb->ifindex,
                                     {0},
                                     {0},
-                                    {0}
                                 };
                                 //memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
                                 memcpy(&tus.source, &eth->h_source, 6);
@@ -1634,7 +1633,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         skb->ifindex,
                                         {0},
                                         {0},
-                                        {0}
                                     };
                                     //memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
                                     memcpy(&tus.source, &eth->h_source, 6);
