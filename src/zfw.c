@@ -2308,10 +2308,16 @@ void map_insert()
             port_mapping->if_list[x] = if_list[x];
         }
     }
-    if(service){
+    /*if(service){
         sprintf(port_mapping->service_id, "%s", service_string);
     }else{
         sprintf(port_mapping->service_id, "%s", "0000000000000000000000");
+    }*/
+    char service_id[23] = {'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','\0'};
+    if(service){
+        memcpy(port_mapping->service_id, service_string, strlen(service_string) + 1);
+    }else{
+        memcpy(port_mapping->service_id, service_id, sizeof(service_id));
     }
     /*
      * Check result of lookup if not 0 then create a new entry
