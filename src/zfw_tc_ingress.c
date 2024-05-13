@@ -211,7 +211,6 @@ struct tun_state {
     unsigned int ifindex;
     unsigned char source[6];
     unsigned char dest[6];
-    char service_id[29];
 };
 
 /*key to transp_map*/
@@ -1583,7 +1582,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     {0},
                                     {0}
                                 };
-                                memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
+                                //memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
                                 memcpy(&tus.source, &eth->h_source, 6);
                                 memcpy(&tus.dest, &eth->h_dest, 6);
                                 insert_tun(tus, tun_state_key);
@@ -1637,7 +1636,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         {0},
                                         {0}
                                     };
-                                    memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
+                                    //memcpy(&tus.service_id, tproxy->port_mapping[port_key].service_id, sizeof(tus.service_id));
                                     memcpy(&tus.source, &eth->h_source, 6);
                                     memcpy(&tus.dest, &eth->h_dest, 6);
                                     insert_tun(tus, tun_state_key);

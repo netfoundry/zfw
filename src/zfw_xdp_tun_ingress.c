@@ -71,7 +71,6 @@ struct tun_state {
     unsigned int ifindex;
     unsigned char source[6];
     unsigned char dest[6];
-    char service_id[29];
 };
 
 /*value to ifindex_tun_map*/
@@ -182,16 +181,13 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         INGRESS,
         0,
         0,
-        {0},
-        {0},
-        {0}
      };
    
+    char service_id[23] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '\0'};
+    memcpy(event.service_id, service_id, sizeof(service_id));
     struct tun_key tun_state_key;
     tun_state_key.daddr = iph->saddr;
     tun_state_key.saddr = iph->daddr;
-    char service_id[23] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '\0'};
-    memcpy(event.service_id, service_id, sizeof(service_id));
     struct tun_state *tus = get_tun(tun_state_key);
     if(tus){
         bpf_xdp_adjust_head(ctx, -14);
@@ -200,29 +196,42 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
         }
-        struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
-        /* ensure ip header is in packet bounds */
-        if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
-                return XDP_PASS;
+        if(tun_diag->verbose){
+            struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
+            /* ensure ip header is in packet bounds */
+            if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+            }
+            __u8 protocol = iph->protocol;
+            if(protocol == IPPROTO_TCP){
+                struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+                }
+                event.dport = tcph->dest;
+                event.sport = tcph->source;
+            }else if (protocol == IPPROTO_UDP){
+                struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+                }
+                event.dport = udph->dest;
+                event.sport = udph->source;
+            }
+            event.tun_ifindex = tus->ifindex;
+            event.proto = protocol;
+            event.saddr = iph->saddr;
+            event.daddr = iph->daddr;
+            memcpy(&event.source, &tus->dest, 6);
+            memcpy(&event.dest, &tus->source, 6);
+            send_event(&event);
         }
-        /* ip options not allowed */
-        if (iph->ihl != 5){
-            return XDP_PASS;
-        }
-        __u8 protocol = iph->protocol;
-        event.tun_ifindex = tus->ifindex;
-        event.proto = protocol;
-        event.saddr = iph->saddr;
-        event.daddr = iph->daddr;
-        memcpy(&event.source, &tus->dest, 6);
-        memcpy(&event.dest, &tus->source, 6);
-        send_event(&event);
         memcpy(&eth->h_dest, &tus->source,6);
         memcpy(&eth->h_source, &tus->dest,6);
         unsigned short proto = bpf_htons(ETH_P_IP);
         memcpy(&eth->h_proto, &proto, sizeof(proto));
         return bpf_redirect(tus->ifindex,0);
-    }    
+    }
     if(tun_diag->verbose){
         event.error_code = NO_REDIRECT_STATE_FOUND;
         send_event(&event);
