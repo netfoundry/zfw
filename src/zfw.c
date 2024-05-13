@@ -230,6 +230,7 @@ struct bpf_event
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
+    char service_id[29];
 };
 
 struct diag_ip4
@@ -252,7 +253,7 @@ struct tproxy_port_mapping
     __u16 high_port;
     __u16 tproxy_port;
     __u32 if_list[MAX_IF_LIST_ENTRIES];
-    char service_id[32];
+    char service_id[29];
 };
 
 struct tproxy_tuple
@@ -1904,13 +1905,14 @@ static int process_events(void *ctx, void *data, size_t len)
     char *ts = get_ts(evt->tstamp);
     char message[250];
     int res = 0;
+    char *service_id = evt->service_id;
     if (((ifname && monitor_interface && !strcmp(monitor_interface, ifname)) || all_interface) && ts)
     {
         if (evt->error_code)
         {
             if (evt->error_code == IP_HEADER_TOO_BIG)
             {
-                sprintf(message, "%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : IP Header Too Big\n", ts, service_id, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1922,7 +1924,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == NO_IP_OPTIONS_ALLOWED)
             {
-                sprintf(message, "%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : No IP Options Allowed\n", ts, service_id, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1934,7 +1936,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == UDP_HEADER_TOO_BIG)
             {
-                sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : UDP Header Too Big\n", ts, service_id, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1946,7 +1948,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == GENEVE_HEADER_TOO_BIG)
             {
-                sprintf(message, "%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : Geneve Header Too Big\n", ts, service_id ,ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1958,7 +1960,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR)
             {
-                sprintf(message, "%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : Geneve Header Length: Version Error\n", ts, service_id ,ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1970,7 +1972,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == SKB_ADJUST_ERROR)
             {
-                sprintf(message, "%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : SKB Adjust Error\n", ts, service_id ,ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1982,7 +1984,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == ICMP_HEADER_TOO_BIG)
             {
-                sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : ICMP Header Too Big\n", ts, service_id , ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -1994,7 +1996,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG)
             {
-                sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : ICMP Inner IP Header Too Big\n", ts, service_id,ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -2006,7 +2008,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == IF_LIST_MATCH_ERROR)
             {
-                sprintf(message, "%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, service_id ,ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -2018,7 +2020,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->error_code == NO_REDIRECT_STATE_FOUND)
             {
-                sprintf(message, "%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                sprintf(message, "%s : %-22s : %s : %s : No Redirect State found\n", ts, service_id, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
                 if (logging)
                 {
                     res = write_log(log_file_name, message);
@@ -2052,7 +2054,7 @@ static int process_events(void *ctx, void *data, size_t len)
                 char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
                 if (tun_ifname)
                 {
-                    sprintf(message, "%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol, saddr, ntohs(evt->sport),
+                    sprintf(message, "%s : %-22s: %s : %s : %s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, service_id, ifname, protocol, saddr, ntohs(evt->sport),
                             evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
                             evt->dest[0], evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
                     if (logging)
@@ -2067,8 +2069,8 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (evt->tport && ifname)
             {
-                sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
-                        ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
+                sprintf(message, "%s : %-22s : %s : %s : %s : %s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
+                        ts, service_id, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
                         daddr, ntohs(evt->dport), ntohs(evt->tport));
                 if (logging)
                 {
@@ -2134,7 +2136,7 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 if (state)
                 {
-                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
+                    sprintf(message, "%s : %-22s : %s : %s : %s : %s:%d > %s:%d outbound_tracking ---> %s\n", ts, service_id, ifname,
                             (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
                     if (logging)
                     {
@@ -2154,7 +2156,7 @@ static int process_events(void *ctx, void *data, size_t len)
                 if (code == 4)
                 {
                     /*evt->sport is use repurposed store next hop mtu*/
-                    sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
+                    sprintf(message, "%s : %-22s : %s : %s : %s : %s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, service_id ,ifname,
                             (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
                     if (logging)
                     {
@@ -2196,7 +2198,7 @@ static int process_events(void *ctx, void *data, size_t len)
 
                     if (code_string)
                     {
-                        sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d OUTER-TTL:%d INNER-TTL:%d\n", ts, ifname,
+                        sprintf(message, "%s : %-22s : %s : %s : %s : %s --> REPORTED:%s > in PATH TO:%s:%s:%d OUTER-TTL:%d INNER-TTL:%d\n", ts, service_id,ifname,
                                 (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, code_string, daddr, protocol_string, ntohs(evt->dport), outer_ttl, inner_ttl);
                         if (logging)
                         {
@@ -2211,7 +2213,7 @@ static int process_events(void *ctx, void *data, size_t len)
             }
             else if (ifname)
             {
-                sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
+                sprintf(message, "%s : %-22s : %s : %s : %s : %s:%d > %s:%d\n", ts, service_id,ifname,
                         (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
                 if (logging)
                 {
@@ -2966,7 +2968,6 @@ void map_list_all()
     struct tproxy_key *key = &init_key;
     struct tproxy_key current_key;
     struct tproxy_tuple orule;
-    // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
@@ -3362,7 +3363,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        if(strlen(arg) > 31){
+        if(strlen(arg) > 28){
             printf("Invalid service ID: ID too long\n");
             exit(1);
         }
@@ -3633,8 +3634,8 @@ int main(int argc, char **argv)
     signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
-    if(service && !add){
-        usage("-s, --service-id requires -I, --insert");
+    if(service && (!add && !delete)){
+        usage("-s, --service-id requires -I, --insert or -D, --delete");
     }
 
     if (tcfilter && !object && !disable)

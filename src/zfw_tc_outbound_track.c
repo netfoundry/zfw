@@ -58,6 +58,7 @@ struct bpf_event{
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
+    char service_id[29];
 };
 
 /*Key to tcp_map and udp_map*/
@@ -293,6 +294,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         EGRESS,
         0,
         0,
+        {0},
         {0},
         {0}
      };
