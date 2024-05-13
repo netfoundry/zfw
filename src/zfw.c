@@ -252,7 +252,7 @@ struct tproxy_port_mapping
     __u16 high_port;
     __u16 tproxy_port;
     __u32 if_list[MAX_IF_LIST_ENTRIES];
-    char service_id[29];
+    char service_id[23];
 };
 
 struct tproxy_tuple
@@ -3361,7 +3361,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        if(strlen(arg) > 28){
+        if(strlen(arg) > 22){
             printf("Invalid service ID: ID too long\n");
             exit(1);
         }

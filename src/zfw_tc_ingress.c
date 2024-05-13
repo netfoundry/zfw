@@ -72,7 +72,7 @@ struct tproxy_port_mapping {
     __u16 high_port;
     __u16 tproxy_port;
     __u32 if_list[MAX_IF_LIST_ENTRIES];
-    char service_id[29]; 
+    char service_id[23]; 
 };
 
 struct tproxy_tuple {
@@ -119,7 +119,6 @@ struct bpf_event{
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
-    
 };
 
 /*Key to tcp_map*/
