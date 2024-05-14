@@ -1468,8 +1468,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     if(!tuple){
        return TC_ACT_SHOT;
     }
-    if ((unsigned long)(tuple + 1) > (unsigned long)skb->data_end){
-        return TC_ACT_SHOT;
+    /* determine length of tuple */
+    tuple_len = sizeof(tuple->ipv4);
+    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+       return TC_ACT_SHOT;
     }
 
     unsigned long long tstamp = bpf_ktime_get_ns();
@@ -1490,11 +1492,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         {}
      };
 
-    /* determine length of tuple */
-    tuple_len = sizeof(tuple->ipv4);
-    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-       return TC_ACT_SHOT;
-    }
     struct tproxy_key key;
      /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
