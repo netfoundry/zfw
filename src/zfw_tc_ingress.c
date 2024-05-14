@@ -1468,6 +1468,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     if(!tuple){
        return TC_ACT_SHOT;
     }
+    if ((unsigned long)(tuple + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
