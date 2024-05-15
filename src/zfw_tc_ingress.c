@@ -71,7 +71,8 @@ struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 if_list[MAX_IF_LIST_ENTRIES]; 
+    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    char service_id[23]; 
 };
 
 struct tproxy_tuple {
@@ -118,7 +119,6 @@ struct bpf_event{
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
-    
 };
 
 /*Key to tcp_map*/
@@ -1468,6 +1468,11 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     if(!tuple){
        return TC_ACT_SHOT;
     }
+    /* determine length of tuple */
+    tuple_len = sizeof(tuple->ipv4);
+    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+       return TC_ACT_SHOT;
+    }
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
@@ -1487,11 +1492,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         {}
      };
 
-    /* determine length of tuple */
-    tuple_len = sizeof(tuple->ipv4);
-    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-       return TC_ACT_SHOT;
-    }
     struct tproxy_key key;
      /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
@@ -1534,10 +1534,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
                     if(!local_diag->per_interface){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                            return TC_ACT_OK;
                             if(local_diag->verbose){
                                 send_event(&event);
                             }
+                            return TC_ACT_OK;
                         }
                         if(!local_diag->tun_mode){
                             sk = get_sk(key, skb, sockcheck);
@@ -1586,10 +1586,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                         if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                                return TC_ACT_OK;
                                 if(local_diag->verbose){
                                     send_event(&event);
                                 }
+                                return TC_ACT_OK;
                             }
                             if(!local_diag->tun_mode){
                                 sk = get_sk(key, skb, sockcheck);

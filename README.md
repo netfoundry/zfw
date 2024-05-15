@@ -111,10 +111,10 @@ If running:
 ```
 Assuming you are using the default address range for ziti-edge-tunnel should see output like:
 
-target  	proto	origin              destination             mapping:                				                interface list                 
---------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
-TUNMODE    	tcp	    0.0.0.0/0           100.64.0.0/10           dpts=1:65535     	TUNMODE redirect:tun0               []
-TUNMODE    	udp	    0.0.0.0/0           100.64.0.0/10           dpts=1:65535     	TUNMODE redirect:tun0               []
+service id              proto    origin              destination               mapping:                                                   interface list
+----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
+0000000000000000000000  tcp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535             TUNMODE redirect:tun0            []
+0000000000000000000000  udp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535             TUNMODE redirect:tun0            []
 ```
 
 Verify running: (zfw-router)
@@ -125,8 +125,8 @@ If running:
 ```
 Assuming no services configured yet:
 
-target  	proto	origin              	destination                     mapping:                				 interface list                 
---------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+service id              proto    origin              destination               mapping:                                                   interface list
+----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
 Rule Count: 0
 prefix_tuple_count: 0 / 100000
 
@@ -367,19 +367,19 @@ Example: List all rules in Firewall
 sudo zfw -L
 ```
 ```
-target     proto    origin              destination               mapping:                                                   interface list
-------     -----    ---------------     ------------------        --------------------------------------------------------- ----------------
-TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381  [ens33,lo]
-TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
-TPROXY     udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
-TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381  []
-TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
-PASSTHRU   udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24       []
-PASSTHRU   udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32   []
-PASSTHRU   tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
-TPROXY     udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
-PASSTHRU   tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
-TUNMODE    udp	    0.0.0.0/0           100.64.0.0/10             dpts=1:65535     	        TUNMODE redirect:tun0            []
+service id              proto    origin              destination               mapping:                                                   interface list
+----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
+5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381  [ens33,lo]
+5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
+0000000000000000000000  udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
+5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381  []
+5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
+0000000000000000000000  udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24       []
+0000000000000000000000  udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32   []
+0000000000000000000000  tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
+FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
+0000000000000000000000  tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
+FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535              TUNMODE redirect:tun0            []
 ```
     
 - Example: List rules in firewall for a given prefix and protocol.  If source specific you must include the o 
@@ -389,9 +389,9 @@ TUNMODE    udp	    0.0.0.0/0           100.64.0.0/10             dpts=1:65535   
 sudo zfw -L -c 192.168.100.100 -m 32 -p udp
 ```
 ```  
-target     proto    origin           destination              mapping:                                                  interface list
-------     -----    --------         ------------------       --------------------------------------------------------- ------------------    
-PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
+service id              proto    origin           destination                  mapping:                                                  interface list
+----------              -----    --------         ------------------           --------------------------------------------------------- ------------------
+0000000000000000000000  udp      0.0.0.0/0        192.168.100.100/32           dpts=50000:60000          PASSTHRU to 192.168.100.100/32  []
 ```
 
 - Example: List rules in firewall for a given prefix
@@ -400,10 +400,10 @@ Usage: zfw -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
 sudo zfw -L -c 192.168.100.100 -m 32
 ```
 ```
-target     proto    origin           destination              mapping:                                                  interface list
-------     -----    --------         ------------------       --------------------------------------------------------- -------------------
-PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
-PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32     []
+service id              proto    origin           destination                  mapping:                                                  interface list
+----------              -----    --------         ------------------           --------------------------------------------------------- ------------------
+0000000000000000000000  udp      0.0.0.0/0        192.168.100.100/32           dpts=50000:60000          PASSTHRU to 192.168.100.100/32  []
+0000000000000000000000  tcp      0.0.0.0/0        192.168.100.100/32           dpts=60000:65535          PASSTHRU to 192.168.100.100/32  []
 ```
 - Example: List all interface settings
 

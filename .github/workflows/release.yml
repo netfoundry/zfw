@@ -2,9 +2,9 @@
 name: release
 
 on:
-  pull_request:
-    types: [closed]
-
+  push:
+    branches:
+      - main
 env:
   APP_NAME: 'zfw'
   MAINTAINER: 'Robert Caamano'
