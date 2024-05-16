@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. The format 
 
 - Reverted to only support per-interface rules if an interface ifindex is < 255.  This was done to
   reduce per rule memory load which can greatly increase memory requirements when dealing with 1000s or rules.
+- Reverted addition of service_id as well since it also greatly increased memory requirements 
 
 # [0.6.1] - 2024-05-14
 
