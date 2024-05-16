@@ -170,10 +170,10 @@ char *service_string;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.6.1";
+const char *argp_program_version = "0.6.2";
 struct ring_buffer *ring_buffer;
 
-__u32 if_list[MAX_IF_LIST_ENTRIES];
+__u8 if_list[MAX_IF_LIST_ENTRIES];
 struct interface
 {
     uint32_t index;
@@ -251,7 +251,7 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
     char service_id[23];
 };
 
@@ -3117,9 +3117,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         if (ifcount < MAX_IF_LIST_ENTRIES)
         {
-            if ((idx > 0) && (idx < UINT32_MAX))
+            if ((idx > 0) && (idx < MAX_IF_ENTRIES))
             {
                 if_list[ifcount] = idx;
+            }else{
+                printf("A rule can be assigned to interfaces with ifindex 1 - %d\n", MAX_IF_ENTRIES-1);
             }
         }
         else

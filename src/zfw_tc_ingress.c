@@ -71,7 +71,7 @@ struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
     char service_id[23]; 
 };
 
@@ -236,14 +236,6 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zet_transp_map SEC(".maps");
-
-/*struct {
-     __uint(type, BPF_MAP_TYPE_ARRAY);
-     __uint(key_size, sizeof(uint32_t));
-     __uint(value_size,sizeof(uint32_t));
-     __uint(max_entries, 1);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
-} syn_count_map SEC(".maps");*/
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
