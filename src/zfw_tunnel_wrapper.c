@@ -58,7 +58,7 @@ typedef unsigned char byte;
 void close_maps(int code);
 void open_transp_map();
 void open_tun_map();
-void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action);
+void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *action);
 void unbind_route_loopback(struct in_addr *address, unsigned short mask);
 void INThandler(int sig);
 void map_delete_key(char *service_id);
@@ -358,7 +358,7 @@ void string2Byte(char* string, byte* bytes)
     }
 }
 
-void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action){
+void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *action){
     if (access("/usr/sbin/zfw", F_OK) != 0)
     {
         printf("ebpf not running: Cannot find /usr/sbin/zfw\n");
@@ -366,8 +366,8 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
     }
     pid_t pid;
     //("%s, %s\n", action ,rules_temp->parmList[3]);
-    char *const parmList[17] = {"/usr/sbin/zfw", action, "-c", ip, "-m", mask, "-l",
-     lowport, "-h", highport, "-t", "65535", "-p", protocol, "-s", service_id, NULL};
+    char *const parmList[15] = {"/usr/sbin/zfw", action, "-c", ip, "-m", mask, "-l",
+     lowport, "-h", highport, "-t", "65535", "-p", protocol, NULL};
     if ((pid = fork()) == -1){
         perror("fork error: can't spawn bind");
     }else if (pid == 0) {
@@ -491,9 +491,6 @@ int process_bind(json_object *jobj, char *action)
 }
 
 int process_dial(json_object *jobj, char *action){
-    struct json_object *service_id_obj = json_object_object_get(jobj, "Id");
-    char service_id[strlen(json_object_get_string(service_id_obj)) + 1];
-    sprintf(service_id, "%s", json_object_get_string(service_id_obj));
     struct json_object *addresses_obj = json_object_object_get(jobj, "Addresses");
     if(addresses_obj)
     {
@@ -590,7 +587,7 @@ int process_dial(json_object *jobj, char *action){
                                                             }  
                                                         }
                                                     } 
-                                                    zfw_update(ip, mask, lowport, highport, protocol, service_id, action);
+                                                    zfw_update(ip, mask, lowport, highport, protocol, action);
                                                 }  
                                             }
                                         }
@@ -748,8 +745,8 @@ int run(){
                             if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
                                 sprintf(tunip_string, "%s" , o_tunif.cidr);
                                 sprintf(tunip_mask_string, "%s", o_tunif.mask);
-                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "tcp", "0000000000000000000000", "-I");
-                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "udp", "0000000000000000000000", "-I");
+                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "tcp", "-I");
+                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "udp", "-I");
                                 tun_ifname = o_tunif.ifname;
                             }
                         }

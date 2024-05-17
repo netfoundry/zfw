@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.6.2] - 2024-05-16
+
+###
+
+- Reverted to only support per-interface rules if an interface ifindex is < 255.  This was done to
+  reduce per rule memory load which can greatly increase memory requirements when dealing with 1000s or rules.
+- Reverted addition of service_id as well since it also greatly increased memory requirements 
+
 # [0.6.1] - 2024-05-14
 
 ###

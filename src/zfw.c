@@ -100,7 +100,6 @@ bool interface = false;
 bool disable = false;
 bool all_interface = false;
 bool ssh_disable = false;
-bool service = false;
 bool tc = false;
 bool tcfilter = false;
 bool direction = false;
@@ -166,14 +165,13 @@ char *vrrp_interface;
 char *ddos_interface;
 char *monitor_interface;
 char *tc_interface;
-char *service_string;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.6.1";
+const char *argp_program_version = "0.6.2";
 struct ring_buffer *ring_buffer;
 
-__u32 if_list[MAX_IF_LIST_ENTRIES];
+__u8 if_list[MAX_IF_LIST_ENTRIES];
 struct interface
 {
     uint32_t index;
@@ -251,8 +249,7 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 if_list[MAX_IF_LIST_ENTRIES];
-    char service_id[23];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple
@@ -671,14 +668,14 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             bool entry_exists = false;
             if (tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tuple->port_mapping[tuple->index_table[x]].service_id, proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", "TUNMODE", proto, scidr_block, dcidr_block,
                        dpts, o_tunif.ifname);
                 entry_exists = true;
                 *rule_count += 1;
             }
             else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tuple->port_mapping[tuple->index_table[x]].service_id, proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
                        dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
                 entry_exists = true;
                 *rule_count += 1;
@@ -712,7 +709,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         {
             if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tuple->port_mapping[tuple->index_table[x]].service_id, proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
                        dpts, "PASSTHRU", dcidr_block);
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                 for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
@@ -745,17 +742,17 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         {
             if (tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tuple->port_mapping[tuple->index_table[x]].service_id, proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", "TUNMODE", proto, scidr_block, dcidr_block,
                        dpts, o_tunif.ifname);
             }
             else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tuple->port_mapping[tuple->index_table[x]].service_id, proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
                        dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
             }
             else
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tuple->port_mapping[tuple->index_table[x]].service_id, proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
                        dpts, "PASSTHRU", dcidr_block);
             }
             char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
@@ -2308,17 +2305,6 @@ void map_insert()
             port_mapping->if_list[x] = if_list[x];
         }
     }
-    /*if(service){
-        sprintf(port_mapping->service_id, "%s", service_string);
-    }else{
-        sprintf(port_mapping->service_id, "%s", "0000000000000000000000");
-    }*/
-    char *sid = "0000000000000000000000";
-    if(service){
-        memcpy(port_mapping->service_id, service_string, strlen(service_string) + 1);
-    }else{
-        memcpy(port_mapping->service_id, sid, strlen(sid) + 1);
-    }
     /*
      * Check result of lookup if not 0 then create a new entry
      * else edit an existing entry
@@ -2769,8 +2755,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
-    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -2797,8 +2783,8 @@ void map_list()
                 printf("Rule Count: %d\n", rule_count);
                 if (x == 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
-                    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+                    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
                 }
             }
         }
@@ -2987,8 +2973,8 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
-    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     while (true)
     {
@@ -3044,7 +3030,6 @@ static struct argp_option options[] = {
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
-    {"service-id", 's', "", 0, "set ziti service id", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
@@ -3117,9 +3102,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         if (ifcount < MAX_IF_LIST_ENTRIES)
         {
-            if ((idx > 0) && (idx < UINT32_MAX))
+            if ((idx > 0) && (idx < MAX_IF_ENTRIES))
             {
                 if_list[ifcount] = idx;
+            }else{
+                printf("A rule can be assigned to interfaces with ifindex 1 - %d\n", MAX_IF_ENTRIES-1);
             }
         }
         else
@@ -3359,20 +3346,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'r':
         route = true;
-        break;
-    case 's':
-        if (!strlen(arg))
-        {
-            fprintf(stderr, "service id required as arg to -s, --service-id: %s\n", arg);
-            fprintf(stderr, "%s --help for more info\n", program_name);
-            exit(1);
-        }
-        if(strlen(arg) > 22){
-            printf("Invalid service ID: ID too long\n");
-            exit(1);
-        }
-        service = true;
-        service_string = arg;
         break;
     case 't':
         tproxy_port = port2s(arg);
@@ -3637,10 +3610,6 @@ int main(int argc, char **argv)
     signal(SIGINT, INThandler);
     signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
-
-    if(service && (!add && !delete)){
-        usage("-s, --service-id requires -I, --insert or -D, --delete");
-    }
 
     if (tcfilter && !object && !disable)
     {
