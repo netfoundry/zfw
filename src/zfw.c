@@ -113,6 +113,8 @@ bool dsip = false;
 bool ddos_saddr_list = false;
 bool ddport =false;
 bool ddos_dport_list = false;
+bool service = false;
+char *service_string;
 char *ddos_saddr;
 char *ddos_dport;
 struct in_addr ddos_scidr;
@@ -138,6 +140,8 @@ union bpf_attr tun_map;
 int tun_fd = -1;
 union bpf_attr rb_map;
 int rb_fd = -1;
+union bpf_attr tp_ext_map;
+int tp_ext_fd = -1;
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
@@ -152,6 +156,7 @@ const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *ddos_saddr_map_path = "/sys/fs/bpf/tc/globals/ddos_saddr_map";
 const char *ddos_dport_map_path = "/sys/fs/bpf/tc/globals/ddos_dport_map";
 const char *syn_count_map_path = "/sys/fs/bpf/tc/globals/syn_count_map";
+const char *tp_ext_map_path = "/sys/fs/bpf/tc/globals/tproxy_extension_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -168,10 +173,11 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
-const char *argp_program_version = "0.6.2";
+
+const char *argp_program_version = "0.6.3";
 struct ring_buffer *ring_buffer;
 
-__u8 if_list[MAX_IF_LIST_ENTRIES];
+__u32 if_list[MAX_IF_LIST_ENTRIES];
 struct interface
 {
     uint32_t index;
@@ -189,11 +195,23 @@ void open_rb_map();
 void open_tun_map();
 void open_ddos_saddr_map();
 void open_ddos_dport_map();
+void open_tproxy_ext_map();
 bool interface_map();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
 void diag_delete_key(uint32_t key);
 char *get_ts(unsigned long long tstamp);
+
+struct tproxy_extension_mapping {
+    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    char service_id[23];
+};
+
+struct tproxy_extension_key {
+    __u16 tproxy_port;
+    __u8 protocol;
+    __u8 pad;
+};
 
 struct ifindex_ip4
 {
@@ -249,7 +267,6 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple
@@ -458,10 +475,10 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[14] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[15] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path};
-    for (int map_count = 0; map_count < 14; map_count++)
+                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path, tp_ext_map_path};
+    for (int map_count = 0; map_count < 15; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -621,6 +638,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     {
         open_tun_map();
     }
+    if (tp_ext_fd == -1)
+    {
+        open_tproxy_ext_map();
+    }
     uint32_t tun_key = 0;
     struct ifindex_tun o_tunif;
     tun_map.map_fd = tun_fd;
@@ -659,23 +680,33 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     sprintf(scidr_block, "%s/%d", sprefix, key->sprefix_len);
     char *dpts = malloc(17);
     int x = 0;
+    struct tproxy_extension_key ext_key = {0};
+    tp_ext_map.key = (uint64_t)&ext_key;
+    struct tproxy_extension_mapping ext_value;
+    tp_ext_map.value = (uint64_t)&ext_value;
     for (; x < tuple->index_len; x++)
     {
+        ext_key.tproxy_port=tuple->port_mapping[tuple->index_table[x]].tproxy_port;
+        ext_key.protocol = key->protocol;
+        ext_key.pad = 0;
+        tp_ext_map.map_fd = tp_ext_fd;
+        tp_ext_map.flags = BPF_ANY;  
+        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
                 ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
         if (intercept && !passthru)
         {
             bool entry_exists = false;
-            if (tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535)
+            if (tun_mode)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", "TUNMODE", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", ext_value.service_id, proto, scidr_block, dcidr_block,
                        dpts, o_tunif.ifname);
                 entry_exists = true;
                 *rule_count += 1;
             }
             else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", ext_value.service_id, proto, scidr_block, dcidr_block,
                        dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
                 entry_exists = true;
                 *rule_count += 1;
@@ -683,9 +714,9 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
             for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
             {
-                if (tuple->port_mapping[tuple->index_table[x]].if_list[i])
+                if (ext_value.if_list[i])
                 {
-                    if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
+                    if_key = ext_value.if_list[i];
                     struct ifindex_ip4 ifip4;
                     if_map.value = (uint64_t)&ifip4;
                     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
@@ -709,14 +740,14 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         {
             if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", ext_value.service_id, proto, scidr_block, dcidr_block,
                        dpts, "PASSTHRU", dcidr_block);
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                 for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
                 {
-                    if (tuple->port_mapping[tuple->index_table[x]].if_list[i])
+                    if (ext_value.if_list[i])
                     {
-                        if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
+                        if_key = ext_value.if_list[i];
                         struct ifindex_ip4 ifip4;
                         if_map.value = (uint64_t)&ifip4;
                         int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
@@ -740,27 +771,27 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         }
         else
         {
-            if (tun_mode && ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 65535)
+            if (tun_mode)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", "TUNMODE", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", ext_value.service_id, proto, scidr_block, dcidr_block,
                        dpts, o_tunif.ifname);
             }
             else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", ext_value.service_id, proto, scidr_block, dcidr_block,
                        dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
             }
             else
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", ext_value.service_id, proto, scidr_block, dcidr_block,
                        dpts, "PASSTHRU", dcidr_block);
             }
             char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
             for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
             {
-                if (tuple->port_mapping[tuple->index_table[x]].if_list[i])
+                if (ext_value.if_list[i])
                 {
-                    if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
+                    if_key = ext_value.if_list[i];
                     struct ifindex_ip4 ifip4;
                     if_map.value = (uint64_t)&ifip4;
                     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
@@ -2245,6 +2276,39 @@ static int process_events(void *ctx, void *data, size_t len)
     return 0;
 }
 
+void set_tp_ext_data(struct tproxy_extension_key key){
+    if (tp_ext_fd == -1)
+    {
+        open_tproxy_ext_map();
+    }
+    struct tproxy_extension_mapping ext_value = {
+        {0},
+        {0}
+    };
+    char *sid = "0000000000000000000000";
+    if(service){
+        memcpy(ext_value.service_id, service_string, strlen(service_string) + 1);
+    }else{
+        memcpy(ext_value.service_id, sid, strlen(sid) + 1);
+    }
+    if (interface)
+    {
+        for (int x = 0; x < MAX_IF_LIST_ENTRIES; x++)
+        {
+            ext_value.if_list[x] = if_list[x];
+        }
+    }
+    tp_ext_map.key = (uint64_t)&key;
+    tp_ext_map.value = (uint64_t)&ext_value;
+    tp_ext_map.map_fd = tp_ext_fd;
+    tp_ext_map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &tp_ext_map, sizeof(tp_ext_map));
+    if (result)
+    {
+        printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
+    }
+}
+
 void map_insert()
 {
     if (get_key_count() == BPF_MAX_ENTRIES)
@@ -2282,6 +2346,7 @@ void map_insert()
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         free(key);
         free(orule);
+        free(rule);
         close_maps(1);
     }
     map.map_fd = fd;
@@ -2298,13 +2363,13 @@ void map_insert()
     port_mapping->low_port = htons(low_port);
     port_mapping->high_port = htons(high_port);
     port_mapping->tproxy_port = htons(tproxy_port);  
-    if (interface)
+    /*if (interface)
     {
         for (int x = 0; x < MAX_IF_LIST_ENTRIES; x++)
         {
             port_mapping->if_list[x] = if_list[x];
         }
-    }
+    }*/
     /*
      * Check result of lookup if not 0 then create a new entry
      * else edit an existing entry
@@ -2422,6 +2487,12 @@ void map_insert()
     free(port_mapping);
     free(orule);
     close(fd);
+    struct tproxy_extension_key tp_ext_key = {
+        htons(tproxy_port),
+        protocol,
+        0
+    };
+    set_tp_ext_data(tp_ext_key);
 }
 
 void if_delete_key(uint32_t key)
@@ -2755,8 +2826,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
-    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -2783,8 +2854,8 @@ void map_list()
                 printf("Rule Count: %d\n", rule_count);
                 if (x == 0)
                 {
-                    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
-                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
+                    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
                 }
             }
         }
@@ -2973,8 +3044,8 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
-    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     while (true)
     {
@@ -3031,6 +3102,7 @@ static struct argp_option options[] = {
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
+    {"service-id", 's', "", 0, "set ziti service id", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
     {"ddos-dport-add", 'u', "", 0, "Add destination port to DDOS port list i.e. (1-65535)", 0},
@@ -3102,7 +3174,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         if (ifcount < MAX_IF_LIST_ENTRIES)
         {
-            if ((idx > 0) && (idx < MAX_IF_ENTRIES))
+            if ((idx > 0) && (idx <= UINT32_MAX))
             {
                 if_list[ifcount] = idx;
             }else{
@@ -3347,6 +3419,20 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'r':
         route = true;
         break;
+    case 's':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "service id required as arg to -s, --service-id: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        if(strlen(arg) > 22){
+            printf("Invalid service ID: ID too long\n");
+            exit(1);
+        }
+        service = true;
+        service_string = arg;
+        break;
     case 't':
         tproxy_port = port2s(arg);
         tpt = true;
@@ -3478,6 +3564,9 @@ void close_maps(int code)
     {
         close(ddos_dport_fd);
     }
+    if (tp_ext_fd != -1){
+        close(tp_ext_fd);
+    }
     exit(code);
 }
 
@@ -3539,6 +3628,21 @@ void open_ddos_dport_map()
     /* make system call to get fd for map */
     ddos_dport_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ddos_dport_map, sizeof(ddos_dport_map));
     if (ddos_dport_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_tproxy_ext_map()
+{
+    memset(&tp_ext_map, 0, sizeof(tp_ext_map));
+    /* set path name with location of map in filesystem */
+    tp_ext_map.pathname = (uint64_t)tp_ext_map_path;
+    tp_ext_map.bpf_fd = 0;
+    tp_ext_map.file_flags = 0;
+    /* make system call to get fd for map */
+    tp_ext_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tp_ext_map, sizeof(tp_ext_map));
+    if (tp_ext_fd == -1)
     {
         ebpf_usage();
     }
@@ -3610,6 +3714,10 @@ int main(int argc, char **argv)
     signal(SIGINT, INThandler);
     signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
+
+    if(service && (!add && !delete)){
+        usage("-s, --service-id requires -I, --insert or -D, --delete");
+    }
 
     if (tcfilter && !object && !disable)
     {

@@ -31,6 +31,7 @@
 #include <netdb.h>
 #include <sys/syscall.h>
 #include <linux/if.h>
+#include <time.h>
 
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
@@ -40,11 +41,13 @@
 #define EVENT_BUFFER_SIZE   32768
 #define SERVICE_ID_BYTES    32
 #define MAX_TRANSP_ROUTES   256
+#define MAX_IF_LIST_ENTRIES 3 
 #define SOCK_NAME "/tmp/ziti-edge-tunnel.sock"
 #define EVENT_SOCK_NAME "/tmp/ziti-edge-tunnel-event.sock"
 #define DUMP_FILE "/tmp/dumpfile.ziti"
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
 const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
+const char *tp_ext_map_path = "/sys/fs/bpf/tc/globals/tproxy_extension_map";
 int ctrl_socket, event_socket;
 char tunip_string[16]="";
 char tunip_mask_string[10]="";
@@ -54,11 +57,14 @@ union bpf_attr transp_map;
 int transp_fd = -1;
 union bpf_attr tun_map;
 int tun_fd = -1;
+union bpf_attr tp_ext_map;
+int tp_ext_fd = -1;
 typedef unsigned char byte;
 void close_maps(int code);
 void open_transp_map();
 void open_tun_map();
-void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *action);
+void open_tproxy_ext_map();
+void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action);
 void unbind_route_loopback(struct in_addr *address, unsigned short mask);
 void INThandler(int sig);
 void map_delete_key(char *service_id);
@@ -77,6 +83,17 @@ char *nitoa(uint32_t address)
     sprintf(ipaddr, "%d.%d.%d.%d", b0, b1, b2, b3);
     return ipaddr;
 }
+
+struct tproxy_extension_mapping {
+    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    char service_id[23];
+};
+
+struct tproxy_extension_key {
+    __u16 tproxy_port;
+    __u8 protocol;
+    __u8 pad;
+};
 
 /*key to transp_map*/
 struct transp_key {
@@ -121,6 +138,9 @@ void close_maps(int code){
     }
      if(tun_fd != -1){
         close(tun_fd);
+    }
+    if (tp_ext_fd != -1){
+        close(tp_ext_fd);
     }
     exit(code);
 }
@@ -178,6 +198,21 @@ void ebpf_usage()
         printf("Not enough privileges or ebpf not enabled!\n"); 
         printf("Run as \"sudo\" with ingress tc filter [filter -X, --set-tc-filter] set on at least one interface\n");
         close_maps(1);
+    }
+}
+
+void open_tproxy_ext_map()
+{
+    memset(&tp_ext_map, 0, sizeof(tp_ext_map));
+    /* set path name with location of map in filesystem */
+    tp_ext_map.pathname = (uint64_t)tp_ext_map_path;
+    tp_ext_map.bpf_fd = 0;
+    tp_ext_map.file_flags = 0;
+    /* make system call to get fd for map */
+    tp_ext_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tp_ext_map, sizeof(tp_ext_map));
+    if (tp_ext_fd == -1)
+    {
+        ebpf_usage();
     }
 }
 
@@ -358,7 +393,31 @@ void string2Byte(char* string, byte* bytes)
     }
 }
 
-void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *action){
+void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action){
+    __u16 random_port = 0;
+    struct tproxy_extension_key key = {0};
+    struct tproxy_extension_mapping ext_value = {0};
+    tp_ext_map.key = (uint64_t)&key;
+    tp_ext_map.value = (uint64_t)&ext_value;
+    tp_ext_map.map_fd = tp_ext_fd;
+    tp_ext_map.flags = BPF_ANY;
+    while(true){
+        random_port = 1024 + rand() % (65535 - 1023);
+        key.tproxy_port = random_port;
+        if(strcmp("tcp", protocol)==0){
+            key.protocol = IPPROTO_TCP; 
+        }else{
+            key.protocol = IPPROTO_UDP;
+        }
+        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
+        if (lookup)
+        {
+            printf("assigning unique tproxy port as label\n");
+            break;
+        }
+    }
+    char tproxy_port[6];
+    sprintf(tproxy_port, "%u", random_port);
     if (access("/usr/sbin/zfw", F_OK) != 0)
     {
         printf("ebpf not running: Cannot find /usr/sbin/zfw\n");
@@ -366,8 +425,8 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
     }
     pid_t pid;
     //("%s, %s\n", action ,rules_temp->parmList[3]);
-    char *const parmList[15] = {"/usr/sbin/zfw", action, "-c", ip, "-m", mask, "-l",
-     lowport, "-h", highport, "-t", "65535", "-p", protocol, NULL};
+    char *const parmList[17] = {"/usr/sbin/zfw", action, "-c", ip, "-m", mask, "-l",
+     lowport, "-h", highport, "-t", tproxy_port, "-p", protocol, "-s", service_id, NULL};
     if ((pid = fork()) == -1){
         perror("fork error: can't spawn bind");
     }else if (pid == 0) {
@@ -491,6 +550,9 @@ int process_bind(json_object *jobj, char *action)
 }
 
 int process_dial(json_object *jobj, char *action){
+    struct json_object *service_id_obj = json_object_object_get(jobj, "Id");
+    char service_id[strlen(json_object_get_string(service_id_obj)) + 1];
+    sprintf(service_id, "%s", json_object_get_string(service_id_obj));
     struct json_object *addresses_obj = json_object_object_get(jobj, "Addresses");
     if(addresses_obj)
     {
@@ -587,7 +649,7 @@ int process_dial(json_object *jobj, char *action){
                                                             }  
                                                         }
                                                     } 
-                                                    zfw_update(ip, mask, lowport, highport, protocol, action);
+                                                    zfw_update(ip, mask, lowport, highport, protocol, service_id, action);
                                                 }  
                                             }
                                         }
@@ -745,8 +807,8 @@ int run(){
                             if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
                                 sprintf(tunip_string, "%s" , o_tunif.cidr);
                                 sprintf(tunip_mask_string, "%s", o_tunif.mask);
-                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "tcp", "-I");
-                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "udp", "-I");
+                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "tcp", "0000000000000000000000", "-I");
+                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "udp", "0000000000000000000000", "-I");
                                 tun_ifname = o_tunif.ifname;
                             }
                         }
@@ -807,6 +869,7 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, INThandler);
     //system("clear");
     system("clear");
+    srand(time(0));
     while(true){
         if(transp_fd == -1){
             open_transp_map();

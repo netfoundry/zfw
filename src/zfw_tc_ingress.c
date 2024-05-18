@@ -67,11 +67,21 @@
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
 
+struct tproxy_extension_mapping {
+    __u32 if_list[MAX_IF_LIST_ENTRIES];
+    char service_id[23];
+};
+
+struct tproxy_extension_key {
+    __u16 tproxy_port;
+    __u8 protocol;
+    __u8 pad;
+};
+
 struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u8 if_list[MAX_IF_LIST_ENTRIES]; 
 };
 
 struct tproxy_tuple {
@@ -372,6 +382,15 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tun_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct tproxy_extension_key));
+    __uint(value_size, sizeof(struct tproxy_extension_mapping));
+    __uint(max_entries, 128000);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} tproxy_extension_map SEC(".maps");
+
 /* function for ebpf program to access zt_tproxy_map entries
  * based on {prefix,mask,protocol} i.e. {192.168.1.0,24,IPPROTO_TCP}
  */
@@ -379,6 +398,12 @@ static inline struct tproxy_tuple *get_tproxy(struct tproxy_key key){
     struct tproxy_tuple *tu;
     tu = bpf_map_lookup_elem(&zt_tproxy_map, &key);
 	return tu;
+}
+
+static inline struct tproxy_extension_mapping *get_tp_ext_mapping(struct tproxy_extension_key *key){
+    struct tproxy_extension_mapping *tem;
+    tem = bpf_map_lookup_elem(&tproxy_extension_map, key);
+        return tem;
 }
 
 static inline void del_tcp(struct tuple_key key){
@@ -1573,60 +1598,62 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                             }
                         }
                     }
-                    
-                    for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
-                        if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
-                            if(tproxy->port_mapping[port_key].tproxy_port == 0){
-                                if(local_diag->verbose){
-                                    send_event(&event);
-                                }
-                                return TC_ACT_OK;
-                            }
-                            if(!local_diag->tun_mode){
-                                sk = get_sk(key, skb, sockcheck);
-                                if(!sk){
-                                    return TC_ACT_SHOT;
-                                }
-                                if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
-                                    send_event(&event);
-                                }
-                                goto assign;
-                            }else{
-                                struct tun_key tun_state_key;
-                                tun_state_key.daddr = tuple->ipv4.daddr;
-                                tun_state_key.saddr = tuple->ipv4.saddr;
-                                
-                                unsigned long long tstamp = bpf_ktime_get_ns();
-                                struct tun_state *tustate = get_tun(tun_state_key);
-                                if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
-                                    struct tun_state tus = {
-                                        tstamp,
-                                        skb->ifindex,
-                                        {0},
-                                        {0}
-                                    };
-                                    memcpy(&tus.source, &eth->h_source, 6);
-                                    memcpy(&tus.dest, &eth->h_dest, 6);
-                                    insert_tun(tus, tun_state_key);
-                                }
-                                else if(tustate){
-                                    tustate->tstamp = tstamp;
-                                    insert_tun(*tustate, tun_state_key);
-                                }
-                                struct ifindex_tun *tun_index = get_tun_index(0);
-                                if(tun_index){
+                   struct tproxy_extension_key ext_key = {tproxy->port_mapping[port_key].tproxy_port, protocol, 0};
+                    struct tproxy_extension_mapping *ext_mapping = get_tp_ext_mapping(&ext_key);
+                    if(ext_mapping){
+                        for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
+                            if(ext_mapping->if_list[x] == skb->ifindex){
+                                if(tproxy->port_mapping[port_key].tproxy_port == 0){
                                     if(local_diag->verbose){
-                                        memcpy(event.source, eth->h_source, 6);
-                                        memcpy(event.dest, eth->h_dest, 6);
-                                        event.tun_ifindex = tun_index->index;
                                         send_event(&event);
                                     }
-                                    return bpf_redirect(tun_index->index, 0);
+                                    return TC_ACT_OK;
+                                }
+                                if(!local_diag->tun_mode){
+                                    sk = get_sk(key, skb, sockcheck);
+                                    if(!sk){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
+                                        send_event(&event);
+                                    }
+                                    goto assign;
+                                }else{
+                                    struct tun_key tun_state_key;
+                                    tun_state_key.daddr = tuple->ipv4.daddr;
+                                    tun_state_key.saddr = tuple->ipv4.saddr;
+
+                                    unsigned long long tstamp = bpf_ktime_get_ns();
+                                    struct tun_state *tustate = get_tun(tun_state_key);
+                                    if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                        struct tun_state tus = {
+                                            tstamp,
+                                            skb->ifindex,
+                                            {0},
+                                            {0}
+                                        };
+                                        memcpy(&tus.source, &eth->h_source, 6);
+                                        memcpy(&tus.dest, &eth->h_dest, 6);
+                                        insert_tun(tus, tun_state_key);
+                                    }
+                                    else if(tustate){
+                                        tustate->tstamp = tstamp;
+                                        insert_tun(*tustate, tun_state_key);
+                                    }
+                                    struct ifindex_tun *tun_index = get_tun_index(0);
+                                    if(tun_index){
+                                        if(local_diag->verbose){
+                                            memcpy(event.source, eth->h_source, 6);
+                                            memcpy(event.dest, eth->h_dest, 6);
+                                            event.tun_ifindex = tun_index->index;
+                                            send_event(&event);
+                                        }
+                                        return bpf_redirect(tun_index->index, 0);
+                                    }
                                 }
                             }
                         }
                     }
-
                     if(skb->ifindex == 1){
                         event.error_code = IF_LIST_MATCH_ERROR;
                         send_event(&event);
