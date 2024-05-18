@@ -85,7 +85,6 @@ char *nitoa(uint32_t address)
 }
 
 struct tproxy_extension_mapping {
-    __u32 if_list[MAX_IF_LIST_ENTRIES];
     char service_id[23];
 };
 
@@ -402,7 +401,7 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
     tp_ext_map.map_fd = tp_ext_fd;
     tp_ext_map.flags = BPF_ANY;
     while(true){
-        random_port = 1024 + rand() % (65535 - 1023);
+        random_port = htons(1024 + rand() % (65535 - 1023));
         key.tproxy_port = random_port;
         if(strcmp("tcp", protocol)==0){
             key.protocol = IPPROTO_TCP; 
