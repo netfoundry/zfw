@@ -400,6 +400,7 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
     tp_ext_map.value = (uint64_t)&ext_value;
     tp_ext_map.map_fd = tp_ext_fd;
     tp_ext_map.flags = BPF_ANY;
+    __u8 count = 0;
     while(true){
         random_port = htons(1024 + rand() % (65535 - 1023));
         key.tproxy_port = random_port;
@@ -414,6 +415,11 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
             printf("assigning unique tproxy port as label\n");
             break;
         }
+        if(count > 20){
+            printf("timed out searching for free tproxy port\n");
+            return;
+        }
+        count++;
     }
     char tproxy_port[6];
     sprintf(tproxy_port, "%u", random_port);
