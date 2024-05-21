@@ -144,6 +144,8 @@ union bpf_attr tp_ext_map;
 int tp_ext_fd = -1;
 union bpf_attr if_list_ext_map;
 int if_list_ext_fd = -1;
+union bpf_attr range_map;
+int range_fd = -1;
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
@@ -160,6 +162,7 @@ const char *ddos_dport_map_path = "/sys/fs/bpf/tc/globals/ddos_dport_map";
 const char *syn_count_map_path = "/sys/fs/bpf/tc/globals/syn_count_map";
 const char *tp_ext_map_path = "/sys/fs/bpf/tc/globals/tproxy_extension_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
+const char *range_map_path = "/sys/fs/bpf/tc/globals/range_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -177,7 +180,7 @@ char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.6.3";
+const char *argp_program_version = "0.6.4";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -189,7 +192,7 @@ struct interface
     uint32_t addresses[MAX_ADDRESSES];
 };
 
-struct if_list_extension_key {
+struct port_extension_key {
     __u32 dst_ip;
     __u32 src_ip;
     __u16 low_port;
@@ -215,7 +218,8 @@ void open_ddos_saddr_map();
 void open_ddos_dport_map();
 void open_tproxy_ext_map();
 void open_if_list_ext_map();
-void if_list_ext_delete_key(struct if_list_extension_key key);
+void open_range_map();
+void if_list_ext_delete_key(struct port_extension_key key);
 bool interface_map();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
@@ -283,8 +287,6 @@ struct diag_ip4
 
 struct tproxy_port_mapping
 {
-    __u16 low_port;
-    __u16 high_port;
     __u16 tproxy_port;
 };
 
@@ -494,10 +496,10 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[16] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[17] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path, tp_ext_map_path, if_list_ext_map_path};
-    for (int map_count = 0; map_count < 16; map_count++)
+                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path, tp_ext_map_path, if_list_ext_map_path, range_map_path};
+    for (int map_count = 0; map_count < 17; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -632,14 +634,7 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple)
         }
         tuple->index_len -= 1;
         memset((void *)&tuple->port_mapping[index], 0, sizeof(struct tproxy_port_mapping));
-        if (tuple->port_mapping[index].low_port == index)
-        {
-            printf("mapping[%d].low_port = %d\n", index, ntohs(tuple->port_mapping[index].low_port));
-        }
-        else
-        {
-            printf("mapping[%d] removed\n", ntohs(index));
-        }
+        printf("mapping[%d] removed\n", ntohs(index));
     }
     else
     {
@@ -664,6 +659,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     if (if_list_ext_fd == -1)
     {
         open_if_list_ext_map();
+    }
+    if (range_fd == -1)
+    {
+        open_range_map();
     }
     uint32_t tun_key = 0;
     struct ifindex_tun o_tunif;
@@ -713,77 +712,133 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     ext_key.protocol = key->protocol;
     ext_key.pad = 0;
 
-    struct if_list_extension_key if_ext_key = {0};
-    if_list_ext_map.key = (uint64_t)&if_ext_key;
+    struct port_extension_key port_ext_key = {0};
+    if_list_ext_map.key = (uint64_t)&port_ext_key;
     struct if_list_extension_mapping if_ext_value;
     if_list_ext_map.value = (uint64_t)&if_ext_value;
     if_list_ext_map.map_fd = if_list_ext_fd;
     if_list_ext_map.flags = BPF_ANY; 
-    if_ext_key.dst_ip = key->dst_ip;
-    if_ext_key.src_ip = key->src_ip;
-    if_ext_key.dprefix_len = key->dprefix_len;
-    if_ext_key.sprefix_len = key->sprefix_len;
-    if_ext_key.protocol = key->protocol;
-    if_ext_key.pad = 0;
+    port_ext_key.dst_ip = key->dst_ip;
+    port_ext_key.src_ip = key->src_ip;
+    port_ext_key.dprefix_len = key->dprefix_len;
+    port_ext_key.sprefix_len = key->sprefix_len;
+    port_ext_key.protocol = key->protocol;
+    port_ext_key.pad = 0;
+
+    range_map.key = (uint64_t)&port_ext_key;
+    __u16 range_value;
+    range_map.value = (uint64_t)&range_value;
+    range_map.map_fd = range_fd;
+    range_map.flags = BPF_ANY;
+
 
     for (; x < tuple->index_len; x++)
     {
-        ext_key.tproxy_port = tuple->port_mapping[tuple->index_table[x]].tproxy_port;
+        __u16 port_key = tuple->index_table[x];
+        ext_key.tproxy_port = tuple->port_mapping[port_key].tproxy_port;
         int tp_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
-        sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
-                ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
-        if_ext_key.low_port = tuple->port_mapping[tuple->index_table[x]].low_port;
-        int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
-        if (intercept && !passthru)
-        {
-            bool entry_exists = false;
-            if (tun_mode)
+        port_ext_key.low_port = port_key;
+        int range_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+        if(!range_lookup){
+            sprintf(dpts, "dpts=%d:%d", ntohs(port_key),
+                    ntohs(range_value));
+            int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
+            if (intercept && !passthru)
             {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                       dpts, o_tunif.ifname);
-                entry_exists = true;
-                *rule_count += 1;
-            }
-            else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
-            {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                       dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                entry_exists = true;
-                *rule_count += 1;
-            }
-            char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
-            if(!if_ext_lookup){
-                for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
+                bool entry_exists = false;
+                if (tun_mode)
                 {
-                    if (if_ext_value.if_list[i])
+                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, o_tunif.ifname);
+                    entry_exists = true;
+                    *rule_count += 1;
+                }
+                else if (ntohs(tuple->port_mapping[port_key].tproxy_port) > 0)
+                {
+                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, ntohs(tuple->port_mapping[port_key].tproxy_port));
+                    entry_exists = true;
+                    *rule_count += 1;
+                }
+                char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
+                if(!if_ext_lookup){
+                    for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
                     {
-                        if_key = if_ext_value.if_list[i];
-                        struct ifindex_ip4 ifip4;
-                        if_map.value = (uint64_t)&ifip4;
-                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
-                        if (!lookup)
+                        if (if_ext_value.if_list[i])
                         {
-                            strcat(interfaces, ifip4.ifname);
-                            strcat(interfaces, ",");
+                            if_key = if_ext_value.if_list[i];
+                            struct ifindex_ip4 ifip4;
+                            if_map.value = (uint64_t)&ifip4;
+                            int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                            if (!lookup)
+                            {
+                                strcat(interfaces, ifip4.ifname);
+                                strcat(interfaces, ",");
+                            }
                         }
                     }
                 }
+                if (strlen(interfaces))
+                {
+                    printf("%s%.*s%s\n", "[", (int)(strlen(interfaces) - 1), interfaces, "]");
+                }
+                else if (entry_exists)
+                {
+                    printf("%s\n", "[]");
+                }
             }
-            if (strlen(interfaces))
+            else if (passthru && !intercept)
             {
-                printf("%s%.*s%s\n", "[", (int)(strlen(interfaces) - 1), interfaces, "]");
+                if (ntohs(tuple->port_mapping[port_key].tproxy_port) == 0)
+                {
+                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, "PASSTHRU", dcidr_block);
+                    char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
+                    if(!if_ext_lookup){
+                        for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
+                        {
+                            if (if_ext_value.if_list[i])
+                            {
+                                if_key = if_ext_value.if_list[i];
+                                struct ifindex_ip4 ifip4;
+                                if_map.value = (uint64_t)&ifip4;
+                                int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                                if (!lookup)
+                                {
+                                    strcat(interfaces, ifip4.ifname);
+                                    strcat(interfaces, ",");
+                                }
+                            }
+                        }
+                    }
+                    if (strlen(interfaces))
+                    {
+                        printf("%s%.*s%s\n", "[", (int)(strlen(interfaces) - 1), interfaces, "]");
+                    }
+                    else
+                    {
+                        printf("%s\n", "[]");
+                    }
+                    *rule_count += 1;
+                }
             }
-            else if (entry_exists)
+            else
             {
-                printf("%s\n", "[]");
-            }
-        }
-        else if (passthru && !intercept)
-        {
-            if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0)
-            {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                       dpts, "PASSTHRU", dcidr_block);
+                if (tun_mode)
+                {
+                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, o_tunif.ifname);
+                }
+                else if (ntohs(tuple->port_mapping[port_key].tproxy_port) > 0)
+                {
+                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, ntohs(tuple->port_mapping[port_key].tproxy_port));
+                }
+                else
+                {
+                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, "PASSTHRU", dcidr_block);
+                }
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                 if(!if_ext_lookup){
                     for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
@@ -812,51 +867,6 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                 }
                 *rule_count += 1;
             }
-        }
-        else
-        {
-            if (tun_mode)
-            {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                       dpts, o_tunif.ifname);
-            }
-            else if (ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0)
-            {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                       dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-            }
-            else
-            {
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                       dpts, "PASSTHRU", dcidr_block);
-            }
-            char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
-            if(!if_ext_lookup){
-                for (int i = 0; i < MAX_IF_LIST_ENTRIES; i++)
-                {
-                    if (if_ext_value.if_list[i])
-                    {
-                        if_key = if_ext_value.if_list[i];
-                        struct ifindex_ip4 ifip4;
-                        if_map.value = (uint64_t)&ifip4;
-                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
-                        if (!lookup)
-                        {
-                            strcat(interfaces, ifip4.ifname);
-                            strcat(interfaces, ",");
-                        }
-                    }
-                }
-            }
-            if (strlen(interfaces))
-            {
-                printf("%s%.*s%s\n", "[", (int)(strlen(interfaces) - 1), interfaces, "]");
-            }
-            else
-            {
-                printf("%s\n", "[]");
-            }
-            *rule_count += 1;
         }
     }
     free(dpts);
@@ -2345,7 +2355,7 @@ void set_tp_ext_data(struct tproxy_extension_key key){
     }
 }
 
-void set_if_list_ext_data(struct if_list_extension_key key){
+void set_if_list_ext_data(struct port_extension_key key){
     if (if_list_ext_fd == -1)
     {
         open_if_list_ext_map();
@@ -2363,6 +2373,24 @@ void set_if_list_ext_data(struct if_list_extension_key key){
     if_list_ext_map.map_fd = if_list_ext_fd;
     if_list_ext_map.flags = BPF_ANY;
     int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
+    if (result)
+    {
+        printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
+    }
+}
+
+void set_range(struct port_extension_key key){
+     if (range_fd == -1)
+    {
+        open_range_map();
+    }
+    printf("Setting range\n");
+    range_map.key = (uint64_t)&key;
+    __u16 range_high_port = htons(high_port);
+    range_map.value = (uint64_t)&range_high_port;
+    range_map.map_fd = range_fd;
+    range_map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &range_map, sizeof(range_map));
     if (result)
     {
         printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
@@ -2424,10 +2452,8 @@ void map_insert()
     /* pupulate a struct for a port mapping */
     struct tproxy_port_mapping *port_mapping = (struct tproxy_port_mapping *)malloc(sizeof(struct tproxy_port_mapping));
     memset(port_mapping, 0, sizeof(struct tproxy_port_mapping)); 
-    port_mapping->low_port = htons(low_port);
-    port_mapping->high_port = htons(high_port);
     port_mapping->tproxy_port = htons(tproxy_port);  
-    struct if_list_extension_key if_ext_key = {
+    struct port_extension_key port_ext_key = {
         dcidr.s_addr,
         scidr.s_addr,
         htons(low_port),
@@ -2461,9 +2487,17 @@ void map_insert()
         rule->index_table[0] = *index;
         memcpy((void *)&rule->port_mapping[*index], (void *)port_mapping, sizeof(struct tproxy_port_mapping));
         map.value = (uint64_t)rule;
-        if (!rule->port_mapping[*index].low_port)
+        union bpf_attr count_map;
+        memset(&count_map, 0, sizeof(count_map));
+        /* set path name with location of map in filesystem */
+        count_map.pathname = (uint64_t)count_map_path;
+        count_map.bpf_fd = 0;
+        count_map.file_flags = 0;
+        /* make system call to get fd for map */
+        int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
+        if (count_fd == -1)
         {
-            printf("memcpy failed");
+            printf("BPF_OBJ_GET: %s \n", strerror(errno));
             free(rule);
             free(key);
             free(index);
@@ -2472,45 +2506,23 @@ void map_insert()
             close(fd);
             close_maps(1);
         }
-        else
+        uint32_t count_key = 0;
+        uint32_t count_value = 0;
+        count_map.map_fd = count_fd;
+        count_map.key = (uint64_t)&count_key;
+        count_map.value = (uint64_t)&count_value;
+        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
+        if (!lookup)
         {
-            union bpf_attr count_map;
-            memset(&count_map, 0, sizeof(count_map));
-            /* set path name with location of map in filesystem */
-            count_map.pathname = (uint64_t)count_map_path;
-            count_map.bpf_fd = 0;
-            count_map.file_flags = 0;
-            /* make system call to get fd for map */
-            int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
-            if (count_fd == -1)
+            count_value++;
+            count_map.flags = BPF_ANY;
+            int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
+            if (result)
             {
-                printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                free(rule);
-                free(key);
-                free(index);
-                free(port_mapping);
-                free(orule);
-                close(fd);
-                close_maps(1);
+                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
             }
-            uint32_t count_key = 0;
-            uint32_t count_value = 0;
-            count_map.map_fd = count_fd;
-            count_map.key = (uint64_t)&count_key;
-            count_map.value = (uint64_t)&count_value;
-            int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
-            if (!lookup)
-            {
-                count_value++;
-                count_map.flags = BPF_ANY;
-                int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
-                if (result)
-                {
-                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                }
-            }
-            close(count_fd);
         }
+        close(count_fd);
         if (route_insert)
         {
             bind_prefix(&dcidr, dplen);
@@ -2521,18 +2533,9 @@ void map_insert()
         /* modify existing prefix entry and add or modify existing port mapping entry  */
         printf("lookup success\n");
         /*clear existing if_list_key if present*/
-        if_list_ext_delete_key(if_ext_key);
+        if_list_ext_delete_key(port_ext_key);
         add_index(*index, port_mapping, orule);
-        if (!(orule->port_mapping[*index].low_port == *index))
-        {
-            printf("Insert failed\n");
-            free(key);
-            free(index);
-            free(port_mapping);
-            free(orule);
-            close(fd);
-            close_maps(1);
-        }
+        //printf("modification: low_port %u - tproxy_port %u inserted\n", ntohs(*index),orule->port_mapping[*index].tproxy_port);
     }
     free(index);
     map.flags = BPF_ANY;
@@ -2557,9 +2560,10 @@ void map_insert()
         0
     };
     set_tp_ext_data(tp_ext_key);
+    set_range(port_ext_key);
     /*add if_list_mapping*/
     if(interface){
-        set_if_list_ext_data(if_ext_key);
+        set_if_list_ext_data(port_ext_key);
     }
 }
 
@@ -2590,7 +2594,7 @@ void if_delete_key(uint32_t key)
     close(fd);
 }
 
-void if_list_ext_delete_key(struct if_list_extension_key key)
+void if_list_ext_delete_key(struct port_extension_key key)
 {
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
@@ -2609,6 +2613,52 @@ void if_list_ext_delete_key(struct if_list_extension_key key)
     if (!result)
     {
         printf("cleared if_list_ext_map entry\n");
+    }
+    close(fd);
+}
+
+void range_delete_key(struct port_extension_key key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)range_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (!result)
+    {
+        printf("cleared range_map entry\n");
+    }
+    close(fd);
+}
+
+void tp_ext_delete_key(struct tproxy_extension_key key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tp_ext_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (!result)
+    {
+        printf("cleared tp_ext_map entry\n");
     }
     close(fd);
 }
@@ -2701,7 +2751,7 @@ void map_delete()
     map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
-    struct if_list_extension_key if_ext_key = {
+    struct port_extension_key port_ext_key = {
         dcidr.s_addr,
         scidr.s_addr,
         htons(low_port),
@@ -2819,7 +2869,8 @@ void map_delete()
                 close(fd);
                 free(orule);
                 free(key);
-                if_list_ext_delete_key(if_ext_key);
+                range_delete_key(port_ext_key);
+                if_list_ext_delete_key(port_ext_key);
                 close_maps(0);
             }
         }
@@ -2839,7 +2890,8 @@ void map_delete()
     free(orule);
     free(key);
     close(fd);
-    if_list_ext_delete_key(if_ext_key);
+    range_delete_key(port_ext_key);
+    if_list_ext_delete_key(port_ext_key);
 }
 
 void map_flush()
@@ -2876,6 +2928,102 @@ void map_flush()
         map_delete_key(current_key);
     }
     close(fd);
+    union bpf_attr tp_map;
+    struct tproxy_extension_key tp_init_key = {0};
+    struct tproxy_extension_key *tp_key = &tp_init_key;
+    struct tproxy_extension_key tp_current_key;
+    struct tproxy_extension_mapping tp_orule;
+    // Open BPF zt_tproxy_map map
+    memset(&tp_map, 0, sizeof(tp_map));
+    tp_map.pathname = (uint64_t)tp_ext_map_path;
+    tp_map.bpf_fd = 0;
+    tp_map.file_flags = 0;
+    int tp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tp_map, sizeof(tp_map));
+    if (tp_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    tp_map.map_fd = tp_fd;
+    tp_map.key = (uint64_t)tp_key;
+    tp_map.value = (uint64_t)&tp_orule;
+    int tp_ret = 0;
+    while (true)
+    {
+        tp_ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &tp_map, sizeof(tp_map));
+        if (tp_ret == -1)
+        {
+            break;
+        }
+        tp_map.key = tp_map.next_key;
+        tp_current_key = *(struct tproxy_extension_key *)tp_map.key;
+        tp_ext_delete_key(tp_current_key);
+    }
+    close(tp_fd);
+    union bpf_attr ra_map;
+    struct port_extension_key ra_init_key = {0};
+    struct port_extension_key *ra_key = &ra_init_key;
+    struct port_extension_key ra_current_key;
+    __u8 ra_orule;
+    // Open BPF zt_tproxy_map map
+    memset(&ra_map, 0, sizeof(ra_map));
+    ra_map.pathname = (uint64_t)range_map_path;
+    ra_map.bpf_fd = 0;
+    ra_map.file_flags = 0;
+    int ra_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ra_map, sizeof(ra_map));
+    if (ra_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    ra_map.map_fd = ra_fd;
+    ra_map.key = (uint64_t)ra_key;
+    ra_map.value = (uint64_t)&ra_orule;
+    int ra_ret = 0;
+    while (true)
+    {
+        ra_ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &ra_map, sizeof(ra_map));
+        if (ra_ret == -1)
+        {
+            break;
+        }
+        ra_map.key = ra_map.next_key;
+        ra_current_key = *(struct port_extension_key *)ra_map.key;
+        range_delete_key(ra_current_key);
+    }
+    close(ra_fd);
+    union bpf_attr ix_map;
+    struct port_extension_key ix_init_key = {0};
+    struct port_extension_key *ix_key = &ix_init_key;
+    struct port_extension_key ix_current_key;
+    struct if_list_extension_mapping ix_orule;
+    // Open BPF zt_tproxy_map map
+    memset(&ix_map, 0, sizeof(ix_map));
+    ix_map.pathname = (uint64_t)if_list_ext_map_path;
+    ix_map.bpf_fd = 0;
+    ix_map.file_flags = 0;
+    int ix_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ix_map, sizeof(ix_map));
+    if (ix_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    ix_map.map_fd = ix_fd;
+    ix_map.key = (uint64_t)ix_key;
+    ix_map.value = (uint64_t)&ix_orule;
+    int ix_ret = 0;
+    while (true)
+    {
+        ix_ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &ix_map, sizeof(ix_map));
+        if (ix_ret == -1)
+        {
+            break;
+        }
+        ix_map.key = ix_map.next_key;
+        ix_current_key = *(struct port_extension_key *)ix_map.key;
+        if_list_ext_delete_key(ix_current_key);
+    }
+    close(ix_fd);
     union bpf_attr count_map;
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
@@ -3673,6 +3821,10 @@ void close_maps(int code)
     {
        close(if_list_ext_fd);
     }
+    if (range_fd != -1)
+    {
+       close(range_fd);
+    }
     exit(code);
 }
 
@@ -3720,6 +3872,20 @@ void open_ddos_saddr_map()
     /* make system call to get fd for map */
     ddos_saddr_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ddos_saddr_map, sizeof(ddos_saddr_map));
     if (ddos_saddr_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_range_map()
+{
+    memset(&range_map, 0, sizeof(range_map));
+    range_map.pathname = (uint64_t)range_map_path;
+    range_map.bpf_fd = 0;
+    range_map.file_flags = 0;
+    /* make system call to get fd for map */
+    range_fd = syscall(__NR_bpf, BPF_OBJ_GET, &range_map, sizeof(range_map));
+    if (range_fd == -1)
     {
         ebpf_usage();
     }

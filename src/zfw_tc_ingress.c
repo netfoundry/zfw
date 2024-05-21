@@ -81,7 +81,7 @@ struct if_list_extension_mapping {
     __u32 if_list[MAX_IF_LIST_ENTRIES];
 };
 
-struct if_list_extension_key {
+struct port_extension_key {
     __u32 dst_ip;
     __u32 src_ip;
     __u16 low_port;
@@ -92,8 +92,6 @@ struct if_list_extension_key {
 };
 
 struct tproxy_port_mapping {
-    __u16 low_port;
-    __u16 high_port;
     __u16 tproxy_port;
 };
 
@@ -107,10 +105,8 @@ struct tproxy_tuple {
     struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];/*Array to store unique tproxy mappings
                                                                *  with each index matches the low_port of
                                                                * struct tproxy_port_mapping {
-                                                               *  __u16 low_port;
                                                                *  __u16 high_port;
                                                                * __u16 tproxy_port;
-                                                               * __u32 tproxy_ip;
                                                                * }
                                                                */
 };
@@ -406,12 +402,21 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(key_size, sizeof(struct if_list_extension_key));
+    __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct if_list_extension_mapping));
     __uint(max_entries, 128000);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } if_list_extension_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct port_extension_key));
+    __uint(value_size, sizeof(uint16_t));
+    __uint(max_entries, 132000);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} range_map SEC(".maps");
 
 /* function for ebpf program to access zt_tproxy_map entries
  * based on {prefix,mask,protocol} i.e. {192.168.1.0,24,IPPROTO_TCP}
@@ -422,10 +427,20 @@ static inline struct tproxy_tuple *get_tproxy(struct tproxy_key key){
 	return tu;
 }
 
-static inline struct if_list_extension_mapping *get_if_list_ext_mapping(struct if_list_extension_key key){
+static inline struct if_list_extension_mapping *get_if_list_ext_mapping(struct port_extension_key key){
     struct if_list_extension_mapping *ifem;
     ifem = bpf_map_lookup_elem(&if_list_extension_map, &key);
     return ifem;
+}
+
+static inline __u16 *get_high_port(struct port_extension_key key){
+    __u16 *hp;
+    hp = bpf_map_lookup_elem(&range_map, &key);
+    if(hp){
+        return hp;
+    }else{
+        return NULL;
+    }
 }
 
 static inline void del_tcp(struct tuple_key key){
@@ -1560,9 +1575,12 @@ int bpf_sk_splice5(struct __sk_buff *skb){
             }
             for (int index = 0; index < max_entries; index++){
                 int port_key = tproxy->index_table[index];
+                struct port_extension_key ext_key = {key.dst_ip, key.src_ip, port_key, key.dprefix_len, key.sprefix_len, protocol, 0};
+                __u16 *high_port = get_high_port(ext_key);
+                bpf_printk("high=%u\n",high_port);
                 //check if there is a udp or tcp destination port match
-                if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
-                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) 
+                if (high_port && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
+                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(*high_port)))) 
                 {
                     event.proto = key.protocol;
                     event.tport = tproxy->port_mapping[port_key].tproxy_port;
@@ -1620,7 +1638,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                             }
                         }
                     }
-                    struct if_list_extension_key ext_key = {key.dst_ip, key.src_ip, tproxy->port_mapping[port_key].low_port, key.dprefix_len, key.sprefix_len, protocol, 0};
                     struct if_list_extension_mapping *ext_mapping = get_if_list_ext_mapping(ext_key);
                     if(ext_mapping){
                         for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
