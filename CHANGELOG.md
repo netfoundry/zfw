@@ -7,8 +7,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
-- Refactoring for further memory optimization
-- 
+- Refactoring for further memory optimization. Removed struct tproxy_port_mapping. 
+- Fixed rule listing format issue where if the service id was less than 22 characters the entire rule was left shifted
+- Fixed issue for listing output with ziti-edge-tunnel where passthrough rules were listed as tunnel redirect rules    
+  
 # [0.6.3] - 2024-05-17
 
 ###

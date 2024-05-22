@@ -393,7 +393,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct tproxy_extension_key));
     __uint(value_size, sizeof(struct tproxy_extension_mapping));
-    __uint(max_entries, 10000000);
+    __uint(max_entries, 5000000);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } tproxy_extension_map SEC(".maps");
@@ -402,7 +402,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct if_list_extension_mapping));
-    __uint(max_entries, 10000000);
+    __uint(max_entries, 5000000);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } if_list_extension_map SEC(".maps");
@@ -411,7 +411,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct range_mapping));
-    __uint(max_entries, 10000000);
+    __uint(max_entries, 5000000);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } range_map SEC(".maps");

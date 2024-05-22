@@ -592,7 +592,7 @@ __u16 len2u16(char *len)
 }
 
 /* function to add a UDP or TCP port range to a tproxy mapping */
-void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_tuple *tuple)
+void add_index(__u16 index, struct tproxy_tuple *tuple)
 {
     bool is_new = true;
     for (int x = 0; x < tuple->index_len; x++)
@@ -2453,11 +2453,7 @@ void map_insert()
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     unsigned short *index = (unsigned short *)malloc(sizeof(unsigned short));
     memset(index, 0, sizeof(unsigned short));
-    *index = htons(low_port);
-    /* pupulate a struct for a port mapping */
-    struct tproxy_port_mapping *port_mapping = (struct tproxy_port_mapping *)malloc(sizeof(struct tproxy_port_mapping));
-    memset(port_mapping, 0, sizeof(struct tproxy_port_mapping)); 
-    port_mapping->tproxy_port = htons(tproxy_port);  
+    *index = htons(low_port); 
     struct port_extension_key port_ext_key = {
         dcidr.s_addr,
         scidr.s_addr,
@@ -2480,7 +2476,6 @@ void map_insert()
         printf("Unsupported Protocol\n");
         free(key);
         free(index);
-        free(port_mapping);
         free(rule);
         free(orule);
         close(fd);
@@ -2505,7 +2500,6 @@ void map_insert()
             printf("BPF_OBJ_GET: %s \n", strerror(errno));
             free(key);
             free(index);
-            free(port_mapping);
             free(rule);
             free(orule);
             close(fd);
@@ -2539,8 +2533,7 @@ void map_insert()
         printf("lookup success\n");
         /*clear existing if_list_key if present*/
         if_list_ext_delete_key(port_ext_key);
-        add_index(*index, port_mapping, orule);
-        //printf("modification: low_port %u - tproxy_port %u inserted\n", ntohs(*index),orule->port_mapping[*index].tproxy_port);
+        add_index(*index, orule);
     }
     free(index);
     map.flags = BPF_ANY;
@@ -2549,14 +2542,12 @@ void map_insert()
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
         free(key);
-        free(port_mapping);
         free(rule);
         free(orule);
         close(fd);
         close_maps(1);
     }
     free(key);
-    free(port_mapping);
     free(rule);
     free(orule);
     close(fd);
@@ -2641,7 +2632,12 @@ void range_delete_key(struct port_extension_key key)
     int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
     if ((!result) && (!flush))
     {
-        printf("cleared range_map entry\n");
+        char *saddr = nitoa(ntohl(key.src_ip));
+        char *daddr = nitoa(ntohl(key.dst_ip));
+        printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
+          key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
+        free(saddr);
+        free(daddr);
     }
     close(fd);
 }
@@ -2970,7 +2966,7 @@ void map_flush()
     struct port_extension_key ra_init_key = {0};
     struct port_extension_key *ra_key = &ra_init_key;
     struct port_extension_key ra_current_key;
-    __u8 ra_orule;
+    struct range_mapping ra_orule;
     // Open BPF zt_tproxy_map map
     memset(&ra_map, 0, sizeof(ra_map));
     ra_map.pathname = (uint64_t)range_map_path;
