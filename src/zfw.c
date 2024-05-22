@@ -2616,7 +2616,7 @@ void if_list_ext_delete_key(struct port_extension_key key)
     map.map_fd = fd;
     map.key = (uint64_t)&key;
     int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
-    if (!result)
+    if (!result && !flush)
     {
         printf("cleared if_list_ext_map entry\n");
     }
@@ -2639,7 +2639,7 @@ void range_delete_key(struct port_extension_key key)
     map.map_fd = fd;
     map.key = (uint64_t)&key;
     int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
-    if (!result)
+    if ((!result) && (!flush))
     {
         printf("cleared range_map entry\n");
     }
@@ -2662,7 +2662,7 @@ void tp_ext_delete_key(struct tproxy_extension_key key)
     map.map_fd = fd;
     map.key = (uint64_t)&key;
     int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
-    if (!result)
+    if ((!result) && (!flush))
     {
         printf("cleared tp_ext_map entry\n");
     }
