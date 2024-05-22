@@ -2442,8 +2442,8 @@ void map_insert()
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         free(key);
-        free(orule);
         free(rule);
+        free(orule);
         close_maps(1);
     }
     map.map_fd = fd;
@@ -2481,6 +2481,7 @@ void map_insert()
         free(key);
         free(index);
         free(port_mapping);
+        free(rule);
         free(orule);
         close(fd);
         close_maps(1);
@@ -2502,10 +2503,10 @@ void map_insert()
         if (count_fd == -1)
         {
             printf("BPF_OBJ_GET: %s \n", strerror(errno));
-            free(rule);
             free(key);
             free(index);
             free(port_mapping);
+            free(rule);
             free(orule);
             close(fd);
             close_maps(1);
@@ -2549,13 +2550,14 @@ void map_insert()
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
         free(key);
         free(port_mapping);
+        free(rule);
         free(orule);
         close(fd);
         close_maps(1);
     }
-    free(rule);
     free(key);
     free(port_mapping);
+    free(rule);
     free(orule);
     close(fd);
     struct tproxy_extension_key tp_ext_key = {
