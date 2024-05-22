@@ -91,6 +91,11 @@ struct port_extension_key {
     __u8 pad;
 };
 
+struct range_mapping {
+    __u16 high_port;
+    __u16 tproxy_port;
+};
+
 struct tproxy_port_mapping {
     __u16 tproxy_port;
 };
@@ -102,13 +107,6 @@ struct tproxy_tuple {
                                              * with each populated index representing a udp or tcp tproxy 
                                              * mapping in the port_mapping array
                                              */
-    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];/*Array to store unique tproxy mappings
-                                                               *  with each index matches the low_port of
-                                                               * struct tproxy_port_mapping {
-                                                               *  __u16 high_port;
-                                                               * __u16 tproxy_port;
-                                                               * }
-                                                               */
 };
 
 /*key to zt_tproxy_map*/
@@ -412,7 +410,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct port_extension_key));
-    __uint(value_size, sizeof(uint16_t));
+    __uint(value_size, sizeof(struct range_mapping));
     __uint(max_entries, 132000);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
@@ -433,8 +431,8 @@ static inline struct if_list_extension_mapping *get_if_list_ext_mapping(struct p
     return ifem;
 }
 
-static inline __u16 *get_high_port(struct port_extension_key key){
-    __u16 *hp;
+static inline struct range_mapping *get_range_ports(struct port_extension_key key){
+    struct range_mapping *hp;
     hp = bpf_map_lookup_elem(&range_map, &key);
     if(hp){
         return hp;
@@ -1576,20 +1574,19 @@ int bpf_sk_splice5(struct __sk_buff *skb){
             for (int index = 0; index < max_entries; index++){
                 int port_key = tproxy->index_table[index];
                 struct port_extension_key ext_key = {key.dst_ip, key.src_ip, port_key, key.dprefix_len, key.sprefix_len, protocol, 0};
-                __u16 *high_port = get_high_port(ext_key);
-                bpf_printk("high=%u\n",high_port);
+                struct range_mapping *range = get_range_ports(ext_key);
                 //check if there is a udp or tcp destination port match
-                if (high_port && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
-                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(*high_port)))) 
+                if (range && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
+                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(range->high_port)))) 
                 {
                     event.proto = key.protocol;
-                    event.tport = tproxy->port_mapping[port_key].tproxy_port;
+                    event.tport = range->tproxy_port;
                     /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                     the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
                     sockcheck.ipv4.daddr = 0x0100007f;
-                    sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
+                    sockcheck.ipv4.dport = range->tproxy_port;
                     if(!local_diag->per_interface){
-                        if(tproxy->port_mapping[port_key].tproxy_port == 0){
+                        if(range->tproxy_port == 0){
                             if(local_diag->verbose){
                                 send_event(&event);
                             }
@@ -1642,7 +1639,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     if(ext_mapping){
                         for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                             if(ext_mapping->if_list[x] == skb->ifindex){
-                                if(tproxy->port_mapping[port_key].tproxy_port == 0){
+                                if(range->tproxy_port == 0){
                                     if(local_diag->verbose){
                                         send_event(&event);
                                     }

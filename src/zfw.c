@@ -294,7 +294,11 @@ struct tproxy_tuple
 {
     __u16 index_len;
     __u16 index_table[MAX_INDEX_ENTRIES];
-    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
+};
+
+struct range_mapping {
+    __u16 high_port;
+    __u16 tproxy_port;
 };
 
 struct tproxy_key
@@ -611,7 +615,6 @@ void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_t
             return;
         }
     }
-    memcpy((void *)&tuple->port_mapping[index], (void *)mapping, sizeof(struct tproxy_port_mapping));
 }
 
 void remove_index(__u16 index, struct tproxy_tuple *tuple)
@@ -633,7 +636,6 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple)
             tuple->index_table[x] = tuple->index_table[x + 1];
         }
         tuple->index_len -= 1;
-        memset((void *)&tuple->port_mapping[index], 0, sizeof(struct tproxy_port_mapping));
         printf("mapping[%d] removed\n", ntohs(index));
     }
     else
@@ -726,7 +728,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     port_ext_key.pad = 0;
 
     range_map.key = (uint64_t)&port_ext_key;
-    __u16 range_value;
+    struct range_mapping range_value;
     range_map.value = (uint64_t)&range_value;
     range_map.map_fd = range_fd;
     range_map.flags = BPF_ANY;
@@ -735,28 +737,28 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     for (; x < tuple->index_len; x++)
     {
         __u16 port_key = tuple->index_table[x];
-        ext_key.tproxy_port = tuple->port_mapping[port_key].tproxy_port;
-        int tp_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
         port_ext_key.low_port = port_key;
         int range_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+        ext_key.tproxy_port = range_value.tproxy_port;
+        int tp_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
         if(!range_lookup){
             sprintf(dpts, "dpts=%d:%d", ntohs(port_key),
-                    ntohs(range_value));
+                    ntohs(range_value.high_port));
             int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
             if (intercept && !passthru)
             {
                 bool entry_exists = false;
-                if (tun_mode)
+                if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                         dpts, o_tunif.ifname);
                     entry_exists = true;
                     *rule_count += 1;
                 }
-                else if (ntohs(tuple->port_mapping[port_key].tproxy_port) > 0)
+                else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                        dpts, ntohs(tuple->port_mapping[port_key].tproxy_port));
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, ntohs(range_value.tproxy_port));
                     entry_exists = true;
                     *rule_count += 1;
                 }
@@ -789,9 +791,9 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             }
             else if (passthru && !intercept)
             {
-                if (ntohs(tuple->port_mapping[port_key].tproxy_port) == 0)
+                if (ntohs(range_value.tproxy_port) == 0)
                 {
-                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                         dpts, "PASSTHRU", dcidr_block);
                     char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                     if(!if_ext_lookup){
@@ -824,19 +826,19 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             }
             else
             {
-                if (tun_mode)
+                if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                         dpts, o_tunif.ifname);
                 }
-                else if (ntohs(tuple->port_mapping[port_key].tproxy_port) > 0)
+                else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
-                        dpts, ntohs(tuple->port_mapping[port_key].tproxy_port));
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                        dpts, ntohs(range_value.tproxy_port));
                 }
                 else
                 {
-                    printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                         dpts, "PASSTHRU", dcidr_block);
                 }
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
@@ -2386,8 +2388,11 @@ void set_range(struct port_extension_key key){
     }
     printf("Setting range\n");
     range_map.key = (uint64_t)&key;
-    __u16 range_high_port = htons(high_port);
-    range_map.value = (uint64_t)&range_high_port;
+    struct range_mapping range_ports = {
+        htons(high_port),
+        htons(tproxy_port)
+    };
+    range_map.value = (uint64_t)&range_ports;
     range_map.map_fd = range_fd;
     range_map.flags = BPF_ANY;
     int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &range_map, sizeof(range_map));
@@ -2485,7 +2490,6 @@ void map_insert()
         /* create a new tproxy prefix entry and add port range to it */
         rule->index_len = 1; 
         rule->index_table[0] = *index;
-        memcpy((void *)&rule->port_mapping[*index], (void *)port_mapping, sizeof(struct tproxy_port_mapping));
         map.value = (uint64_t)rule;
         union bpf_attr count_map;
         memset(&count_map, 0, sizeof(count_map));
