@@ -429,11 +429,7 @@ static inline struct if_list_extension_mapping *get_if_list_ext_mapping(struct p
 static inline struct range_mapping *get_range_ports(struct port_extension_key key){
     struct range_mapping *hp;
     hp = bpf_map_lookup_elem(&range_map, &key);
-    if(hp){
-        return hp;
-    }else{
-        return NULL;
-    }
+    return hp;
 }
 
 static inline void del_tcp(struct tuple_key key){
@@ -1567,7 +1563,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 max_entries = MAX_INDEX_ENTRIES;
             }
             for (int index = 0; index < max_entries; index++){
-                int port_key = tproxy->index_table[index];
+                __u16 port_key = tproxy->index_table[index];
                 struct port_extension_key ext_key = {key.dst_ip, key.src_ip, port_key, key.dprefix_len, key.sprefix_len, protocol, 0};
                 struct range_mapping *range = get_range_ports(ext_key);
                 //check if there is a udp or tcp destination port match

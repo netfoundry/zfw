@@ -6,7 +6,7 @@ After=ziti-edge-tunnel.service
 [Service]
 User=root
 MemoryAccounting=yes
-MemoryHigh=50M
+MemoryHigh=90%
 EnvironmentFile=/opt/openziti/etc/ziti-edge-tunnel.env
 ExecStartPre=/opt/openziti/bin/start_ebpf_tunnel.py
 ExecStart=/opt/openziti/bin/zfw_tunnwrapper
