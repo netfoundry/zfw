@@ -44,6 +44,7 @@
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES 100 // MAX # PREFIXES
 #endif
+#define BPF_MAX_RANGES 250000
 #define MAX_INDEX_ENTRIES 100 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE 65536  // PORT Mapping table size
 #define MAX_IF_LIST_ENTRIES 3
@@ -3304,7 +3305,7 @@ void map_list_all()
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
         if (ret == -1)
         {
-            printf("Rule Count: %d\n", rule_count);
+            printf("Rule Count: %d / %d\n", rule_count, BPF_MAX_RANGES);
             printf("prefix_tuple_count: %d / %d\n", get_key_count(), BPF_MAX_ENTRIES);
             break;
         }

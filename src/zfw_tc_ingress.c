@@ -32,6 +32,7 @@
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
 #endif
+#define BPF_MAX_RANGES 250000
 #define MAX_INDEX_ENTRIES                   100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE                      65536 //needs to match in userspace
 #define GENEVE_UDP_PORT                     6081
@@ -393,7 +394,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct tproxy_extension_key));
     __uint(value_size, sizeof(struct tproxy_extension_mapping));
-    __uint(max_entries, 5000000);
+    __uint(max_entries, BPF_MAX_RANGES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } tproxy_extension_map SEC(".maps");
@@ -402,7 +403,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct if_list_extension_mapping));
-    __uint(max_entries, 5000000);
+    __uint(max_entries, BPF_MAX_RANGES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } if_list_extension_map SEC(".maps");
@@ -411,7 +412,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct range_mapping));
-    __uint(max_entries, 5000000);
+    __uint(max_entries, BPF_MAX_RANGES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } range_map SEC(".maps");
