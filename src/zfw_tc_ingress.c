@@ -1572,7 +1572,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 ext_key.sprefix_len = key.sprefix_len; 
                 ext_key.protocol = key.protocol;
                 ext_key.pad = 0;
-                //struct port_extension_key *ext_ptr = &ext_key;
                 struct range_mapping *range = get_range_ports(ext_key);
                 //check if there is a udp or tcp destination port match
                 if (range && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
