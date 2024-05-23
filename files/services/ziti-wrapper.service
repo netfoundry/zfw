@@ -5,6 +5,10 @@ After=ziti-edge-tunnel.service
 
 [Service]
 User=root
+MemoryAccounting=yes
+MemoryHigh=8M
+MemoryMax=500M
+MemorySwapMax=500M
 EnvironmentFile=/opt/openziti/etc/ziti-edge-tunnel.env
 ExecStartPre=/opt/openziti/bin/start_ebpf_tunnel.py
 ExecStart=/opt/openziti/bin/zfw_tunnwrapper
