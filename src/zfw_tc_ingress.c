@@ -1564,7 +1564,15 @@ int bpf_sk_splice5(struct __sk_buff *skb){
             }
             for (int index = 0; index < max_entries; index++){
                 __u16 port_key = tproxy->index_table[index];
-                struct port_extension_key ext_key = {key.dst_ip, key.src_ip, port_key, key.dprefix_len, key.sprefix_len, protocol, 0};
+                struct port_extension_key ext_key = {0};
+                ext_key.dst_ip = key.dst_ip;
+                ext_key.src_ip = key.src_ip;
+                ext_key.low_port = port_key;
+                ext_key.dprefix_len = key.dprefix_len;
+                ext_key.sprefix_len = key.sprefix_len; 
+                ext_key.protocol = key.protocol;
+                ext_key.pad = 0;
+                //struct port_extension_key *ext_ptr = &ext_key;
                 struct range_mapping *range = get_range_ports(ext_key);
                 //check if there is a udp or tcp destination port match
                 if (range && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
