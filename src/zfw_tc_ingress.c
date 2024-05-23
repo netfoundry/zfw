@@ -97,17 +97,11 @@ struct range_mapping {
     __u16 tproxy_port;
 };
 
-struct tproxy_port_mapping {
-    __u16 tproxy_port;
-};
-
 struct tproxy_tuple {
     __u16 index_len; /*tracks the number of entries in the index_table*/
-    __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table which point to struct 
-                                             *tproxy_port_mapping in the port_maping array
-                                             * with each populated index representing a udp or tcp tproxy 
-                                             * mapping in the port_mapping array
-                                             */
+    __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table to associate 
+                                          *port ranges and tproxy ports with prefix tuples/protocol
+                                          */    
 };
 
 /*key to zt_tproxy_map*/

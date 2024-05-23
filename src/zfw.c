@@ -286,11 +286,6 @@ struct diag_ip4
     bool ddos_filtering;
 };
 
-struct tproxy_port_mapping
-{
-    __u16 tproxy_port;
-};
-
 struct tproxy_tuple
 {
     __u16 index_len;
