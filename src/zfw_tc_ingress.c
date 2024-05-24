@@ -32,6 +32,7 @@
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
 #endif
+#define BPF_MAX_RANGES 250000
 #define MAX_INDEX_ENTRIES                   100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE                      65536 //needs to match in userspace
 #define GENEVE_UDP_PORT                     6081
@@ -81,7 +82,7 @@ struct if_list_extension_mapping {
     __u32 if_list[MAX_IF_LIST_ENTRIES];
 };
 
-struct if_list_extension_key {
+struct port_extension_key {
     __u32 dst_ip;
     __u32 src_ip;
     __u16 low_port;
@@ -91,28 +92,16 @@ struct if_list_extension_key {
     __u8 pad;
 };
 
-struct tproxy_port_mapping {
-    __u16 low_port;
+struct range_mapping {
     __u16 high_port;
     __u16 tproxy_port;
 };
 
 struct tproxy_tuple {
     __u16 index_len; /*tracks the number of entries in the index_table*/
-    __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table which point to struct 
-                                             *tproxy_port_mapping in the port_maping array
-                                             * with each populated index representing a udp or tcp tproxy 
-                                             * mapping in the port_mapping array
-                                             */
-    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];/*Array to store unique tproxy mappings
-                                                               *  with each index matches the low_port of
-                                                               * struct tproxy_port_mapping {
-                                                               *  __u16 low_port;
-                                                               *  __u16 high_port;
-                                                               * __u16 tproxy_port;
-                                                               * __u32 tproxy_ip;
-                                                               * }
-                                                               */
+    __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table to associate 
+                                          *port ranges and tproxy ports with prefix tuples/protocol
+                                          */    
 };
 
 /*key to zt_tproxy_map*/
@@ -399,19 +388,28 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(struct tproxy_extension_key));
     __uint(value_size, sizeof(struct tproxy_extension_mapping));
-    __uint(max_entries, 128000);
+    __uint(max_entries, BPF_MAX_RANGES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } tproxy_extension_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(key_size, sizeof(struct if_list_extension_key));
+    __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct if_list_extension_mapping));
-    __uint(max_entries, 128000);
+    __uint(max_entries, BPF_MAX_RANGES);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } if_list_extension_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct port_extension_key));
+    __uint(value_size, sizeof(struct range_mapping));
+    __uint(max_entries, BPF_MAX_RANGES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} range_map SEC(".maps");
 
 /* function for ebpf program to access zt_tproxy_map entries
  * based on {prefix,mask,protocol} i.e. {192.168.1.0,24,IPPROTO_TCP}
@@ -422,10 +420,16 @@ static inline struct tproxy_tuple *get_tproxy(struct tproxy_key key){
 	return tu;
 }
 
-static inline struct if_list_extension_mapping *get_if_list_ext_mapping(struct if_list_extension_key key){
+static inline struct if_list_extension_mapping *get_if_list_ext_mapping(struct port_extension_key key){
     struct if_list_extension_mapping *ifem;
     ifem = bpf_map_lookup_elem(&if_list_extension_map, &key);
     return ifem;
+}
+
+static inline struct range_mapping *get_range_ports(struct port_extension_key key){
+    struct range_mapping *hp;
+    hp = bpf_map_lookup_elem(&range_map, &key);
+    return hp;
 }
 
 static inline void del_tcp(struct tuple_key key){
@@ -1559,19 +1563,28 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 max_entries = MAX_INDEX_ENTRIES;
             }
             for (int index = 0; index < max_entries; index++){
-                int port_key = tproxy->index_table[index];
+                __u16 port_key = tproxy->index_table[index];
+                struct port_extension_key ext_key = {0};
+                ext_key.dst_ip = key.dst_ip;
+                ext_key.src_ip = key.src_ip;
+                ext_key.low_port = port_key;
+                ext_key.dprefix_len = key.dprefix_len;
+                ext_key.sprefix_len = key.sprefix_len; 
+                ext_key.protocol = key.protocol;
+                ext_key.pad = 0;
+                struct range_mapping *range = get_range_ports(ext_key);
                 //check if there is a udp or tcp destination port match
-                if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
-                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) 
+                if (range && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
+                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(range->high_port)))) 
                 {
                     event.proto = key.protocol;
-                    event.tport = tproxy->port_mapping[port_key].tproxy_port;
+                    event.tport = range->tproxy_port;
                     /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                     the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
                     sockcheck.ipv4.daddr = 0x0100007f;
-                    sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
+                    sockcheck.ipv4.dport = range->tproxy_port;
                     if(!local_diag->per_interface){
-                        if(tproxy->port_mapping[port_key].tproxy_port == 0){
+                        if(range->tproxy_port == 0){
                             if(local_diag->verbose){
                                 send_event(&event);
                             }
@@ -1620,12 +1633,11 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                             }
                         }
                     }
-                    struct if_list_extension_key ext_key = {key.dst_ip, key.src_ip, tproxy->port_mapping[port_key].low_port, key.dprefix_len, key.sprefix_len, protocol, 0};
                     struct if_list_extension_mapping *ext_mapping = get_if_list_ext_mapping(ext_key);
                     if(ext_mapping){
                         for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                             if(ext_mapping->if_list[x] == skb->ifindex){
-                                if(tproxy->port_mapping[port_key].tproxy_port == 0){
+                                if(range->tproxy_port == 0){
                                     if(local_diag->verbose){
                                         send_event(&event);
                                     }

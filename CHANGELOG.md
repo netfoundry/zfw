@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.6.4] - 2024-05-21
+
+###
+
+- Refactoring for further memory optimization. Removed struct tproxy_port_mapping. 
+- Refactored ziti-wrapper.service with high water mark 80% memory.
+- Fixed rule listing format issue where if the service id was less than 22 characters the entire rule was left shifted
+- Fixed issue for listing output with ziti-edge-tunnel where passthrough rules were listed as tunnel redirect rules    
+  
 # [0.6.3] - 2024-05-17
 
 ###
