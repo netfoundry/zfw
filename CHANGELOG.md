@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file. The format 
 ###
 
 - For ZET added ziti generated rule removal upon shutdown via zfw_tunnel_wrapper.  Wrapper will also remove any statically entered rules with tproxy_port > 0.
+- Refactored to expressly deny ssh to local interface interface if "diag ssh disable set to true" even if ebpf does not know its ip address yet.  Note this can be overridden 
+  if an explicit ssh rule exists"
 
 # [0.6.4] - 2024-05-21
 
