@@ -217,7 +217,8 @@ The above JSON sets up ens33 to be an internal interface (No outbound tracking) 
 with outbound tracking (Default for External Interface).  It also automatically adds runs the sudo zfw -P ens33 so ens33
 (default for ExternalInterfaces) which requires -N to add inbound rules to it and will ignore rules where it is not in the interface list.
 Keys "OutboundPassThroughTrack" and "PerInterfaceRules" are shown with their default values, you only need to add them if you
-want change the default operation for the interface type.
+want change the default operation for the interface type.  Note: if ebpf is enabled on an interface before it has ip address assigned a rule assigned
+with that interface name  and -N it will not show up until at least one diag command is toggled or ebpf is disabled and re-enabled on it via -X, --set-tc-filter.
 
 #### Single Interface config with ens33 facing lan local lan
 ```

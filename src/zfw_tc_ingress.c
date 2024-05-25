@@ -946,23 +946,25 @@ int bpf_sk_splice(struct __sk_buff *skb){
        return TC_ACT_OK;
     }
     /* allow ssh to local interface ip addresses */
-    if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
-        if((!local_ip4 || !local_ip4->count)){
-            return TC_ACT_OK;
-        }else{
-            uint8_t addresses = 0; 
-            if(local_ip4->count < MAX_ADDRESSES){
-                addresses = local_ip4->count;
+    if(!local_diag->ssh_disable){
+        if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
+            if((!local_ip4 || !local_ip4->count)){
+                return TC_ACT_OK;
             }else{
-                addresses = MAX_ADDRESSES;
-            }
-            for(int x = 0; x < addresses; x++){
-                if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
-                    if(local_diag->verbose && ((event.tstamp % 2) == 0)){
-                        event.proto = IPPROTO_TCP;
-                        send_event(&event);
+                uint8_t addresses = 0; 
+                if(local_ip4->count < MAX_ADDRESSES){
+                    addresses = local_ip4->count;
+                }else{
+                    addresses = MAX_ADDRESSES;
+                }
+                for(int x = 0; x < addresses; x++){
+                    if(tuple->ipv4.daddr == local_ip4->ipaddr[x]){
+                        if(local_diag->verbose && ((event.tstamp % 2) == 0)){
+                            event.proto = IPPROTO_TCP;
+                            send_event(&event);
+                        }
+                        return TC_ACT_OK;
                     }
-                    return TC_ACT_OK;
                 }
             }
         }
