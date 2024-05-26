@@ -366,6 +366,7 @@ service id              proto    origin              destination               m
 FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
 0000000000000000000000  tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
 FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.5/10             dpts=5000:10000           TUNMODE redirect:tun0            []
+0000000000000000000000  udp      0.0.0.0/0           100.64.0.2/32             dpts=53:53                TUNMODE redirect:ziti0           []
 ```
     
 - Example: List rules in firewall for a given prefix and protocol.  If source specific you must include the o 
