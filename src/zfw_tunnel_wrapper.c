@@ -688,7 +688,7 @@ __u16 len2u16(char *len)
     if ((tmpint < 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Prefix Length: %s\n", len);
-        exit(1);
+        return 32;
     }
     __u16 u16int = (__u16)tmpint;
     return u16int;
