@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.7.0] - 2024-05-26
+
+###
+
+-Refactored to support add and removal of individual url based services.
+ Summary rules below will no longer be inserted and will be replaced with explicit host rules:
+ ```
+ (removed)
+ 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+ 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+ 
+ (example new dynamic rule)
+ 5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+ ```
+
 # [0.6.5] - 2024-05-24
 
 ###

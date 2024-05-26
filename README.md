@@ -102,21 +102,6 @@ sudo zfw -e ens33
 sudo systemctl restart ziti-wrapper.service 
 ```
 
-
-Verify running: (zfw-tunnel)
-```
-sudo zfw -L
-```
-If running:
-```
-Assuming you are using the default address range for ziti-edge-tunnel should see output like:
-
-service id              proto    origin              destination               mapping:                                                   interface list
-----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
-0000000000000000000000  tcp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535             TUNMODE redirect:tun0            []
-0000000000000000000000  udp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535             TUNMODE redirect:tun0            []
-```
-
 Verify running: (zfw-router)
 ```
 sudo zfw -L
@@ -127,7 +112,7 @@ Assuming no services configured yet:
 
 service id              proto    origin              destination               mapping:                                                   interface list
 ----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
-Rule Count: 0
+Rule Count: 0 / 250000
 prefix_tuple_count: 0 / 100000
 
 ```
@@ -380,7 +365,7 @@ service id              proto    origin              destination               m
 0000000000000000000000  tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
 FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
 0000000000000000000000  tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
-FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535              TUNMODE redirect:tun0            []
+FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.5/10             dpts=5000:10000           TUNMODE redirect:tun0            []
 ```
     
 - Example: List rules in firewall for a given prefix and protocol.  If source specific you must include the o 
