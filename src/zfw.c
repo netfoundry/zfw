@@ -2308,7 +2308,7 @@ static int process_events(void *ctx, void *data, size_t len)
             {
                 free(saddr);
             }
-            if (saddr)
+            if (daddr)
             {
                 free(daddr);
             }
@@ -2630,10 +2630,18 @@ void range_delete_key(struct port_extension_key key)
     {
         char *saddr = nitoa(ntohl(key.src_ip));
         char *daddr = nitoa(ntohl(key.dst_ip));
-        printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
-          key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
-        free(saddr);
-        free(daddr);
+        if (saddr && daddr){
+            printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
+            key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
+        }
+        if (saddr)
+        {
+            free(saddr);
+        }
+        if (daddr)
+        {
+            free(daddr);
+        }
     }
     close(fd);
 }

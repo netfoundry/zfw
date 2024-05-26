@@ -7,16 +7,24 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
--Refactored to support add and removal of individual url based services.
- Summary rules below will no longer be inserted and will be replaced with explicit host rules:
+- Fixed potential memory leak in zfw.c ringbuff monitoring
+- Refactored to support add and removal of individual url based services.
+  Summary rules below will no longer be inserted and will be replaced with explicit host rules:
+  ```
+  (removed)
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  
+  (example new dynamic rule)
+  5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
  ```
- (removed)
- 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
- 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
- 
- (example new dynamic rule)
- 5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+ A rule will also be entered for the ziti resolver ip upon the first configured hostname based service i.e.
  ```
+ 0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
+
+ This entry will remain unless ziti-edge-tunnel is stopped and will again be reentered upon reading the first hostname based service entry
+ ```
+
 
 # [0.6.5] - 2024-05-24
 

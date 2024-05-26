@@ -112,6 +112,9 @@ void map_delete_key(char *service_id);
 void route_flush();
 void process_rules();
 bool in_service_set(__u16 tproxy_port, unsigned char protocol, char *service_id);
+bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
+ uint16_t low_port, uint16_t high_port, uint8_t protocol);
+uint32_t get_resolver_ip(char *ziti_cidr);
 int process_bind(json_object *jobj, char *action);
 int process_routes(char *service_id);
 void if_list_ext_delete_key(struct port_extension_key key);
@@ -310,6 +313,78 @@ void process_service_updates(char * service_id)
     close(fd);
 }
 
+bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
+ uint16_t low_port, uint16_t high_port, uint8_t protocol)
+{
+    if (range_fd == -1)
+    {
+        open_range_map();
+    }
+    union bpf_attr map;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
+    struct tproxy_key current_key;
+    struct tproxy_tuple orule;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tproxy_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return false;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    int ret = 0;
+    int rule_count = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tproxy_key *)map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if (!lookup)
+        {
+            struct port_extension_key port_ext_key = {0};
+            for(int x = 0; x < orule.index_len; x++){
+                struct port_extension_key port_ext_key = {0};
+                port_ext_key.dst_ip = current_key.dst_ip;
+                port_ext_key.src_ip = current_key.src_ip;
+                port_ext_key.low_port = orule.index_table[x];
+                port_ext_key.dprefix_len = current_key.dprefix_len;
+                port_ext_key.sprefix_len = current_key.sprefix_len;
+                port_ext_key.protocol = current_key.protocol,
+                port_ext_key.pad = 0;
+                range_map.key = (uint64_t)&port_ext_key;
+                struct range_mapping range_ports = {0};
+                range_map.value = (uint64_t)&range_ports;
+                range_map.map_fd = range_fd;
+                range_map.flags = BPF_ANY;
+                int range_result = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+                if(!range_result){
+                    if((ntohl(current_key.dst_ip) == dst_ip) && (current_key.src_ip == src_ip) && (current_key.protocol == protocol) &&
+                    (current_key.dprefix_len == dplen) && (current_key.sprefix_len == splen) && (ntohs(port_ext_key.low_port) == low_port) &&
+                    (ntohs(range_ports.high_port) == high_port)){
+                        close(fd);
+                        return true;
+                    }
+                }
+            }
+        }
+        map.key = (uint64_t)&current_key;
+    }
+    close(fd);
+    return false;
+}
+
 void process_rules()
 {
     if (range_fd == -1)
@@ -426,10 +501,16 @@ void range_delete_key(struct port_extension_key key)
     {
         char *saddr = nitoa(ntohl(key.src_ip));
         char *daddr = nitoa(ntohl(key.dst_ip));
-        printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
-          key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
-        free(saddr);
-        free(daddr);
+        if(saddr && daddr){
+            printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
+            key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
+        }
+        if(saddr){
+            free(saddr);
+        }
+        if(daddr){
+            free(daddr);
+        }
     }
     close(fd);
 }
@@ -989,6 +1070,25 @@ int process_bind(json_object *jobj, char *action)
     return 0;
 }
 
+ uint32_t get_resolver_ip(char *ziti_cidr){
+    uint32_t cidr[4];
+        int bits;
+        int ret = sscanf(ziti_cidr, "%d.%d.%d.%d", &cidr[0], &cidr[1], &cidr[2], &cidr[3]);
+        if (ret != 4) {
+            printf(" %s Unable to determine ziti_dns resolver address: Bad CIDR FORMAT\n", ziti_cidr);
+            return 0;
+        }
+
+        uint32_t address_bytes = 0;
+        for (int i = 0; i < 4; i++) {
+            address_bytes <<= 8U;
+            address_bytes |= (cidr[i] & 0xFFU);
+        }
+        uint32_t ziti_dns_resolver_ip = 0;
+        ziti_dns_resolver_ip = address_bytes + 2;
+        return ziti_dns_resolver_ip;
+}
+
 int process_dial(json_object *jobj, char *action){
     struct json_object *service_id_obj = json_object_object_get(jobj, "Id");
     char service_id[strlen(json_object_get_string(service_id_obj)) + 1];
@@ -1030,12 +1130,25 @@ int process_dial(json_object *jobj, char *action){
                                             sprintf(lowport,"%d", json_object_get_int(range_low_obj));
                                             sprintf(highport,"%d", json_object_get_int(range_high_obj));
                                             struct json_object *host_obj = json_object_object_get(address_obj, "IsHost");
-                                            if(host_obj){
+                                            if(host_obj){  
                                                 bool is_host = json_object_get_boolean(host_obj);
                                                 char ip[16];
                                                 char mask[10];
                                                 if(is_host)
                                                 {
+                                                    uint32_t resolver = get_resolver_ip(tunip_string);
+                                                    if(!rule_exists(resolver, 32, 0, 0, 53, 53, IPPROTO_UDP)){
+                                                        if(resolver){
+                                                            char *resolver_ip = nitoa(resolver);
+                                                            if(resolver_ip){
+                                                                zfw_update(resolver_ip, "32", "53", "53", "udp", "0000000000000000000000",action);
+                                                                free(resolver_ip);
+                                                                printf("-----------------Resolver Rule Entered -------------------\n");
+                                                            }
+                                                        }
+                                                    }else{
+                                                        printf("-----------------Resolver Rule Exists -------------------\n");
+                                                    }
                                                     struct json_object *hostname_obj = json_object_object_get(address_obj, "HostName");
                                                     printf("\n\nHost intercept: Skipping ebpf\n");       
                                                     if(hostname_obj){
