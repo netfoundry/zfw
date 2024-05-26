@@ -1313,6 +1313,25 @@ int run(){
     }   
     while(true)
     {
+        if(tun_fd == -1){
+            open_tun_map();
+        }
+        if(!strcmp(tunip_string,"")){
+            uint32_t key = 0;
+            struct ifindex_tun o_tunif;
+            tun_map.key = (uint64_t)&key;
+            tun_map.value = (uint64_t)&o_tunif;
+            tun_map.map_fd = tun_fd;
+            int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tun_map, sizeof(tun_map));
+            if (!lookup)
+            {   
+                if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
+                    sprintf(tunip_string, "%s" , o_tunif.cidr);
+                    sprintf(tunip_mask_string, "%s", o_tunif.mask);
+                    tun_ifname = o_tunif.ifname;
+                }
+            }
+        }
         memset(&event_buffer, 0, EVENT_BUFFER_SIZE);
         char ch[1];
         int count = 0;
@@ -1345,23 +1364,6 @@ int run(){
                     struct json_object *status_obj = json_object_object_get(event_jobj, "Status");
                     
                     if(status_obj){
-                        if(tun_fd == -1){
-                            open_tun_map();
-                        }
-                        uint32_t key = 0;
-                        struct ifindex_tun o_tunif;
-                        tun_map.key = (uint64_t)&key;
-                        tun_map.value = (uint64_t)&o_tunif;
-                        tun_map.map_fd = tun_fd;
-                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tun_map, sizeof(tun_map));
-                        if (!lookup)
-                        {   
-                            if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
-                                sprintf(tunip_string, "%s" , o_tunif.cidr);
-                                sprintf(tunip_mask_string, "%s", o_tunif.mask);
-                                tun_ifname = o_tunif.ifname;
-                            }
-                        }
                         struct json_object *identities_obj = json_object_object_get(status_obj, "Identities");
                         if(identities_obj){
                             int identities_len = json_object_array_length(identities_obj);
