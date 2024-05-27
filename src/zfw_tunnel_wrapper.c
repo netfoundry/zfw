@@ -90,6 +90,7 @@ char tunip_string[16]="";
 char tunip_mask_string[10]="";
 char *tun_ifname;
 bool transparent;
+bool interface_registered = false;
 union bpf_attr transp_map;
 int transp_fd = -1;
 union bpf_attr tun_map;
@@ -111,6 +112,7 @@ void INThandler(int sig);
 void map_delete_key(char *service_id);
 void route_flush();
 void process_rules();
+bool check_diag();
 bool in_service_set(__u16 tproxy_port, unsigned char protocol, char *service_id);
 bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
  uint16_t low_port, uint16_t high_port, uint8_t protocol);
@@ -945,7 +947,6 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
         return;
     }
     pid_t pid;
-    //("%s, %s\n", action ,rules_temp->parmList[3]);
     char *const parmList[17] = {"/usr/sbin/zfw", action, "-c", ip, "-m", mask, "-l",
      lowport, "-h", highport, "-t", tproxy_port, "-p", protocol, "-s", service_id, NULL};
     if ((pid = fork()) == -1){
@@ -961,6 +962,26 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
             }
         }
     }
+}
+
+bool check_diag(){
+    pid_t pid;
+    char *const parmList[4] = {"/usr/sbin/zfw", "-L", "-E", NULL};
+    if ((pid = fork()) == -1){
+        perror("fork error: can't spawn bind");
+    }else if (pid == 0) {
+       execv("/usr/sbin/zfw", parmList);
+       printf("execv error: unknown error binding\n");
+    }else{
+        int status =0;
+        if(!(waitpid(pid, &status, 0) > 0)){
+            if(WIFEXITED(status) && !WEXITSTATUS(status)){
+                printf("Diag Interface List Failed!");
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 int process_bind(json_object *jobj, char *action)
@@ -1218,6 +1239,9 @@ int process_dial(json_object *jobj, char *action){
 }
 
 void enumerate_service(struct json_object *services_obj, char *action){
+    if(!interface_registered){
+        interface_registered = check_diag();
+    }
     int services_obj_len = json_object_array_length(services_obj);
     for(int s = 0; s < services_obj_len; s++){
         struct json_object *service_obj = json_object_array_get_idx(services_obj, s);
@@ -1317,6 +1341,7 @@ int run(){
             open_tun_map();
         }
         if(!strcmp(tunip_string,"")){
+            printf("registering ziti dns cidr block\n");
             uint32_t key = 0;
             struct ifindex_tun o_tunif;
             tun_map.key = (uint64_t)&key;

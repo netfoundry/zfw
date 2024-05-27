@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
+- Fixed issue found with Ubuntu 24.04 on Raspberry Pi where the ebpf interface was not
+  discovering its IP address due to some timing issue at boot.  Added diag check when adding a service for
+  the first time via zfw_tunnel_wrapper.c to ensure IP is up when ebpf enumerates the interface.  
 - Fixed potential memory leak in zfw.c ringbuff monitoring
 - Refactored to support add and removal of individual url based services.
   Summary rules below will no longer be inserted and will be replaced with explicit host rules:
