@@ -282,7 +282,7 @@ sudo reboot
   0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
   0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
 
-  IMPORTANT: These entries will remain until zfw is restarted or they are manually removed via cli and will not be removed by ziti service deletion.  **It is also highly recommended to only specify individual ports for wild services as the low port is the key for rule entry since all rules will be mapped to the ziti cidr and new port range with the same low port number will overwrite a previous entry if they have differing high port values.  If the high port is lower for example than a previous entry from another service it will reduce the accepted FW range for all wild car services.   
+  IMPORTANT: These entries will remain until zfw is restarted or they are manually removed via cli and will not be removed by ziti service deletion.  It is also highly recommended to only specify individual ports (or define consistent port ranges if the same low port number is used) for wild card services as the low port is the key for rule entry since all rules will be mapped to the ziti cidr and new port range with the same low port number will overwrite a previous entry if they have differing high port values.  If the high port is lower for example than a previous entry from another service it will reduce the accepted FW range for all wild car services.   
 
 ## Ebpf Map User Space Management
 ---
