@@ -260,6 +260,30 @@ After updating reboot the system
 sudo reboot
 ```
 
+### URL based services
+  Summary rules below will no longer be inserted and will be replaced with explicit host rules:
+  ```
+  (removed)
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  
+  (example new dynamic rule)
+  5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  ```
+  A rule will also be entered for the ziti resolver ip upon the first configured hostname based service i.e.
+  ```
+  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
+  
+  This entry will remain unless ziti-edge-tunnel is stopped and will again be reentered upon reading the first hostname based service entry
+  ```
+
+  If wild card hostnames are used i.e. *.test.ziti then zfw will enter summary rules for the entire ziti DNS range for the specific ports defined for the service i.e.
+  ```
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+
+  IMPORTANT: These entries will remain until zfw is restarted or they are manually removed via cli and will not be removed by ziti service deletion.  **It is also highly recommended to only specify individual ports for wild services as the low port is the key for rule entry since all rules will be mapped to the ziti cidr and new port range with the same low port number will overwrite a previous entry if they have differing high port values.  If the high port is lower for example than a previous entry from another service it will reduce the accepted FW range for all wild car services.   
+
 ## Ebpf Map User Space Management
 ---
 ### User space manual configuration
