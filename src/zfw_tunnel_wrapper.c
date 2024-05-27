@@ -88,6 +88,7 @@ const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 int ctrl_socket, event_socket;
 char tunip_string[16]="";
 char tunip_mask_string[10]="";
+struct in_addr tun_cidr = {0};
 char *tun_ifname;
 bool transparent;
 bool interface_registered = false;
@@ -122,6 +123,19 @@ int process_routes(char *service_id);
 void if_list_ext_delete_key(struct port_extension_key key);
 void range_delete_key(struct port_extension_key key);
 void map_delete(struct tproxy_key *key, struct port_extension_key *port_ext_key);
+
+unsigned short port2s(char *port)
+{
+    char *endPtr;
+    int32_t tmpint = strtol(port, &endPtr, 10);
+    if ((tmpint < 0) || (tmpint > 65535) || (!(*(endPtr) == '\0')))
+    {
+        printf("Invalid Port: %s\n", port);
+        close_maps(1);
+    }
+    unsigned short usint = (unsigned short)tmpint;
+    return usint;
+}
 
 /*convert integer ip to dotted decimal string*/
 char *nitoa(uint32_t address)
@@ -1175,24 +1189,39 @@ int process_dial(json_object *jobj, char *action){
                                                     if(hostname_obj){
                                                         char hostname[strlen(json_object_get_string(address_obj)) + 1];
                                                         sprintf(hostname, "%s", json_object_get_string(hostname_obj));
-                                                        struct addrinfo hints_1, *res_1;
-                                                        memset(&hints_1, '\0', sizeof(hints_1));
+                                                        if(strncmp(hostname,"*.", 2)){
+                                                            struct addrinfo hints_1, *res_1;
+                                                            memset(&hints_1, '\0', sizeof(hints_1));
 
-                                                        int err = getaddrinfo( hostname, lowport, &hints_1, &res_1);
-                                                        if(err){
-                                                            printf("Unable to resolve: %s\n", hostname);
-                                                            continue;
-                                                        }
-                                                    
-                                                        inet_ntop(AF_INET, &res_1->ai_addr->sa_data[2], ip, sizeof(ip));
-                                                        printf("Hostname=%s\n", hostname);
-                                                        printf ("Resolved_IP=%s\n", ip);
-                                                        printf("Protocol=%s\n", protocol);
-                                                        printf("Low=%s\n", lowport); 
-                                                        printf("High=%s\n\n", highport);
+                                                            int err = getaddrinfo( hostname, lowport, &hints_1, &res_1);
+                                                            if(err){
+                                                                printf("Unable to resolve: %s\n", hostname);
+                                                                continue;
+                                                            }
                                                         
-                                                        if(strlen(ip) > 7 && strlen(ip) < 16){
-                                                            zfw_update(ip, "32", lowport, highport, protocol, service_id,action); 
+                                                            inet_ntop(AF_INET, &res_1->ai_addr->sa_data[2], ip, sizeof(ip));
+                                                            printf("Hostname=%s\n", hostname);
+                                                            printf ("Resolved_IP=%s\n", ip);
+                                                            printf("Protocol=%s\n", protocol);
+                                                            printf("Low=%s\n", lowport); 
+                                                            printf("High=%s\n\n", highport);
+                                                            
+                                                            if(strlen(ip) > 7 && strlen(ip) < 16){
+                                                                zfw_update(ip, "32", lowport, highport, protocol, service_id,action); 
+                                                            }
+                                                        }else{
+                                                            printf("Wild Card Hostname=%s\n", hostname);
+                                                            printf("Protocol=%s\n", protocol);
+                                                            printf("Low=%s\n", lowport); 
+                                                            printf("High=%s\n\n", highport);
+                                                            if(tun_cidr.s_addr){
+                                                                if(!rule_exists(ntohl(tun_cidr.s_addr), len2u16(tunip_mask_string), 0, 0, port2s(lowport),
+                                                                port2s(highport), strcmp("udp",protocol) ? IPPROTO_TCP : IPPROTO_UDP)){
+                                                                    zfw_update(tunip_string, tunip_mask_string, lowport, highport, protocol, "0000000000000000000000",action); 
+                                                                }else{
+                                                                    printf("SKIPPING RULE: Wild Card Rule Already Exists\n");
+                                                                }
+                                                            }
                                                         }
                                                     } 
                                                 }
@@ -1353,6 +1382,9 @@ int run(){
                 if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
                     sprintf(tunip_string, "%s" , o_tunif.cidr);
                     sprintf(tunip_mask_string, "%s", o_tunif.mask);
+                    if (!inet_aton(tunip_string, &tun_cidr)){
+                        printf("Invalid ziti tunnel IP\n");
+                    }
                     tun_ifname = o_tunif.ifname;
                 }
             }
