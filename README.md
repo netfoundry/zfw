@@ -102,21 +102,6 @@ sudo zfw -e ens33
 sudo systemctl restart ziti-wrapper.service 
 ```
 
-
-Verify running: (zfw-tunnel)
-```
-sudo zfw -L
-```
-If running:
-```
-Assuming you are using the default address range for ziti-edge-tunnel should see output like:
-
-service id              proto    origin              destination               mapping:                                                   interface list
-----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
-0000000000000000000000  tcp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535             TUNMODE redirect:tun0            []
-0000000000000000000000  udp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535             TUNMODE redirect:tun0            []
-```
-
 Verify running: (zfw-router)
 ```
 sudo zfw -L
@@ -127,7 +112,7 @@ Assuming no services configured yet:
 
 service id              proto    origin              destination               mapping:                                                   interface list
 ----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
-Rule Count: 0
+Rule Count: 0 / 250000
 prefix_tuple_count: 0 / 100000
 
 ```
@@ -275,6 +260,30 @@ After updating reboot the system
 sudo reboot
 ```
 
+### URL based services
+  Summary rules below will no longer be inserted and will be replaced with explicit host rules:
+  ```
+  (removed)
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  
+  (example new dynamic rule)
+  5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  ```
+  A rule will also be entered for the ziti resolver ip upon the first configured hostname based service i.e.
+  ```
+  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
+  
+  This entry will remain unless ziti-edge-tunnel is stopped and will again be reentered upon reading the first hostname based service entry
+  ```
+
+  If wild card hostnames are used i.e. *.test.ziti then zfw will enter summary rules for the entire ziti DNS range for the specific ports defined for the service i.e.
+  ```
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+
+  IMPORTANT: These entries will remain until as long as there is at least one wildcard in a service using the port/port range via cli and will not be removed by ziti service deletion. It is recommended to use single ports with wild card since the low port acts as a key and thus the first service that gets entered will dictate the range for the ports and there is only one prefix.  
+
 ## Ebpf Map User Space Management
 ---
 ### User space manual configuration
@@ -380,7 +389,8 @@ service id              proto    origin              destination               m
 0000000000000000000000  tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
 FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
 0000000000000000000000  tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
-FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.0/10             dpts=1:65535              TUNMODE redirect:tun0            []
+FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.5/10             dpts=5000:10000           TUNMODE redirect:tun0            []
+0000000000000000000000  udp      0.0.0.0/0           100.64.0.2/32             dpts=53:53                TUNMODE redirect:ziti0           []
 ```
     
 - Example: List rules in firewall for a given prefix and protocol.  If source specific you must include the o 

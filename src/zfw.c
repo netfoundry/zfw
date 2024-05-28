@@ -163,6 +163,7 @@ const char *ddos_dport_map_path = "/sys/fs/bpf/tc/globals/ddos_dport_map";
 const char *syn_count_map_path = "/sys/fs/bpf/tc/globals/syn_count_map";
 const char *tp_ext_map_path = "/sys/fs/bpf/tc/globals/tproxy_extension_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
+const char *wildcard_port_map_path = "/sys/fs/bpf/tc/globals/wildcard_port_map";
 const char *range_map_path = "/sys/fs/bpf/tc/globals/range_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
@@ -181,7 +182,7 @@ char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.6.5";
+const char *argp_program_version = "0.7.0";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -496,10 +497,11 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[17] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[18] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
-                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path, tp_ext_map_path, if_list_ext_map_path, range_map_path};
-    for (int map_count = 0; map_count < 17; map_count++)
+                            transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
+                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path};
+    for (int map_count = 0; map_count < 18; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -2308,7 +2310,7 @@ static int process_events(void *ctx, void *data, size_t len)
             {
                 free(saddr);
             }
-            if (saddr)
+            if (daddr)
             {
                 free(daddr);
             }
@@ -2630,10 +2632,18 @@ void range_delete_key(struct port_extension_key key)
     {
         char *saddr = nitoa(ntohl(key.src_ip));
         char *daddr = nitoa(ntohl(key.dst_ip));
-        printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
-          key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
-        free(saddr);
-        free(daddr);
+        if (saddr && daddr){
+            printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
+            key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
+        }
+        if (saddr)
+        {
+            free(saddr);
+        }
+        if (daddr)
+        {
+            free(daddr);
+        }
     }
     close(fd);
 }

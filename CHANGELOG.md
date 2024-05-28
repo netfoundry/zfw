@@ -3,6 +3,40 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.7.0] - 2024-05-26
+
+###
+
+- Fixed issue found with Ubuntu 24.04 on Raspberry Pi where the ebpf interface was not
+  discovering its IP address due to some timing issue at boot.  Added diag check when adding a service for
+  the first time via zfw_tunnel_wrapper.c to ensure IP is up when ebpf enumerates the interface.  
+- Fixed potential memory leak in zfw.c ringbuff monitoring
+- Refactored to support add and removal of individual url based services.
+  Summary rules below will no longer be inserted and will be replaced with explicit host rules:
+  ```
+  (removed)
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  
+  (example new dynamic rule)
+  5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  ```
+  A rule will also be entered for the ziti resolver ip upon the first configured hostname based service i.e.
+  ```
+  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
+
+  This entry will remain unless ziti-edge-tunnel is stopped and will again be reentered upon reading the first hostname based service entry
+  ```
+
+  If wild card hostnames are used i.e. *.test.ziti then zfw will enter summary rules for the entire ziti DNS range for the specific ports defined for the service i.e.
+  ```
+  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+
+  IMPORTANT: These entries will remain until as long as there is at least one wildcard in a service using the port/port range via cli and will not be removed by ziti service deletion. It is recommended to use single ports with wild card since the low port acts as a key and thus the first service that gets entered will dictate the range for the ports and there is only one prefix. 
+  ```
+
+
 # [0.6.5] - 2024-05-24
 
 ###

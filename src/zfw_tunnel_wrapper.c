@@ -85,11 +85,14 @@ const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *range_map_path = "/sys/fs/bpf/tc/globals/range_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+const char *wildcard_port_map_path = "/sys/fs/bpf/tc/globals/wildcard_port_map";
 int ctrl_socket, event_socket;
 char tunip_string[16]="";
 char tunip_mask_string[10]="";
+struct in_addr tun_cidr = {0};
 char *tun_ifname;
 bool transparent;
+bool interface_registered = false;
 union bpf_attr transp_map;
 int transp_fd = -1;
 union bpf_attr tun_map;
@@ -98,23 +101,47 @@ union bpf_attr range_map;
 int range_fd = -1;
 union bpf_attr tp_ext_map;
 int tp_ext_fd = -1;
+union bpf_attr wild_map;
+int wild_fd = -1;
 typedef unsigned char byte;
+void process_service_updates(char *service_id);
 void close_maps(int code);
 void open_transp_map();
 void open_tun_map();
 void open_tproxy_ext_map();
 void open_range_map();
+void open_wild_map();
 void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action);
 void unbind_route_loopback(struct in_addr *address, unsigned short mask);
 void INThandler(int sig);
 void map_delete_key(char *service_id);
 void route_flush();
 void process_rules();
+bool check_diag();
+bool in_service_set(__u16 tproxy_port, unsigned char protocol, char *service_id);
+bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
+ uint16_t low_port, uint16_t high_port, uint8_t protocol);
+uint32_t get_resolver_ip(char *ziti_cidr);
 int process_bind(json_object *jobj, char *action);
 int process_routes(char *service_id);
 void if_list_ext_delete_key(struct port_extension_key key);
 void range_delete_key(struct port_extension_key key);
 void map_delete(struct tproxy_key *key, struct port_extension_key *port_ext_key);
+void delete_wild_entry(char *low_port, char *high_port,char *protocol);
+void add_wild_entry(char *low_port, char *high_port, char *protocol);
+
+unsigned short port2s(char *port)
+{
+    char *endPtr;
+    int32_t tmpint = strtol(port, &endPtr, 10);
+    if ((tmpint < 0) || (tmpint > 65535) || (!(*(endPtr) == '\0')))
+    {
+        printf("Invalid Port: %s\n", port);
+        close_maps(1);
+    }
+    unsigned short usint = (unsigned short)tmpint;
+    return usint;
+}
 
 /*convert integer ip to dotted decimal string*/
 char *nitoa(uint32_t address)
@@ -127,6 +154,12 @@ char *nitoa(uint32_t address)
     sprintf(ipaddr, "%d.%d.%d.%d", b0, b1, b2, b3);
     return ipaddr;
 }
+
+struct wildcard_port_key {
+    __u16 low_port;
+    __u8 protocol;
+    __u8 pad;
+};
 
 struct tproxy_extension_mapping {
     char service_id[23];
@@ -189,6 +222,9 @@ void close_maps(int code){
     if (range_fd != -1){
         close(range_fd);
     }
+    if (wild_fd != -1){
+        close(wild_fd);
+    }
     exit(code);
 }
 
@@ -236,7 +272,7 @@ int process_routes(char *service_id){
     return 0;
 }
 
-void process_rules()
+void process_service_updates(char * service_id)
 {
     if (range_fd == -1)
     {
@@ -293,8 +329,149 @@ void process_rules()
                 range_map.flags = BPF_ANY;
                 int range_result = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
                 if(!range_result){
-                    printf("high_port=%u\n",ntohs(range_ports.high_port));
-                    printf("tproxy_port=%u\n",ntohs(range_ports.tproxy_port));
+                    if(in_service_set(range_ports.tproxy_port, port_ext_key.protocol, service_id)){
+                        map_delete(&current_key, &port_ext_key);
+                    }
+                }
+            }
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        map.key = (uint64_t)&current_key;
+    }
+    close(fd);
+}
+
+bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
+ uint16_t low_port, uint16_t high_port, uint8_t protocol)
+{
+    if (range_fd == -1)
+    {
+        open_range_map();
+    }
+    union bpf_attr map;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
+    struct tproxy_key current_key;
+    struct tproxy_tuple orule;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tproxy_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return false;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    int ret = 0;
+    int rule_count = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tproxy_key *)map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if (!lookup)
+        {
+            struct port_extension_key port_ext_key = {0};
+            for(int x = 0; x < orule.index_len; x++){
+                struct port_extension_key port_ext_key = {0};
+                port_ext_key.dst_ip = current_key.dst_ip;
+                port_ext_key.src_ip = current_key.src_ip;
+                port_ext_key.low_port = orule.index_table[x];
+                port_ext_key.dprefix_len = current_key.dprefix_len;
+                port_ext_key.sprefix_len = current_key.sprefix_len;
+                port_ext_key.protocol = current_key.protocol,
+                port_ext_key.pad = 0;
+                range_map.key = (uint64_t)&port_ext_key;
+                struct range_mapping range_ports = {0};
+                range_map.value = (uint64_t)&range_ports;
+                range_map.map_fd = range_fd;
+                range_map.flags = BPF_ANY;
+                int range_result = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+                if(!range_result){
+                    if((ntohl(current_key.dst_ip) == dst_ip) && (current_key.src_ip == src_ip) && (current_key.protocol == protocol) &&
+                    (current_key.dprefix_len == dplen) && (current_key.sprefix_len == splen) && (ntohs(port_ext_key.low_port) == low_port) &&
+                    (ntohs(range_ports.high_port) == high_port)){
+                        close(fd);
+                        return true;
+                    }
+                }
+            }
+        }
+        map.key = (uint64_t)&current_key;
+    }
+    close(fd);
+    return false;
+}
+
+void process_rules()
+{
+    if (range_fd == -1)
+    {
+        open_range_map();
+    }
+    union bpf_attr map;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
+    struct tproxy_key current_key;
+    struct tproxy_tuple orule;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tproxy_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    int ret = 0;
+    int rule_count = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tproxy_key *)map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if (!lookup)
+        {
+            struct port_extension_key port_ext_key = {0};
+            for(int x = 0; x < orule.index_len; x++){
+                struct port_extension_key port_ext_key = {0};
+                port_ext_key.dst_ip = current_key.dst_ip;
+                port_ext_key.src_ip = current_key.src_ip;
+                port_ext_key.low_port = orule.index_table[x];
+                port_ext_key.dprefix_len = current_key.dprefix_len;
+                port_ext_key.sprefix_len = current_key.sprefix_len;
+                port_ext_key.protocol = current_key.protocol,
+                port_ext_key.pad = 0;
+                range_map.key = (uint64_t)&port_ext_key;
+                struct range_mapping range_ports = {0};
+                range_map.value = (uint64_t)&range_ports;
+                range_map.map_fd = range_fd;
+                range_map.flags = BPF_ANY;
+                int range_result = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+                if(!range_result){
                     if(ntohs(range_ports.tproxy_port) > 0){
                         map_delete(&current_key, &port_ext_key);
                     }
@@ -353,10 +530,16 @@ void range_delete_key(struct port_extension_key key)
     {
         char *saddr = nitoa(ntohl(key.src_ip));
         char *daddr = nitoa(ntohl(key.dst_ip));
-        printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
-          key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
-        free(saddr);
-        free(daddr);
+        if(saddr && daddr){
+            printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
+            key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));
+        }
+        if(saddr){
+            free(saddr);
+        }
+        if(daddr){
+            free(daddr);
+        }
     }
     close(fd);
 }
@@ -536,6 +719,21 @@ void open_tproxy_ext_map()
     }
 }
 
+void open_wild_map()
+{
+    memset(&wild_map, 0, sizeof(wild_map));
+    /* set path name with location of map in filesystem */
+    wild_map.pathname = (uint64_t)wildcard_port_map_path;
+    wild_map.bpf_fd = 0;
+    wild_map.file_flags = 0;
+    /* make system call to get fd for map */
+    wild_fd = syscall(__NR_bpf, BPF_OBJ_GET, &wild_map, sizeof(wild_map));
+    if (wild_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
 void open_range_map()
 {
     memset(&range_map, 0, sizeof(range_map));
@@ -592,6 +790,7 @@ void map_delete_key(char *service_id)
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
     }
     // delete element with specified key
     map.map_fd = fd;
@@ -615,7 +814,7 @@ __u16 len2u16(char *len)
     if ((tmpint < 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Prefix Length: %s\n", len);
-        exit(1);
+        return 32;
     }
     __u16 u16int = (__u16)tmpint;
     return u16int;
@@ -727,7 +926,34 @@ void string2Byte(char* string, byte* bytes)
     }
 }
 
+bool in_service_set(__u16 tproxy_port, unsigned char protocol, char *service_id){
+    if (tp_ext_fd == -1)
+    {
+        open_tproxy_ext_map();
+    }
+    struct tproxy_extension_key key = {0};
+    struct tproxy_extension_mapping ext_value = {0};
+    tp_ext_map.key = (uint64_t)&key;
+    tp_ext_map.value = (uint64_t)&ext_value;
+    tp_ext_map.map_fd = tp_ext_fd;
+    tp_ext_map.flags = BPF_ANY;
+    key.protocol = protocol;
+    key.tproxy_port = tproxy_port;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
+    if (!lookup)
+    {
+        if(!strcmp(service_id, ext_value.service_id)){
+            return true;
+        }
+    }
+    return false;
+}
+
 void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action){
+    if (tp_ext_fd == -1)
+    {
+        open_tproxy_ext_map();
+    }
     __u16 random_port = 0;
     struct tproxy_extension_key key = {0};
     struct tproxy_extension_mapping ext_value = {0};
@@ -764,7 +990,6 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
         return;
     }
     pid_t pid;
-    //("%s, %s\n", action ,rules_temp->parmList[3]);
     char *const parmList[17] = {"/usr/sbin/zfw", action, "-c", ip, "-m", mask, "-l",
      lowport, "-h", highport, "-t", tproxy_port, "-p", protocol, "-s", service_id, NULL};
     if ((pid = fork()) == -1){
@@ -780,6 +1005,26 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
             }
         }
     }
+}
+
+bool check_diag(){
+    pid_t pid;
+    char *const parmList[4] = {"/usr/sbin/zfw", "-L", "-E", NULL};
+    if ((pid = fork()) == -1){
+        perror("fork error: can't spawn bind");
+    }else if (pid == 0) {
+       execv("/usr/sbin/zfw", parmList);
+       printf("execv error: unknown error binding\n");
+    }else{
+        int status =0;
+        if(!(waitpid(pid, &status, 0) > 0)){
+            if(WIFEXITED(status) && !WEXITSTATUS(status)){
+                printf("Diag Interface List Failed!");
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 int process_bind(json_object *jobj, char *action)
@@ -889,6 +1134,138 @@ int process_bind(json_object *jobj, char *action)
     return 0;
 }
 
+ uint32_t get_resolver_ip(char *ziti_cidr){
+    uint32_t cidr[4];
+        int bits;
+        int ret = sscanf(ziti_cidr, "%d.%d.%d.%d", &cidr[0], &cidr[1], &cidr[2], &cidr[3]);
+        if (ret != 4) {
+            printf(" %s Unable to determine ziti_dns resolver address: Bad CIDR FORMAT\n", ziti_cidr);
+            return 0;
+        }
+
+        uint32_t address_bytes = 0;
+        for (int i = 0; i < 4; i++) {
+            address_bytes <<= 8U;
+            address_bytes |= (cidr[i] & 0xFFU);
+        }
+        uint32_t ziti_dns_resolver_ip = 0;
+        ziti_dns_resolver_ip = address_bytes + 2;
+        return ziti_dns_resolver_ip;
+}
+
+void delete_wild_key(struct wildcard_port_key *key){
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)wildcard_port_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (!result)
+    {
+        printf("cleared if_list_ext_map entry\n");
+    }
+    close(fd);
+}
+
+void update_wild_key(struct wildcard_port_key *key, uint32_t count){
+    if (wild_fd == -1)
+    {
+        open_wild_map();
+    }
+    wild_map.key = (uint64_t)key;
+    wild_map.value = (uint64_t)&count;
+    wild_map.map_fd = wild_fd;
+    wild_map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &wild_map, sizeof(wild_map));
+    if (result)
+    {
+        printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
+    }
+    printf("updated to %u \n", count);
+}
+
+void add_wild_entry(char *low_port, char *high_port, char *protocol){
+    struct wildcard_port_key key = {0};
+    key.low_port = port2s(low_port);
+    printf("protocol=%s\n", protocol);
+    key.protocol = strcmp("udp", protocol) ? IPPROTO_TCP : IPPROTO_UDP;
+    key.pad = 0;
+    uint32_t wcount = 0;
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    /* set path name with location of map in filesystem */
+    map.pathname = (uint64_t)wildcard_port_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    /* make system call to get fd for map */
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&wcount;
+    /* make system call to lookup prefix/mask in map */
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if (lookup){
+        wcount = 1;
+        zfw_update(tunip_string, tunip_mask_string, low_port, high_port, protocol, "0000000000000000000000", "-I");
+    }else{
+        wcount += 1;
+    }
+    update_wild_key(&key, wcount); 
+    close(fd);
+}
+
+
+
+void delete_wild_entry(char *low_port, char *high_port, char *protocol){
+    struct wildcard_port_key key = {0};
+    key.low_port = port2s(low_port);
+    key.protocol = strcmp("udp", protocol) ? IPPROTO_TCP : IPPROTO_UDP;
+    key.pad = 0;
+    uint32_t wcount = 0;
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    /* set path name with location of map in filesystem */
+    map.pathname = (uint64_t)wildcard_port_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value  = (uint64_t)&wcount;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if (!lookup){
+        if(wcount > 1){
+            wcount -= 1;
+            update_wild_key(&key, wcount);
+        }else{
+            printf("DELTETING WILD CARD\n");
+            delete_wild_key(&key);
+            zfw_update(tunip_string, tunip_mask_string, low_port, high_port, protocol, "0000000000000000000000", "-D");
+        }
+    }else{
+        printf("ENTRY NOT FOUND\n");
+    }
+    close(fd);
+}
+
 int process_dial(json_object *jobj, char *action){
     struct json_object *service_id_obj = json_object_object_get(jobj, "Id");
     char service_id[strlen(json_object_get_string(service_id_obj)) + 1];
@@ -928,18 +1305,31 @@ int process_dial(json_object *jobj, char *action){
                                         sprintf(lowport,"%d", json_object_get_int(range_low_obj));
                                         sprintf(highport,"%d", json_object_get_int(range_high_obj));
                                         struct json_object *host_obj = json_object_object_get(address_obj, "IsHost");
-                                        if(host_obj){
+                                        if(host_obj){  
                                             bool is_host = json_object_get_boolean(host_obj);
                                             char ip[16];
                                             char mask[10];
                                             if(is_host)
                                             {
+                                                uint32_t resolver = get_resolver_ip(tunip_string);
+                                                if(!rule_exists(resolver, 32, 0, 0, 53, 53, IPPROTO_UDP)){
+                                                    if(resolver){
+                                                        char *resolver_ip = nitoa(resolver);
+                                                        if(resolver_ip){
+                                                            zfw_update(resolver_ip, "32", "53", "53", "udp", "0000000000000000000000",action);
+                                                            free(resolver_ip);
+                                                            printf("-----------------Resolver Rule Entered -------------------\n");
+                                                        }
+                                                    }
+                                                }else{
+                                                    printf("-----------------Resolver Rule Exists -------------------\n");
+                                                }
                                                 struct json_object *hostname_obj = json_object_object_get(address_obj, "HostName");
                                                 printf("\n\nHost intercept: Skipping ebpf\n");       
                                                 if(hostname_obj){
                                                     char hostname[strlen(json_object_get_string(address_obj)) + 1];
                                                     sprintf(hostname, "%s", json_object_get_string(hostname_obj));
-                                                    if(!strcmp("-I", action)){
+                                                    if(strncmp(hostname,"*.", 2)){
                                                         struct addrinfo hints_1, *res_1;
                                                         memset(&hints_1, '\0', sizeof(hints_1));
 
@@ -955,15 +1345,25 @@ int process_dial(json_object *jobj, char *action){
                                                         printf("Protocol=%s\n", protocol);
                                                         printf("Low=%s\n", lowport); 
                                                         printf("High=%s\n\n", highport);
-                                                        
-                                                        /*if(strlen(ip) > 7 && strlen(ip) < 16){
-                                                            zfw_update(ip, mask, lowport, highport, protocol, action); 
-                                                        }*/
+                                                        if(!strcmp("-I", action)){
+                                                            if(strlen(ip) > 7 && strlen(ip) < 16){
+                                                                zfw_update(ip, "32", lowport, highport, protocol, service_id,action); 
+                                                            }
+                                                        }
                                                     }else{
-                                                        printf("Hostname=%s\n", hostname);
-                                                        printf("Can't Resolve on Delete Service since resolver is removed\n\n");
+                                                        printf("Wild Card Hostname=%s\n", hostname);
+                                                        printf("Protocol=%s\n", protocol);
+                                                        printf("Low=%s\n", lowport); 
+                                                        printf("High=%s\n\n", highport);
+                                                        if(!strcmp("-I", action)){
+                                                            printf("ADDING ENTRY\n");
+                                                            add_wild_entry(lowport, highport, protocol); 
+                                                        }else{
+                                                            printf("REMOVING ENTRY\n");
+                                                            delete_wild_entry(lowport, highport, protocol);
+                                                        }
+                                                        
                                                     }
-                                            
                                                 } 
                                             }
                                             else{ 
@@ -988,8 +1388,10 @@ int process_dial(json_object *jobj, char *action){
                                                                 unbind_route(&tuncidr, len2u16(mask), tun_ifname);
                                                             }  
                                                         }
-                                                    } 
-                                                    zfw_update(ip, mask, lowport, highport, protocol, service_id, action);
+                                                    }
+                                                    if(!strcmp("-I", action)){
+                                                        zfw_update(ip, mask, lowport, highport, protocol, service_id, action);
+                                                    }
                                                 }  
                                             }
                                         }
@@ -1001,11 +1403,17 @@ int process_dial(json_object *jobj, char *action){
                 }
             }
         }
+        if(strcmp("-I", action)){
+            process_service_updates(service_id);
+        }
     }
     return 0;
 }
 
 void enumerate_service(struct json_object *services_obj, char *action){
+    if(!interface_registered){
+        interface_registered = check_diag();
+    }
     int services_obj_len = json_object_array_length(services_obj);
     for(int s = 0; s < services_obj_len; s++){
         struct json_object *service_obj = json_object_array_get_idx(services_obj, s);
@@ -1101,6 +1509,29 @@ int run(){
     }   
     while(true)
     {
+        if(tun_fd == -1){
+            open_tun_map();
+        }
+        if(!strcmp(tunip_string,"")){
+            printf("registering ziti dns cidr block\n");
+            uint32_t key = 0;
+            struct ifindex_tun o_tunif;
+            tun_map.key = (uint64_t)&key;
+            tun_map.value = (uint64_t)&o_tunif;
+            tun_map.map_fd = tun_fd;
+            int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tun_map, sizeof(tun_map));
+            if (!lookup)
+            {   
+                if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
+                    sprintf(tunip_string, "%s" , o_tunif.cidr);
+                    sprintf(tunip_mask_string, "%s", o_tunif.mask);
+                    if (!inet_aton(tunip_string, &tun_cidr)){
+                        printf("Invalid ziti tunnel IP\n");
+                    }
+                    tun_ifname = o_tunif.ifname;
+                }
+            }
+        }
         memset(&event_buffer, 0, EVENT_BUFFER_SIZE);
         char ch[1];
         int count = 0;
@@ -1133,25 +1564,6 @@ int run(){
                     struct json_object *status_obj = json_object_object_get(event_jobj, "Status");
                     
                     if(status_obj){
-                        if(tun_fd == -1){
-                            open_tun_map();
-                        }
-                        uint32_t key = 0;
-                        struct ifindex_tun o_tunif;
-                        tun_map.key = (uint64_t)&key;
-                        tun_map.value = (uint64_t)&o_tunif;
-                        tun_map.map_fd = tun_fd;
-                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tun_map, sizeof(tun_map));
-                        if (!lookup)
-                        {   
-                            if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
-                                sprintf(tunip_string, "%s" , o_tunif.cidr);
-                                sprintf(tunip_mask_string, "%s", o_tunif.mask);
-                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "tcp", "0000000000000000000000", "-I");
-                                zfw_update(tunip_string, tunip_mask_string, "1", "65535", "udp", "0000000000000000000000", "-I");
-                                tun_ifname = o_tunif.ifname;
-                            }
-                        }
                         struct json_object *identities_obj = json_object_object_get(status_obj, "Identities");
                         if(identities_obj){
                             int identities_len = json_object_array_length(identities_obj);
@@ -1189,7 +1601,8 @@ int run(){
                             if(ident_obj){
                                 struct json_object *ident_services_obj = json_object_object_get(ident_obj, "Services");
                                 if(ident_services_obj){
-                                    enumerate_service(ident_services_obj, "-I");
+                                    //enumerate_service(ident_services_obj, "-I");
+                                    printf("IGNORED\n");
                                 }
                             }
                         }
