@@ -104,6 +104,13 @@ int tp_ext_fd = -1;
 union bpf_attr wild_map;
 int wild_fd = -1;
 typedef unsigned char byte;
+
+struct wildcard_port_key {
+    __u16 low_port;
+    __u8 protocol;
+    __u8 pad;
+};
+
 void process_service_updates(char *service_id);
 void close_maps(int code);
 void open_transp_map();
@@ -129,6 +136,8 @@ void range_delete_key(struct port_extension_key key);
 void map_delete(struct tproxy_key *key, struct port_extension_key *port_ext_key);
 void delete_wild_entry(char *low_port, char *high_port,char *protocol);
 void add_wild_entry(char *low_port, char *high_port, char *protocol);
+void delete_wild_key(struct wildcard_port_key *key);
+void flush_wild();
 
 unsigned short port2s(char *port)
 {
@@ -154,12 +163,6 @@ char *nitoa(uint32_t address)
     sprintf(ipaddr, "%d.%d.%d.%d", b0, b1, b2, b3);
     return ipaddr;
 }
-
-struct wildcard_port_key {
-    __u16 low_port;
-    __u8 protocol;
-    __u8 pad;
-};
 
 struct tproxy_extension_mapping {
     char service_id[23];
@@ -199,6 +202,7 @@ struct ifindex_tun {
 void INThandler(int sig){
     signal(sig, SIG_IGN);
     route_flush();
+    flush_wild();
     process_rules();
     close_maps(1);
 }
@@ -234,7 +238,7 @@ void route_flush()
     struct transp_key *key = &init_key;
     struct transp_value o_routes;
     struct transp_key current_key;
-    transp_map.key = (uint64_t)&key;
+    transp_map.key = (uint64_t)key;
     transp_map.value = (uint64_t)&o_routes;
     transp_map.map_fd = transp_fd;
     transp_map.flags = BPF_ANY;
@@ -299,7 +303,6 @@ void process_service_updates(char * service_id)
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    int rule_count = 0;
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
@@ -371,7 +374,6 @@ bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    int rule_count = 0;
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
@@ -442,7 +444,6 @@ void process_rules()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    int rule_count = 0;
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
@@ -1153,6 +1154,7 @@ int process_bind(json_object *jobj, char *action)
         return ziti_dns_resolver_ip;
 }
 
+
 void delete_wild_key(struct wildcard_port_key *key){
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
@@ -1173,6 +1175,33 @@ void delete_wild_key(struct wildcard_port_key *key){
         printf("cleared if_list_ext_map entry\n");
     }
     close(fd);
+}
+
+void flush_wild(){
+    if(wild_fd == -1){
+        open_wild_map();
+    }
+    struct wildcard_port_key init_key = {0};
+    struct wildcard_port_key *key = &init_key;
+    uint32_t  wcount;
+    struct wildcard_port_key current_key;
+    wild_map.key = (uint64_t)key;
+    wild_map.value = (uint64_t)&wcount;
+    wild_map.map_fd = wild_fd;
+    wild_map.flags = BPF_ANY;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &wild_map, sizeof(wild_map));
+        if (ret == -1)
+        {
+            break;
+        }
+        wild_map.key = wild_map.next_key;
+        current_key = *(struct wildcard_port_key *)wild_map.key;
+        delete_wild_key(&current_key);
+    }
+
 }
 
 void update_wild_key(struct wildcard_port_key *key, uint32_t count){
