@@ -92,6 +92,14 @@ struct port_extension_key {
     __u8 pad;
 };
 
+struct wildcard_port_key {
+    __u16 low_port;
+    __u8 protocol;
+    __u8 pad;
+};
+
+
+
 struct range_mapping {
     __u16 high_port;
     __u16 tproxy_port;
@@ -301,6 +309,15 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } ifindex_ip_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct wildcard_port_key));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, MAX_TABLE_SIZE * 2);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} wildcard_port_map SEC(".maps");
 
 /*tun ifindex map*/
 struct {

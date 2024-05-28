@@ -24,7 +24,7 @@ All notable changes to this project will be documented in this file. The format 
   A rule will also be entered for the ziti resolver ip upon the first configured hostname based service i.e.
   ```
   0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
-  
+
   This entry will remain unless ziti-edge-tunnel is stopped and will again be reentered upon reading the first hostname based service entry
   ```
 
@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file. The format 
   0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
   0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
 
-  IMPORTANT: These entries will remain until zfw is restarted or they are manually removed via cli and will not be removed by ziti service deletion. 
+  IMPORTANT: These entries will remain until as long as there is at least one wildcard in a service using the port/port range via cli and will not be removed by ziti service deletion. It is recommended to use single ports with wild card since the low port acts as a key and thus the first service that gets entered will dictate the range for the ports and there is only one prefix. 
   ```
 
 

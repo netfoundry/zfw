@@ -85,6 +85,7 @@ const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *range_map_path = "/sys/fs/bpf/tc/globals/range_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+const char *wildcard_port_map_path = "/sys/fs/bpf/tc/globals/wildcard_port_map";
 int ctrl_socket, event_socket;
 char tunip_string[16]="";
 char tunip_mask_string[10]="";
@@ -100,6 +101,8 @@ union bpf_attr range_map;
 int range_fd = -1;
 union bpf_attr tp_ext_map;
 int tp_ext_fd = -1;
+union bpf_attr wild_map;
+int wild_fd = -1;
 typedef unsigned char byte;
 void process_service_updates(char *service_id);
 void close_maps(int code);
@@ -107,6 +110,7 @@ void open_transp_map();
 void open_tun_map();
 void open_tproxy_ext_map();
 void open_range_map();
+void open_wild_map();
 void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *protocol, char *service_id, char *action);
 void unbind_route_loopback(struct in_addr *address, unsigned short mask);
 void INThandler(int sig);
@@ -123,6 +127,8 @@ int process_routes(char *service_id);
 void if_list_ext_delete_key(struct port_extension_key key);
 void range_delete_key(struct port_extension_key key);
 void map_delete(struct tproxy_key *key, struct port_extension_key *port_ext_key);
+void delete_wild_entry(char *low_port, char *high_port,char *protocol);
+void add_wild_entry(char *low_port, char *high_port, char *protocol);
 
 unsigned short port2s(char *port)
 {
@@ -148,6 +154,12 @@ char *nitoa(uint32_t address)
     sprintf(ipaddr, "%d.%d.%d.%d", b0, b1, b2, b3);
     return ipaddr;
 }
+
+struct wildcard_port_key {
+    __u16 low_port;
+    __u8 protocol;
+    __u8 pad;
+};
 
 struct tproxy_extension_mapping {
     char service_id[23];
@@ -209,6 +221,9 @@ void close_maps(int code){
     }
     if (range_fd != -1){
         close(range_fd);
+    }
+    if (wild_fd != -1){
+        close(wild_fd);
     }
     exit(code);
 }
@@ -457,8 +472,6 @@ void process_rules()
                 range_map.flags = BPF_ANY;
                 int range_result = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
                 if(!range_result){
-                    printf("high_port=%u\n",ntohs(range_ports.high_port));
-                    printf("tproxy_port=%u\n",ntohs(range_ports.tproxy_port));
                     if(ntohs(range_ports.tproxy_port) > 0){
                         map_delete(&current_key, &port_ext_key);
                     }
@@ -706,6 +719,21 @@ void open_tproxy_ext_map()
     }
 }
 
+void open_wild_map()
+{
+    memset(&wild_map, 0, sizeof(wild_map));
+    /* set path name with location of map in filesystem */
+    wild_map.pathname = (uint64_t)wildcard_port_map_path;
+    wild_map.bpf_fd = 0;
+    wild_map.file_flags = 0;
+    /* make system call to get fd for map */
+    wild_fd = syscall(__NR_bpf, BPF_OBJ_GET, &wild_map, sizeof(wild_map));
+    if (wild_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
 void open_range_map()
 {
     memset(&range_map, 0, sizeof(range_map));
@@ -762,6 +790,7 @@ void map_delete_key(char *service_id)
     if (fd == -1)
     {
         printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
     }
     // delete element with specified key
     map.map_fd = fd;
@@ -1124,133 +1153,246 @@ int process_bind(json_object *jobj, char *action)
         return ziti_dns_resolver_ip;
 }
 
+void delete_wild_key(struct wildcard_port_key *key){
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)wildcard_port_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (!result)
+    {
+        printf("cleared if_list_ext_map entry\n");
+    }
+    close(fd);
+}
+
+void update_wild_key(struct wildcard_port_key *key, uint32_t count){
+    if (wild_fd == -1)
+    {
+        open_wild_map();
+    }
+    wild_map.key = (uint64_t)key;
+    wild_map.value = (uint64_t)&count;
+    wild_map.map_fd = wild_fd;
+    wild_map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &wild_map, sizeof(wild_map));
+    if (result)
+    {
+        printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
+    }
+    printf("updated to %u \n", count);
+}
+
+void add_wild_entry(char *low_port, char *high_port, char *protocol){
+    struct wildcard_port_key key = {0};
+    key.low_port = port2s(low_port);
+    printf("protocol=%s\n", protocol);
+    key.protocol = strcmp("udp", protocol) ? IPPROTO_TCP : IPPROTO_UDP;
+    key.pad = 0;
+    uint32_t wcount = 0;
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    /* set path name with location of map in filesystem */
+    map.pathname = (uint64_t)wildcard_port_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    /* make system call to get fd for map */
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&wcount;
+    /* make system call to lookup prefix/mask in map */
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if (lookup){
+        wcount = 1;
+        zfw_update(tunip_string, tunip_mask_string, low_port, high_port, protocol, "0000000000000000000000", "-I");
+    }else{
+        wcount += 1;
+    }
+    update_wild_key(&key, wcount); 
+    close(fd);
+}
+
+
+
+void delete_wild_entry(char *low_port, char *high_port, char *protocol){
+    struct wildcard_port_key key = {0};
+    key.low_port = port2s(low_port);
+    key.protocol = strcmp("udp", protocol) ? IPPROTO_TCP : IPPROTO_UDP;
+    key.pad = 0;
+    uint32_t wcount = 0;
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    /* set path name with location of map in filesystem */
+    map.pathname = (uint64_t)wildcard_port_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value  = (uint64_t)&wcount;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if (!lookup){
+        if(wcount > 1){
+            wcount -= 1;
+            update_wild_key(&key, wcount);
+        }else{
+            printf("DELTETING WILD CARD\n");
+            delete_wild_key(&key);
+            zfw_update(tunip_string, tunip_mask_string, low_port, high_port, protocol, "0000000000000000000000", "-D");
+        }
+    }else{
+        printf("ENTRY NOT FOUND\n");
+    }
+    close(fd);
+}
+
 int process_dial(json_object *jobj, char *action){
     struct json_object *service_id_obj = json_object_object_get(jobj, "Id");
     char service_id[strlen(json_object_get_string(service_id_obj)) + 1];
     sprintf(service_id, "%s", json_object_get_string(service_id_obj));
     struct json_object *addresses_obj = json_object_object_get(jobj, "Addresses");
-    if(!strcmp("-I", action))
+    if(addresses_obj)
     {
-        if(addresses_obj)
-        {
-            int addresses_obj_len = json_object_array_length(addresses_obj);
-            //printf("There are %d addresses\n", addresses_len);
-            struct json_object *ports_obj = json_object_object_get(jobj, "Ports");
-            if(ports_obj){
-                int ports_obj_len = json_object_array_length(ports_obj);
-                //printf("There are %d portRanges\n", portRanges_len);
-                struct json_object *protocols_obj = json_object_object_get(jobj, "Protocols");
-                if(protocols_obj){
-                    int protocols_obj_len = json_object_array_length(protocols_obj);
-                    //printf("There are %d protocols\n", protocols_len);
-                    int i;
-                    int j;
-                    int k;
-                    for(i=0; i < protocols_obj_len ; i++){
-                        struct json_object *protocol_obj = json_object_array_get_idx(protocols_obj, i);
-                        if(protocol_obj){
-                            for(j=0; j < addresses_obj_len ; j++){
-                                char protocol[4];
-                                sprintf(protocol, "%s", json_object_get_string(protocol_obj));
-                                struct json_object *address_obj = json_object_array_get_idx(addresses_obj, j);
-                                if(address_obj){
-                                    //printf("Add: %s\n",json_object_get_string(addressobj));
-                                    for(k=0; k < ports_obj_len ; k++){
-                                        struct json_object *port_obj = json_object_array_get_idx(ports_obj, k);
-                                        if(port_obj){
-                                            struct json_object *range_low_obj = json_object_object_get(port_obj, "Low");
-                                            struct json_object *range_high_obj = json_object_object_get(port_obj, "High");
-                                            char lowport[7];
-                                            char highport[7];
-                                            sprintf(lowport,"%d", json_object_get_int(range_low_obj));
-                                            sprintf(highport,"%d", json_object_get_int(range_high_obj));
-                                            struct json_object *host_obj = json_object_object_get(address_obj, "IsHost");
-                                            if(host_obj){  
-                                                bool is_host = json_object_get_boolean(host_obj);
-                                                char ip[16];
-                                                char mask[10];
-                                                if(is_host)
-                                                {
-                                                    uint32_t resolver = get_resolver_ip(tunip_string);
-                                                    if(!rule_exists(resolver, 32, 0, 0, 53, 53, IPPROTO_UDP)){
-                                                        if(resolver){
-                                                            char *resolver_ip = nitoa(resolver);
-                                                            if(resolver_ip){
-                                                                zfw_update(resolver_ip, "32", "53", "53", "udp", "0000000000000000000000",action);
-                                                                free(resolver_ip);
-                                                                printf("-----------------Resolver Rule Entered -------------------\n");
-                                                            }
+        int addresses_obj_len = json_object_array_length(addresses_obj);
+        //printf("There are %d addresses\n", addresses_len);
+        struct json_object *ports_obj = json_object_object_get(jobj, "Ports");
+        if(ports_obj){
+            int ports_obj_len = json_object_array_length(ports_obj);
+            //printf("There are %d portRanges\n", portRanges_len);
+            struct json_object *protocols_obj = json_object_object_get(jobj, "Protocols");
+            if(protocols_obj){
+                int protocols_obj_len = json_object_array_length(protocols_obj);
+                //printf("There are %d protocols\n", protocols_len);
+                int i;
+                int j;
+                int k;
+                for(i=0; i < protocols_obj_len ; i++){
+                    struct json_object *protocol_obj = json_object_array_get_idx(protocols_obj, i);
+                    if(protocol_obj){
+                        for(j=0; j < addresses_obj_len ; j++){
+                            char protocol[4];
+                            sprintf(protocol, "%s", json_object_get_string(protocol_obj));
+                            struct json_object *address_obj = json_object_array_get_idx(addresses_obj, j);
+                            if(address_obj){
+                                //printf("Add: %s\n",json_object_get_string(addressobj));
+                                for(k=0; k < ports_obj_len ; k++){
+                                    struct json_object *port_obj = json_object_array_get_idx(ports_obj, k);
+                                    if(port_obj){
+                                        struct json_object *range_low_obj = json_object_object_get(port_obj, "Low");
+                                        struct json_object *range_high_obj = json_object_object_get(port_obj, "High");
+                                        char lowport[7];
+                                        char highport[7];
+                                        sprintf(lowport,"%d", json_object_get_int(range_low_obj));
+                                        sprintf(highport,"%d", json_object_get_int(range_high_obj));
+                                        struct json_object *host_obj = json_object_object_get(address_obj, "IsHost");
+                                        if(host_obj){  
+                                            bool is_host = json_object_get_boolean(host_obj);
+                                            char ip[16];
+                                            char mask[10];
+                                            if(is_host)
+                                            {
+                                                uint32_t resolver = get_resolver_ip(tunip_string);
+                                                if(!rule_exists(resolver, 32, 0, 0, 53, 53, IPPROTO_UDP)){
+                                                    if(resolver){
+                                                        char *resolver_ip = nitoa(resolver);
+                                                        if(resolver_ip){
+                                                            zfw_update(resolver_ip, "32", "53", "53", "udp", "0000000000000000000000",action);
+                                                            free(resolver_ip);
+                                                            printf("-----------------Resolver Rule Entered -------------------\n");
                                                         }
-                                                    }else{
-                                                        printf("-----------------Resolver Rule Exists -------------------\n");
                                                     }
-                                                    struct json_object *hostname_obj = json_object_object_get(address_obj, "HostName");
-                                                    printf("\n\nHost intercept: Skipping ebpf\n");       
-                                                    if(hostname_obj){
-                                                        char hostname[strlen(json_object_get_string(address_obj)) + 1];
-                                                        sprintf(hostname, "%s", json_object_get_string(hostname_obj));
-                                                        if(strncmp(hostname,"*.", 2)){
-                                                            struct addrinfo hints_1, *res_1;
-                                                            memset(&hints_1, '\0', sizeof(hints_1));
+                                                }else{
+                                                    printf("-----------------Resolver Rule Exists -------------------\n");
+                                                }
+                                                struct json_object *hostname_obj = json_object_object_get(address_obj, "HostName");
+                                                printf("\n\nHost intercept: Skipping ebpf\n");       
+                                                if(hostname_obj){
+                                                    char hostname[strlen(json_object_get_string(address_obj)) + 1];
+                                                    sprintf(hostname, "%s", json_object_get_string(hostname_obj));
+                                                    if(strncmp(hostname,"*.", 2)){
+                                                        struct addrinfo hints_1, *res_1;
+                                                        memset(&hints_1, '\0', sizeof(hints_1));
 
-                                                            int err = getaddrinfo( hostname, lowport, &hints_1, &res_1);
-                                                            if(err){
-                                                                printf("Unable to resolve: %s\n", hostname);
-                                                                continue;
-                                                            }
-                                                        
-                                                            inet_ntop(AF_INET, &res_1->ai_addr->sa_data[2], ip, sizeof(ip));
-                                                            printf("Hostname=%s\n", hostname);
-                                                            printf ("Resolved_IP=%s\n", ip);
-                                                            printf("Protocol=%s\n", protocol);
-                                                            printf("Low=%s\n", lowport); 
-                                                            printf("High=%s\n\n", highport);
-                                                            
+                                                        int err = getaddrinfo( hostname, lowport, &hints_1, &res_1);
+                                                        if(err){
+                                                            printf("Unable to resolve: %s\n", hostname);
+                                                            continue;
+                                                        }
+                                                    
+                                                        inet_ntop(AF_INET, &res_1->ai_addr->sa_data[2], ip, sizeof(ip));
+                                                        printf("Hostname=%s\n", hostname);
+                                                        printf ("Resolved_IP=%s\n", ip);
+                                                        printf("Protocol=%s\n", protocol);
+                                                        printf("Low=%s\n", lowport); 
+                                                        printf("High=%s\n\n", highport);
+                                                        if(!strcmp("-I", action)){
                                                             if(strlen(ip) > 7 && strlen(ip) < 16){
                                                                 zfw_update(ip, "32", lowport, highport, protocol, service_id,action); 
                                                             }
-                                                        }else{
-                                                            printf("Wild Card Hostname=%s\n", hostname);
-                                                            printf("Protocol=%s\n", protocol);
-                                                            printf("Low=%s\n", lowport); 
-                                                            printf("High=%s\n\n", highport);
-                                                            if(tun_cidr.s_addr){
-                                                                if(!rule_exists(ntohl(tun_cidr.s_addr), len2u16(tunip_mask_string), 0, 0, port2s(lowport),
-                                                                port2s(highport), strcmp("udp",protocol) ? IPPROTO_TCP : IPPROTO_UDP)){
-                                                                    zfw_update(tunip_string, tunip_mask_string, lowport, highport, protocol, "0000000000000000000000",action); 
-                                                                }else{
-                                                                    printf("SKIPPING RULE: Wild Card Rule Already Exists\n");
-                                                                }
-                                                            }
                                                         }
-                                                    } 
-                                                }
-                                                else{ 
-                                                    struct json_object *ip_obj = json_object_object_get(address_obj, "IP");
-                                                    printf("\n\nIP intercept:\n");                   
-                                                    if(ip_obj)
-                                                    {           
-                                                        struct json_object *prefix_obj = json_object_object_get(address_obj, "Prefix");
-                                                        char ip[strlen(json_object_get_string(ip_obj) + 1)];
-                                                        sprintf(ip,"%s", json_object_get_string(ip_obj));
-                                                        int smask = sprintf(mask, "%d", json_object_get_int(prefix_obj));
-                                                        printf("Service_IP=%s\n", ip);
+                                                    }else{
+                                                        printf("Wild Card Hostname=%s\n", hostname);
                                                         printf("Protocol=%s\n", protocol);
                                                         printf("Low=%s\n", lowport); 
-                                                        printf("high=%s\n\n", highport);
-                                                        struct in_addr tuncidr;
-                                                        char *transp_mode = "TRANSPARENT_MODE";
-                                                        char *mode = getenv(transp_mode);
-                                                        if(mode){
-                                                            if(!strcmp(mode,"true")){
-                                                                if (inet_aton(ip, &tuncidr) && tun_ifname){
-                                                                    unbind_route(&tuncidr, len2u16(mask), tun_ifname);
-                                                                }  
-                                                            }
-                                                        } 
+                                                        printf("High=%s\n\n", highport);
+                                                        if(!strcmp("-I", action)){
+                                                            printf("ADDING ENTRY\n");
+                                                            add_wild_entry(lowport, highport, protocol); 
+                                                        }else{
+                                                            printf("REMOVING ENTRY\n");
+                                                            delete_wild_entry(lowport, highport, protocol);
+                                                        }
+                                                        
+                                                    }
+                                                } 
+                                            }
+                                            else{ 
+                                                struct json_object *ip_obj = json_object_object_get(address_obj, "IP");
+                                                printf("\n\nIP intercept:\n");                   
+                                                if(ip_obj)
+                                                {           
+                                                    struct json_object *prefix_obj = json_object_object_get(address_obj, "Prefix");
+                                                    char ip[strlen(json_object_get_string(ip_obj) + 1)];
+                                                    sprintf(ip,"%s", json_object_get_string(ip_obj));
+                                                    int smask = sprintf(mask, "%d", json_object_get_int(prefix_obj));
+                                                    printf("Service_IP=%s\n", ip);
+                                                    printf("Protocol=%s\n", protocol);
+                                                    printf("Low=%s\n", lowport); 
+                                                    printf("high=%s\n\n", highport);
+                                                    struct in_addr tuncidr;
+                                                    char *transp_mode = "TRANSPARENT_MODE";
+                                                    char *mode = getenv(transp_mode);
+                                                    if(mode){
+                                                        if(!strcmp(mode,"true")){
+                                                            if (inet_aton(ip, &tuncidr) && tun_ifname){
+                                                                unbind_route(&tuncidr, len2u16(mask), tun_ifname);
+                                                            }  
+                                                        }
+                                                    }
+                                                    if(!strcmp("-I", action)){
                                                         zfw_update(ip, mask, lowport, highport, protocol, service_id, action);
-                                                    }  
-                                                }
+                                                    }
+                                                }  
                                             }
                                         }
                                     }
@@ -1261,8 +1403,9 @@ int process_dial(json_object *jobj, char *action){
                 }
             }
         }
-    }else{
-        process_service_updates(service_id);
+        if(strcmp("-I", action)){
+            process_service_updates(service_id);
+        }
     }
     return 0;
 }
@@ -1458,7 +1601,8 @@ int run(){
                             if(ident_obj){
                                 struct json_object *ident_services_obj = json_object_object_get(ident_obj, "Services");
                                 if(ident_services_obj){
-                                    enumerate_service(ident_services_obj, "-I");
+                                    //enumerate_service(ident_services_obj, "-I");
+                                    printf("IGNORED\n");
                                 }
                             }
                         }
