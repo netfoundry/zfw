@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file. The format 
     bool verbose;
   };
   ```
+  - Fixed issue: incorrect setting in ziti-fw-init.service.  after=network.target should have been 
+    After=network.target
   
 # [0.7.1] - 2024-05-28
 
