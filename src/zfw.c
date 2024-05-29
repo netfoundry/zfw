@@ -535,26 +535,6 @@ int is_subset(__u32 network, __u32 netmask, __u32 prefix)
     }
 }
 
-/*function to get resolver ip from ziti0 DNS CIDR Range*/
-uint32_t get_resolver_ip(char *ziti_cidr){
-    uint32_t cidr[4];
-        int bits;
-        int ret = sscanf(ziti_cidr, "%d.%d.%d.%d", &cidr[0], &cidr[1], &cidr[2], &cidr[3]);
-        if (ret != 4) {
-            printf(" %s Unable to determine ziti_dns resolver address: Bad CIDR FORMAT\n", ziti_cidr);
-            return 0;
-        }
-
-        uint32_t address_bytes = 0;
-        for (int i = 0; i < 4; i++) {
-            address_bytes <<= 8U;
-            address_bytes |= (cidr[i] & 0xFFU);
-        }
-        uint32_t ziti_dns_resolver_ip = 0;
-        ziti_dns_resolver_ip = address_bytes + 2;
-        return htonl(ziti_dns_resolver_ip);
-}
-
 /* convert string port to unsigned short int */
 unsigned short port2s(char *port)
 {
@@ -1931,7 +1911,7 @@ bool interface_map()
                             change_detected = true;
                         }
                         free(tuncidr_string);
-                        o_iftun.resolver = get_resolver_ip(o_iftun.cidr);
+                        o_iftun.resolver = htonl(tun_net_integer + 2);
                     }
 
                     if (change_detected)
