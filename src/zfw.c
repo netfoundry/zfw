@@ -182,7 +182,7 @@ char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.7.1";
+const char *argp_program_version = "0.7.2";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -246,11 +246,11 @@ struct ifindex_ip4
 };
 
 /*value to ifindex_tun_map*/
-struct ifindex_tun
-{
+struct ifindex_tun {
     uint32_t index;
     char ifname[IF_NAMESIZE];
     char cidr[16];
+    uint32_t resolver;
     char mask[3];
     bool verbose;
 };
@@ -533,6 +533,26 @@ int is_subset(__u32 network, __u32 netmask, __u32 prefix)
     {
         return -1;
     }
+}
+
+/*function to get resolver ip from ziti0 DNS CIDR Range*/
+uint32_t get_resolver_ip(char *ziti_cidr){
+    uint32_t cidr[4];
+        int bits;
+        int ret = sscanf(ziti_cidr, "%d.%d.%d.%d", &cidr[0], &cidr[1], &cidr[2], &cidr[3]);
+        if (ret != 4) {
+            printf(" %s Unable to determine ziti_dns resolver address: Bad CIDR FORMAT\n", ziti_cidr);
+            return 0;
+        }
+
+        uint32_t address_bytes = 0;
+        for (int i = 0; i < 4; i++) {
+            address_bytes <<= 8U;
+            address_bytes |= (cidr[i] & 0xFFU);
+        }
+        uint32_t ziti_dns_resolver_ip = 0;
+        ziti_dns_resolver_ip = address_bytes + 2;
+        return htonl(ziti_dns_resolver_ip);
 }
 
 /* convert string port to unsigned short int */
@@ -964,10 +984,17 @@ bool set_tun_diag()
             {
                 return false;
             }
+            char *tun_resolver = nitoa(ntohl(o_tdiag.resolver));
             printf("%s: %d\n", o_tdiag.ifname, o_tdiag.index);
             printf("--------------------------\n");
             printf("%-24s:%d\n", "verbose", o_tdiag.verbose);
             printf("%-24s:%s\n", "cidr", o_tdiag.cidr);
+            if(tun_resolver){
+                printf("%-24s:%s\n", "resolver", tun_resolver);
+                free(tun_resolver);
+            }else{
+                printf("%-24s:%s\n", "resolver", "");
+            }
             printf("%-24s:%s\n", "mask", o_tdiag.mask);
             printf("--------------------------\n\n");
         }
@@ -1904,6 +1931,7 @@ bool interface_map()
                             change_detected = true;
                         }
                         free(tuncidr_string);
+                        o_iftun.resolver = get_resolver_ip(o_iftun.cidr);
                     }
 
                     if (change_detected)
