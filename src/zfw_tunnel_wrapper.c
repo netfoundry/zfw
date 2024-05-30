@@ -89,6 +89,7 @@ const char *wildcard_port_map_path = "/sys/fs/bpf/tc/globals/wildcard_port_map";
 int ctrl_socket, event_socket;
 char tunip_string[16]="";
 char tunip_mask_string[10]="";
+uint32_t tun_resolver_ip = 0;
 struct in_addr tun_cidr = {0};
 char *tun_ifname;
 bool transparent;
@@ -128,7 +129,6 @@ bool check_diag();
 bool in_service_set(__u16 tproxy_port, unsigned char protocol, char *service_id);
 bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
  uint16_t low_port, uint16_t high_port, uint8_t protocol);
-uint32_t get_resolver_ip(char *ziti_cidr);
 int process_bind(json_object *jobj, char *action);
 int process_routes(char *service_id);
 void if_list_ext_delete_key(struct port_extension_key key);
@@ -195,6 +195,7 @@ struct ifindex_tun {
     uint32_t index;
     char ifname[IFNAMSIZ];
     char cidr[16];
+    uint32_t resolver;
     char mask[3];
     bool verbose;
 };
@@ -1135,26 +1136,6 @@ int process_bind(json_object *jobj, char *action)
     return 0;
 }
 
- uint32_t get_resolver_ip(char *ziti_cidr){
-    uint32_t cidr[4];
-        int bits;
-        int ret = sscanf(ziti_cidr, "%d.%d.%d.%d", &cidr[0], &cidr[1], &cidr[2], &cidr[3]);
-        if (ret != 4) {
-            printf(" %s Unable to determine ziti_dns resolver address: Bad CIDR FORMAT\n", ziti_cidr);
-            return 0;
-        }
-
-        uint32_t address_bytes = 0;
-        for (int i = 0; i < 4; i++) {
-            address_bytes <<= 8U;
-            address_bytes |= (cidr[i] & 0xFFU);
-        }
-        uint32_t ziti_dns_resolver_ip = 0;
-        ziti_dns_resolver_ip = address_bytes + 2;
-        return ziti_dns_resolver_ip;
-}
-
-
 void delete_wild_key(struct wildcard_port_key *key){
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
@@ -1340,18 +1321,17 @@ int process_dial(json_object *jobj, char *action){
                                             char mask[10];
                                             if(is_host)
                                             {
-                                                uint32_t resolver = get_resolver_ip(tunip_string);
-                                                if(!rule_exists(resolver, 32, 0, 0, 53, 53, IPPROTO_UDP)){
-                                                    if(resolver){
-                                                        char *resolver_ip = nitoa(resolver);
+                                                if(tun_resolver_ip){
+                                                    if(!rule_exists(tun_resolver_ip, 32, 0, 0, 53, 53, IPPROTO_UDP)){
+                                                        char *resolver_ip = nitoa(tun_resolver_ip);
                                                         if(resolver_ip){
                                                             zfw_update(resolver_ip, "32", "53", "53", "udp", "0000000000000000000000",action);
                                                             free(resolver_ip);
                                                             printf("-----------------Resolver Rule Entered -------------------\n");
                                                         }
+                                                    }else{
+                                                        printf("-----------------Resolver Rule Exists -------------------\n");
                                                     }
-                                                }else{
-                                                    printf("-----------------Resolver Rule Exists -------------------\n");
                                                 }
                                                 struct json_object *hostname_obj = json_object_object_get(address_obj, "HostName");
                                                 printf("\n\nHost intercept: Skipping ebpf\n");       
@@ -1554,6 +1534,7 @@ int run(){
                 if((sizeof(o_tunif.cidr) > 0) && (sizeof(o_tunif.mask) >0)){
                     sprintf(tunip_string, "%s" , o_tunif.cidr);
                     sprintf(tunip_mask_string, "%s", o_tunif.mask);
+                    tun_resolver_ip = ntohl(o_tunif.resolver);
                     if (!inet_aton(tunip_string, &tun_cidr)){
                         printf("Invalid ziti tunnel IP\n");
                     }

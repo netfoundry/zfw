@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.7.2] - 2024-05-28
+
+###
+
+- Refactored to include resolver ip in ifindex_tun struct
+  ```
+  struct ifindex_tun {
+    uint32_t index;
+    char ifname[IF_NAMESIZE];
+    char cidr[16];
+    uint32_t resolver;
+    char mask[3];
+    bool verbose;
+  };
+  ```
+  - Fixed issue: incorrect setting in ziti-fw-init.service.  after=network.target should have been 
+    After=network.target
+  
 # [0.7.1] - 2024-05-28
 
 ###

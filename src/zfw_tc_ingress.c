@@ -205,6 +205,7 @@ struct ifindex_tun {
     uint32_t index;
     char ifname[IFNAMSIZ];
     char cidr[16];
+    uint32_t resolver;
     char mask[3];
     bool verbose;
 };

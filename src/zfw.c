@@ -182,7 +182,7 @@ char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.7.1";
+const char *argp_program_version = "0.7.2";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -246,11 +246,11 @@ struct ifindex_ip4
 };
 
 /*value to ifindex_tun_map*/
-struct ifindex_tun
-{
+struct ifindex_tun {
     uint32_t index;
     char ifname[IF_NAMESIZE];
     char cidr[16];
+    uint32_t resolver;
     char mask[3];
     bool verbose;
 };
@@ -964,10 +964,17 @@ bool set_tun_diag()
             {
                 return false;
             }
+            char *tun_resolver = nitoa(ntohl(o_tdiag.resolver));
             printf("%s: %d\n", o_tdiag.ifname, o_tdiag.index);
             printf("--------------------------\n");
             printf("%-24s:%d\n", "verbose", o_tdiag.verbose);
             printf("%-24s:%s\n", "cidr", o_tdiag.cidr);
+            if(tun_resolver){
+                printf("%-24s:%s\n", "resolver", tun_resolver);
+                free(tun_resolver);
+            }else{
+                printf("%-24s:%s\n", "resolver", "");
+            }
             printf("%-24s:%s\n", "mask", o_tdiag.mask);
             printf("--------------------------\n\n");
         }
@@ -1904,6 +1911,7 @@ bool interface_map()
                             change_detected = true;
                         }
                         free(tuncidr_string);
+                        o_iftun.resolver = htonl(tun_net_integer + 2);
                     }
 
                     if (change_detected)
