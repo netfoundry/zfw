@@ -232,6 +232,17 @@ sudo systemctl restart ziti-router.service
 
 ```
 
+### Ziti Edge Tunnel L2tp Tunnel over ziti (zfw-tunnel only)
+
+To support L2tpV3 over ziti with l2tp tunnel terminating on the same vm as ziti-edge-tunnel.
+In order to support this a unique ZITI_DNS_IP_RANGE must be set on both vms terminating l2tpv3.  The
+source of the L2tpv3 tunnel on each zet host needs to be set to the ip address assigned to the ziti0
+interface which will be the first host address in the ZITI_DNS_IP_RANGE. In addition you will need to enable
+ebpf outbound tracking on the loopback interface.  This can be setup vi /opt/openziti/etc/ebpf_config.json i.e.
+```
+{"InternalInterfaces":[{"Name":"eth0", "OutboundPassThroughTrack": false, "PerInterfaceRules": false}, {"Name":"lo", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}
+```
+
 ### Ziti Edge Tunnel Bidirectional Transparency (zfw-tunnel only)
 
 In order to allow internal tunneler connections over ziti the default operation has been set to not delete any tunX link routes. This will disable the ability to support transparency.  There is an environmental variable ```TRANSPARENT_MODE='true'``` that can be set in the ```/opt/openziti/etc/ziti-edge-tunnel.env``` file to enable deletion of tunX routes if bi-directional transparency is required at the expense of disabling internal tunneler interception.
@@ -282,7 +293,8 @@ sudo reboot
   0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
   0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
 
-  IMPORTANT: These entries will remain until as long as there is at least one wildcard in a service using the port/port range via cli and will not be removed by ziti service deletion. It is recommended to use single ports with wild card since the low port acts as a key and thus the first service that gets entered will dictate the range for the ports and there is only one prefix.  
+  IMPORTANT: These entries will remain until as long as there is at least one wildcard in a service using the port/port range via cli and will not be removed by ziti service deletion. It is recommended to use single ports with wild card since the low port acts as a key and thus the first service that gets entered will dictate the range for the ports and there is only one prefix. 
+  ``` 
 
 ## Ebpf Map User Space Management
 ---
