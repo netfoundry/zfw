@@ -102,6 +102,25 @@ struct diag_ip4 {
     bool ddos_filtering;
 };
 
+/*value to ifindex_tun_map*/
+struct ifindex_tun {
+    uint32_t index;
+    char ifname[IFNAMSIZ];
+    char cidr[16];
+    uint32_t resolver;
+    char mask[3];
+    bool verbose;
+};
+
+/*tun ifindex map*/
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(struct ifindex_tun));
+    __uint(max_entries, 1);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} ifindex_tun_map SEC(".maps");
+
 //map to keep status of diagnostic rules
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -136,6 +155,13 @@ struct {
     __uint(max_entries, 256 * 1024);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } rb_map SEC(".maps");
+
+/*get entry from tun ifindex map*/
+static inline struct ifindex_tun *get_tun_index(uint32_t key){
+    struct ifindex_tun *iftun; 
+    iftun = bpf_map_lookup_elem(&ifindex_tun_map, &key);
+    return iftun;
+}
 
 /*Insert entry into tcp state table*/
 static inline void insert_tcp(struct tcp_state tstate, struct tuple_key key){
@@ -303,6 +329,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
 
+    /*get entry from tun ifindex map*/
+    struct ifindex_tun *tun_if = get_tun_index(0);
+
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
     /* verify its a valid eth header within the packet bounds */
@@ -327,11 +356,21 @@ int bpf_sk_splice(struct __sk_buff *skb){
     event.daddr = tuple->ipv4.daddr;
     event.sport = tuple->ipv4.sport;
     event.dport = tuple->ipv4.dport;
-
+    /*if packet egressing on loopback interface and its source is the ziti0 ip address 
+     *redirect the packet to the ziti0 interface. Added to provide support for L2tpV3 over
+     *over openziti with ziti-edge-tunnel
+     */
+    if((skb->ifindex == 1) && tun_if && tun_if->resolver){
+        uint32_t tun_ip =  bpf_ntohl(tun_if->resolver) - 1;
+        if(tuple->ipv4.saddr == bpf_htonl(tun_ip)){
+            return bpf_redirect(tun_if->index, 0);
+        }
+    }
     /* if tcp based tuple implement stateful inspection to see if they were
      * initiated by the local OS if not then its passthrough traffic and so wee need to
      * setup our own state to track the outbound pass through connections in via shared hashmap
-    * with with ingress tc program*/
+     *  with with ingress tc program
+     */
     if(tcp){
         event.proto = IPPROTO_TCP;
         struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));

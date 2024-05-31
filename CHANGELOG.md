@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.7.3] - 2024-05-30
+
+###
+
+-- Added support for L2tpV3 over ziti with l2tp tunnel terminating on the same vm as ziti-edge-tunnel.
+   In order to support this a unique ZITI_DNS_IP_RANGE must be set on both vms terminating l2tpv3.  The
+   source of the L2tpv3 tunnel on each zet host needs to be set to the ip address assigned to the ziti0
+   interface which will be the first host address in the ZITI_DNS_IP_RANGE. In addition you will need to enable
+   ebpf outbound tracking on the loopback interface.  This can be setup vi /opt/openziti/etc/ebpf_config.json i.e.
+   ```
+   {"InternalInterfaces":[{"Name":"eth0", "OutboundPassThroughTrack": false, "PerInterfaceRules": false}, {"Name":"lo", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}
+   ```
+-- Fixed Readme.md formatting issue introduced in 0.7.2
+
 # [0.7.2] - 2024-05-28
 
 ###
