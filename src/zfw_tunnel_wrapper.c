@@ -1419,7 +1419,7 @@ int process_dial(json_object *jobj, char *action){
     return 0;
 }
 
-void enumerate_service(struct json_object *services_obj, char *action){
+void enumerate_service(struct json_object *services_obj, char *action, bool is_ident){
     if(!interface_registered){
         interface_registered = check_diag();
     }
@@ -1437,7 +1437,7 @@ void enumerate_service(struct json_object *services_obj, char *action){
             struct json_object *service_dial_obj = json_object_object_get(service_permissions_obj, "Dial");
             bool dial = json_object_get_boolean(service_dial_obj);
             bool bind = json_object_get_boolean(service_bind_obj);
-            if(dial){
+            if(dial && (!is_ident)){
                 printf("Service policy is Dial\n");
                 process_dial(service_obj, action);
             }
@@ -1583,7 +1583,7 @@ int run(){
                                     if(ident_obj){
                                         struct json_object *services_obj = json_object_object_get(ident_obj, "Services");
                                         if(services_obj){
-                                            enumerate_service(services_obj, "-I");
+                                            enumerate_service(services_obj, "-I", false);
                                         }
                                     }
                                 }
@@ -1594,11 +1594,11 @@ int run(){
                 else if(!strcmp("bulkservice", operation)){
                     struct json_object *services_obj = json_object_object_get(event_jobj, "RemovedServices");
                     if(services_obj){
-                        enumerate_service(services_obj, "-D");
+                        enumerate_service(services_obj, "-D", false);
                     }
                     services_obj = json_object_object_get(event_jobj, "AddedServices");
                     if(services_obj){
-                        enumerate_service(services_obj, "-I");
+                        enumerate_service(services_obj, "-I", false);
                     }
                 }
                 else if(!strcmp("identity", operation)){
@@ -1611,8 +1611,7 @@ int run(){
                             if(ident_obj){
                                 struct json_object *ident_services_obj = json_object_object_get(ident_obj, "Services");
                                 if(ident_services_obj){
-                                    //enumerate_service(ident_services_obj, "-I");
-                                    printf("IGNORED\n");
+                                    enumerate_service(ident_services_obj, "-I", true);
                                 }
                             }
                         }
