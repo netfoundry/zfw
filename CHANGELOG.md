@@ -3,6 +3,28 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.7.6] - 2024-06-04
+
+###
+
+- Fixed issues in zfw_tunnel_wrapper where incorrect reference was made to zet ctrl socket where needed to check status of event socket.  Removed all
+  references to unused zet ctrl socket.
+
+# [0.7.5] - 2024-06-04
+
+###
+
+- Fixed issue where allowed source addresses where not being updated on service modification without restart of
+  ziti-edge-tunnel.
+
+# [0.7.4] - 2024-06-03
+
+###
+
+- Fixed issue where ziti-fw-init.service and ziti-wrapper.service run in parallel the insert duplicate tc entries on
+  some ebpf enable interfaces. This was remedied by placing an ExecStartPre statement requiring ziti-fw-init.service is not running
+  before start of ziti-wrapper.service.
+
 # [0.7.3] - 2024-05-30
 
 ###
