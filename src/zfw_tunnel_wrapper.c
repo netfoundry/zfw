@@ -86,7 +86,7 @@ const char *range_map_path = "/sys/fs/bpf/tc/globals/range_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 const char *wildcard_port_map_path = "/sys/fs/bpf/tc/globals/wildcard_port_map";
-int ctrl_socket, event_socket;
+int event_socket;
 char tunip_string[16]="";
 char tunip_mask_string[10]="";
 uint32_t tun_resolver_ip = 0;
@@ -211,9 +211,6 @@ void INThandler(int sig){
 void close_maps(int code){
     if(event_socket != -1){
         close(event_socket);
-    }
-    if(event_socket != -1){
-        close(ctrl_socket);
     }
     if(transp_fd != -1){
         close(transp_fd);
@@ -1465,44 +1462,24 @@ void get_string(char source[4096], char dest[2048]){
 int run(){
     signal(SIGINT, INThandler);
     system("clear");
-    setpath("/tmp/", "ziti-edge-tunnel.sock",SOCK_NAME);
     setpath("/tmp/", "ziti-edge-tunnel-event.sock",EVENT_SOCK_NAME);
-    struct sockaddr_un ctrl_addr;
     struct sockaddr_un event_addr;	
-    int new_count = 0;
-    int old_count =0;
-    char* command = "{\"Command\":\"ZitiDump\",\"Data\":{\"DumpPath\": \"/tmp/.ziti\"}}";
-    int command_len = strlen(command);	    
-    byte cmdbytes[command_len];
-    string2Byte(command, cmdbytes);
-    char *val_type_str, *str;
-    int val_type;
     int ret;
 
     
     char event_buffer[EVENT_BUFFER_SIZE];
-     //open Unix client ctrl socket 
+     //open Unix client event socket 
     event_socket = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (ctrl_socket == -1) {
-        perror("socket");
-        printf("%s\n", strerror(errno));
-        return 1;
-    }
-    //open Unix client ctrl socket 
-    ctrl_socket = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (ctrl_socket == -1) {
-        perror("socket");
+    if (event_socket == -1) {
+        perror("event_socket");
         printf("%s\n", strerror(errno));
         return 1;
     }
     //zero sockaddr_un for compatibility
     memset(&event_addr, 0, sizeof(struct sockaddr_un));
-    memset(&ctrl_addr, 0, sizeof(struct sockaddr_un));
-    ctrl_addr.sun_family = AF_UNIX;
     event_addr.sun_family = AF_UNIX;
-    //copy string path of symbolic link to Sun Paths
+    //copy string path of symbolic link to Sun Path
     strncpy(event_addr.sun_path, EVENT_SOCK_NAME, sizeof(event_addr.sun_path) - 1);
-    strncpy(ctrl_addr.sun_path, SOCK_NAME, sizeof(ctrl_addr.sun_path) - 1);
     //connect to ziti-edge-tunnel unix sockets
     ret = connect(event_socket, (const struct sockaddr *) &event_addr,sizeof(struct sockaddr_un));
     if (ret == -1) {
@@ -1510,12 +1487,6 @@ int run(){
         printf("%s\n", strerror(errno));
         return -1;
     } 
-    ret = connect (ctrl_socket, (const struct sockaddr *) &ctrl_addr,sizeof(struct sockaddr_un));
-    if (ret == -1) {
-        fprintf(stderr, "The ziti-edge-tunnel sock is down.\n");
-        printf("%s\n", strerror(errno));
-        return -1;
-    }   
     while(true)
     {
         if(tun_fd == -1){
@@ -1642,9 +1613,6 @@ int main(int argc, char *argv[]) {
         run();
         if(event_socket != -1){
             close(event_socket);
-        }
-        if(event_socket != -1){
-            close(ctrl_socket);
         }
         sleep(1);
     }
