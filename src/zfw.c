@@ -75,6 +75,8 @@
 #define CLIENT_FINAL_ACK_RCVD 11
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
+#define DNS_MATCH 1
+#define DNS_NOT_MATCH 0
 
 bool ddos = false;
 bool add = false;
@@ -2223,6 +2225,14 @@ static int process_events(void *ctx, void *data, size_t len)
                 else if (code == CLIENT_INITIATED_UDP_SESSION)
                 {
                     state = "CLIENT_INITIATED_UDP_SESSION";
+                }
+                else if (code == DNS_MATCH)
+                {
+                    state = "DNS_MATCH";
+                }
+                else if (code == DNS_NOT_MATCH)
+                {
+                    state = "DNS__NOT_MATCH";
                 }
                 if (state)
                 {

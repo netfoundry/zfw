@@ -36,6 +36,8 @@
 #define MAX_DNS_CHARS           255
 #define MAX_ALLOWED_CHARS       64
 #define MAX_INDEX_ENTRIES       5
+#define DNS_MATCH 1
+#define DNS_NOT_MATCH 0
 
 struct bpf_event{
     unsigned long long tstamp;
@@ -390,15 +392,15 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
             return XDP_PASS;
         }
-        // bpf_printk("question byte is %d", bpf_htons(dnsh->qdcount));
-        // bpf_printk("answer byte is %d", bpf_htons(dnsh->ancount));
-        // bpf_printk("name servers byte is %d", bpf_htons(dnsh->nscount));
-        // bpf_printk("additional records byte is %d", bpf_htons(dnsh->arcount));
+        event.dport = udph->dest;
+        event.sport = udph->source;
+        event.proto = IPPROTO_UDP;
+        event.saddr = iph->saddr;
+        event.daddr = iph->daddr;
         /* logic to find dns name string */
         if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) == 0) {
             // bpf_printk("in max_qdcount before loop");
             for (int x = 0; x < MAX_QDCOUNT; x++) {
-                // bpf_printk("in max_qdcount loop");
                 /* get interceptes domain name from interface */
                 const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
                 if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
@@ -407,24 +409,12 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                     const struct dns_name_struct *domain_name_configured = get_domain_name(y);
                     if (domain_name_configured && domain_name_configured->dns_name[0] != '\0') {
                         const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
-                        // bpf_printk("result is %d", result);
                         if (result == 0) {
-                            // __uint8_t dst_mac[6];
-                            // dst_mac[0] = 0x2E;
-                            // dst_mac[1] = 0x39;
-                            // dst_mac[2] = 0x22;
-                            // dst_mac[3] = 0x69;
-                            // dst_mac[4] = 0xC0;
-                            // dst_mac[5] = 0xAD;
-                            bpf_printk("found entry is same");
-                            // iph->daddr = bpf_htonl(0x7f000001);
-                            iph->daddr = bpf_htonl(0x6440fffe);
-                            iph->check = 0;
-                            iph->check = ip_checksum((__u16 *)iph, sizeof(struct iphdr));
-                            // memcpy(&eth->h_dest, &dst_mac,sizeof(eth->h_dest));
-                            return bpf_redirect(1, 0);
+                            event.tracking_code = DNS_MATCH;
+                            send_event(&event);
                         } else {
-                            // bpf_printk("found entry is not same");
+                            event.tracking_code = DNS_MATCH;
+                            send_event(&event);
                         }
                     } else {
                         // bpf_printk("no entry found");sudo
@@ -433,7 +423,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                     /* Move dns payload pointer to next question or section */
                     dns_payload = (dns_payload + domain_name_intercepted->dns_length + 4);
                 } else {
-                    bpf_printk("answer was not positive, breaking out of the inner loop");
                     break;
                 }
             }
