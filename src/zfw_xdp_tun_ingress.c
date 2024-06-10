@@ -332,17 +332,18 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
             return XDP_PASS;
         }
+        event.proto = protocol;
+        event.saddr = iph->saddr;
+        event.daddr = iph->daddr;
+        event.tracking_code = DNS_CHECK;
+        send_event(&event);
         if (udph->dest == bpf_htons(DNS_PORT)) {
             struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
             if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
             }
-            event.proto = protocol;
             event.dport = udph->dest;
             event.sport = udph->source;
-            event.saddr = iph->saddr;
-            event.daddr = iph->daddr;
-            event.tracking_code = DNS_CHECK;
             send_event(&event);
             /* Initial dns payload pointer */
             __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
@@ -413,7 +414,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                 event.dport = udph->dest;
                 event.sport = udph->source;
             }
-            event.tun_ifindex = tus->ifindex;
+        
             event.proto = protocol;
             event.saddr = iph->saddr;
             event.daddr = iph->daddr;
