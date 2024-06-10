@@ -337,7 +337,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         event.daddr = iph->daddr;
         event.tracking_code = DNS_CHECK;
         send_event(&event);
-        if (udph->dest == bpf_htons(DNS_PORT)) {
+        if (udph->source == bpf_htons(DNS_PORT)) {
             struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
             if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
