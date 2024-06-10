@@ -324,6 +324,64 @@ int xdp_redirect_prog(struct xdp_md *ctx)
     struct tun_key tun_state_key;
     tun_state_key.daddr = iph->saddr;
     tun_state_key.saddr = iph->daddr;
+
+    // check for dns responses
+    __u8 protocol = iph->protocol;
+    if(protocol == IPPROTO_UDP){  
+        struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+        if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+            return XDP_PASS;
+        }
+        if (udph->dest == bpf_htons(DNS_PORT)) {
+            struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
+            if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
+                return XDP_PASS;
+            }
+            /* Initial dns payload pointer */
+            __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
+            if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
+                return XDP_PASS;
+            }
+            event.proto = protocol;
+            event.dport = udph->dest;
+            event.sport = udph->source;
+            event.saddr = iph->saddr;
+            event.daddr = iph->daddr;
+            /* logic to find dns name string */
+            if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) == 0) {
+                // bpf_printk("in max_qdcount before loop");
+                event.tracking_code = DNS_CHECK;
+                send_event(&event);
+                for (int x = 0; x < MAX_QDCOUNT; x++) {
+                    /* get interceptes domain name from interface */
+                    const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
+                    if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
+                        for (int y = 0; y < MAX_INDEX_ENTRIES; y++) {
+                            /* get private domain name from map */
+                            const struct dns_name_struct *domain_name_configured = get_domain_name(y);
+                            if (domain_name_configured && domain_name_configured->dns_name[0] != '\0') {
+                                const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
+                                if (result == 0) {
+                                    event.tracking_code = DNS_MATCH;
+                                    send_event(&event);
+                                } else {
+                                    event.tracking_code = DNS_NOT_MATCH;
+                                    send_event(&event);
+                                }
+                            } else {
+                                // bpf_printk("no entry found");sudo
+                            }
+                        }
+                        /* Move dns payload pointer to next question or section */
+                        dns_payload = (dns_payload + domain_name_intercepted->dns_length + 4);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     struct tun_state *tus = get_tun(tun_state_key);
     if(tus){
         bpf_xdp_adjust_head(ctx, -14);
@@ -353,56 +411,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                 }
                 event.dport = udph->dest;
                 event.sport = udph->source;
-                
-                // check for dns responses
-                if (udph->dest == bpf_htons(DNS_PORT)) {
-                     // bpf_printk("port is %ld", bpf_htons(udph->dest));
-                    struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
-                    if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                    }
-
-                    /* Initial dns payload pointer */
-                    __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
-                    if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
-                        return XDP_PASS;
-                    }
-                    event.proto = protocol;
-                    event.saddr = iph->saddr;
-                    event.daddr = iph->daddr;
-                    /* logic to find dns name string */
-                    if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) == 0) {
-                        // bpf_printk("in max_qdcount before loop");
-                        event.tracking_code = DNS_CHECK;
-                        send_event(&event);
-                        for (int x = 0; x < MAX_QDCOUNT; x++) {
-                            /* get interceptes domain name from interface */
-                            const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
-                            if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
-                                for (int y = 0; y < MAX_INDEX_ENTRIES; y++) {
-                                    /* get private domain name from map */
-                                    const struct dns_name_struct *domain_name_configured = get_domain_name(y);
-                                    if (domain_name_configured && domain_name_configured->dns_name[0] != '\0') {
-                                        const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
-                                        if (result == 0) {
-                                            event.tracking_code = DNS_MATCH;
-                                            send_event(&event);
-                                        } else {
-                                            event.tracking_code = DNS_NOT_MATCH;
-                                            send_event(&event);
-                                        }
-                                    } else {
-                                        // bpf_printk("no entry found");sudo
-                                    }
-                                }
-                                /* Move dns payload pointer to next question or section */
-                                dns_payload = (dns_payload + domain_name_intercepted->dns_length + 4);
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
             }
             event.tun_ifindex = tus->ifindex;
             event.proto = protocol;
