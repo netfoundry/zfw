@@ -337,21 +337,22 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
             }
-            /* Initial dns payload pointer */
-            __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
-            if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
-                return XDP_PASS;
-            }
             event.proto = protocol;
             event.dport = udph->dest;
             event.sport = udph->source;
             event.saddr = iph->saddr;
             event.daddr = iph->daddr;
+            event.tracking_code = DNS_CHECK;
+            send_event(&event);
+            /* Initial dns payload pointer */
+            __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
+            if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
+                return XDP_PASS;
+            }
+            
             /* logic to find dns name string */
             if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) == 0) {
                 // bpf_printk("in max_qdcount before loop");
-                event.tracking_code = DNS_CHECK;
-                send_event(&event);
                 for (int x = 0; x < MAX_QDCOUNT; x++) {
                     /* get interceptes domain name from interface */
                     const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
