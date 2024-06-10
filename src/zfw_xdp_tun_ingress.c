@@ -38,6 +38,9 @@
 #define MAX_INDEX_ENTRIES       5
 #define DNS_RESPONSE_MATCHED    20
 #define DNS_BEFORE_MATCHED      21
+#define DNS_INTERCEPTED_MATCHED 22
+#define DNS_CONFIGURED_MATCHED  23
+#define DNS_CONFIGURED_INTERCEPTED_MATCHED 24
 
 struct bpf_event{
     unsigned long long tstamp;
@@ -221,15 +224,7 @@ static inline struct dns_name_struct *get_dns(const int index, const void *dns_q
     dns_name = bpf_map_lookup_elem(&dns_map, &index);
     if(dns_name){
         const long length = bpf_probe_read_kernel_str((void *)&dns_name->dns_name, sizeof(dns_name->dns_name), dns_question);
-        // bpf_printk("answer=%d",length);
-        // if (length > 0) {
-        //     for (int i = 0; i < length; i++) {
-        //         bpf_printk(":%c", dns_name->dns_name[i]);
-        //     }
-        // }
         dns_name->dns_length = length;
-    }else{
-        bpf_printk("no map entry found");
     }
     return dns_name;
 }
@@ -349,8 +344,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             event.daddr = iph->daddr;
             event.dport = udph->dest;
             event.sport = udph->source;
-            event.tracking_code = DNS_BEFORE_MATCHED;
-            send_event(&event);
             
             /* logic to find dns name string */
             if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) != 0) {
@@ -364,15 +357,18 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                     if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
                         for (int y = 0; y < MAX_INDEX_ENTRIES; y++) {
                             /* get private domain name from map */
+                            event.tracking_code = DNS_INTERCEPTED_MATCHED;
+                            send_event(&event);
                             const struct dns_name_struct *domain_name_configured = get_domain_name(y);
                             if (domain_name_configured && domain_name_configured->dns_name[0] != '\0') {
+                                event.tracking_code = DNS_CONFIGURED_MATCHED;
+                                send_event(&event);
                                 const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
                                 if (result == 0) {
-                                } else {
-                                }
-                            } else {
-                                // bpf_printk("no entry found");sudo
-                            }
+                                    event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
+                                    send_event(&event);
+                                } 
+                            } 
                         }
                         /* Move dns payload pointer to next question or section */
                         dns_payload = (dns_payload + domain_name_intercepted->dns_length + 4);
