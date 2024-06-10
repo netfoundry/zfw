@@ -332,7 +332,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             return XDP_PASS;
         }
         
-        send_event(&event);
         if (udph->source == bpf_htons(DNS_PORT)) {
             struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
             if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
@@ -362,11 +361,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) != 0) {
                 for (int x = 0; x < MAX_QDCOUNT; x++) {
 
-                    event.proto = protocol;
-                    event.saddr = iph->saddr;
-                    event.daddr = iph->daddr;
-                    event.dport = udph->dest;
-                    event.sport = udph->source;
                     event.tracking_code = DNS_RESPONSE_MATCHED;
                     send_event(&event);
 
