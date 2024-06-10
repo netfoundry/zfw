@@ -338,11 +338,6 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                 return XDP_PASS;
             }
 
-            struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
-            if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
-                return XDP_PASS;
-            }
-
             /* Initial dns payload pointer */
             __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
             if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
