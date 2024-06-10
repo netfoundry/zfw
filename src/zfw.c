@@ -2234,7 +2234,11 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 else if (code == DNS_NOT_MATCH)
                 {
-                    state = "DNS__NOT_MATCH";
+                    state = "DNS_NOT_MATCH";
+                }
+                else if (code == DNS_CHECK)
+                {
+                    state = "DNS_CHECK";
                 }
                 if (state)
                 {
