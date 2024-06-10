@@ -75,10 +75,8 @@
 #define CLIENT_FINAL_ACK_RCVD 11
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
-#define DNS_MATCH 1
-#define DNS_NOT_MATCH 0
-#define DNS_CHECK 2
-
+#define DNS_RESPONSE_MATCHED 20
+#define DNS_BEFORE_MATCHED 21
 
 bool ddos = false;
 bool add = false;

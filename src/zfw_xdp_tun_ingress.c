@@ -36,9 +36,8 @@
 #define MAX_DNS_CHARS           255
 #define MAX_ALLOWED_CHARS       64
 #define MAX_INDEX_ENTRIES       5
-#define DNS_MATCH 1
-#define DNS_NOT_MATCH 0
-#define DNS_CHECK 2
+#define DNS_RESPONSE_MATCHED    20
+#define DNS_BEFORE_MATCHED      21
 
 struct bpf_event{
     unsigned long long tstamp;
@@ -332,29 +331,45 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
             return XDP_PASS;
         }
-        event.proto = protocol;
-        event.saddr = iph->saddr;
-        event.daddr = iph->daddr;
-        event.tracking_code = DNS_CHECK;
+        
         send_event(&event);
         if (udph->source == bpf_htons(DNS_PORT)) {
             struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
             if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
             }
-            event.dport = udph->dest;
-            event.sport = udph->source;
-            send_event(&event);
+
+            struct dnshdr *dnsh = (struct dnshdr *)((unsigned long)udph + sizeof(*udph));
+            if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
+                return XDP_PASS;
+            }
+
             /* Initial dns payload pointer */
             __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
             if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
                 return XDP_PASS;
             }
+
+            event.proto = protocol;
+            event.saddr = iph->saddr;
+            event.daddr = iph->daddr;
+            event.dport = udph->dest;
+            event.sport = udph->source;
+            event.tracking_code = DNS_BEFORE_MATCHED;
+            send_event(&event);
             
             /* logic to find dns name string */
-            if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) == 0) {
-                // bpf_printk("in max_qdcount before loop");
+            if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) != 0) {
                 for (int x = 0; x < MAX_QDCOUNT; x++) {
+
+                    event.proto = protocol;
+                    event.saddr = iph->saddr;
+                    event.daddr = iph->daddr;
+                    event.dport = udph->dest;
+                    event.sport = udph->source;
+                    event.tracking_code = DNS_RESPONSE_MATCHED;
+                    send_event(&event);
+
                     /* get interceptes domain name from interface */
                     const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
                     if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
@@ -364,11 +379,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                             if (domain_name_configured && domain_name_configured->dns_name[0] != '\0') {
                                 const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
                                 if (result == 0) {
-                                    event.tracking_code = DNS_MATCH;
-                                    send_event(&event);
                                 } else {
-                                    event.tracking_code = DNS_NOT_MATCH;
-                                    send_event(&event);
                                 }
                             } else {
                                 // bpf_printk("no entry found");sudo
