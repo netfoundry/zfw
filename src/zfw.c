@@ -77,6 +77,8 @@
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
 #define DNS_MATCH 1
 #define DNS_NOT_MATCH 0
+#define DNS_CHECK 2
+
 
 bool ddos = false;
 bool add = false;
