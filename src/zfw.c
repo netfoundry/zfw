@@ -2226,17 +2226,13 @@ static int process_events(void *ctx, void *data, size_t len)
                 {
                     state = "CLIENT_INITIATED_UDP_SESSION";
                 }
-                else if (code == DNS_MATCH)
+                else if (code == DNS_BEFORE_MATCHED)
                 {
-                    state = "DNS_MATCH";
+                    state = "DNS_BEFORE_MATCHED";
                 }
-                else if (code == DNS_NOT_MATCH)
+                else if (code == DNS_RESPONSE_MATCHED)
                 {
-                    state = "DNS_NOT_MATCH";
-                }
-                else if (code == DNS_CHECK)
-                {
-                    state = "DNS_CHECK";
+                    state = "DNS_RESPONSE_MATCHED";
                 }
                 if (state)
                 {
