@@ -156,7 +156,7 @@ static inline void send_event(struct bpf_event *new_event){
 struct dns_name_struct {
     char dns_name[MAX_DNS_CHARS];
     uint8_t dns_length;
-    __u32 ipaddr;
+    uint32_t ipaddr;
 };
 
 struct {
@@ -210,7 +210,7 @@ struct dns_resource_record {
     uint16_t class;
     uint16_t ttl[2];
     uint16_t rdlength;
-    uint8_t ipaddr;
+    uint32_t ipaddr;
 };
 
 /* get entry from domain_map map */
@@ -371,14 +371,14 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                                     }
                                     // bpf_update_elem(&dns_map, &x, dnsan->ipaddr)
                                     // memcpy(&domain_name_intercepted->ipaddr,&dnsan->ipaddr,4);
-                                    memcpy(&event.daddr, &dnsan->ipaddr, 4);
+                                    event.daddr = dnsan->ipaddr;
                                     event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
                                     send_event(&event);
                                 } 
                             } 
                         }
                         /* Move dns payload pointer to next question or section */
-                        dnsqs = (dnsqs + domain_name_intercepted->dns_length + 8);
+                        dnsqs = (dnsqs + domain_name_intercepted->dns_length + 4);
                     } else {
                         break;
                     }
