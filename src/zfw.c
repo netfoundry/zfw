@@ -182,7 +182,7 @@ char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.7.6";
+const char *argp_program_version = "0.7.7";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];

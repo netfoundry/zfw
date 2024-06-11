@@ -263,7 +263,6 @@ int process_routes(char *service_id){
     transp_map.map_fd = transp_fd;
     transp_map.flags = BPF_ANY;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &transp_map, sizeof(transp_map));
-    bool changed = false;
     if (!lookup)
     {
         for(int x = 0; x <= o_routes.count; x++){
@@ -1042,8 +1041,6 @@ int process_bind(json_object *jobj, char *action)
             struct json_object *addresses_obj = json_object_object_get(jobj, "Addresses");
             if(addresses_obj && !strcmp(action,"-I"))
             {
-                int addresses_obj_len = json_object_array_length(addresses_obj);
-                // enum json_type type;
                 struct json_object *allowedSourceAddresses = json_object_object_get(jobj, "AllowedSourceAddresses");
                 if (allowedSourceAddresses)
                 {
@@ -1058,7 +1055,6 @@ int process_bind(json_object *jobj, char *action)
                             struct json_object *host_obj = json_object_object_get(address_obj, "IsHost");
                             if(host_obj){
                                 bool is_host = json_object_get_boolean(host_obj);
-                                char ip[16];
                                 char mask[10];
                                 if(is_host)
                                 {
@@ -1073,7 +1069,7 @@ int process_bind(json_object *jobj, char *action)
                                         if(prefix_obj){
                                             char ip[strlen(json_object_get_string(ip_obj) + 1)];
                                             sprintf(ip,"%s", json_object_get_string(ip_obj));
-                                            int smask = sprintf(mask, "%d", json_object_get_int(prefix_obj));
+                                            sprintf(mask, "%d", json_object_get_int(prefix_obj));
                                             printf("Service_IP=%s\n", ip);
                                             struct in_addr tuncidr;
                                             if (inet_aton(ip, &tuncidr)){
@@ -1088,7 +1084,6 @@ int process_bind(json_object *jobj, char *action)
                                                     transp_map.map_fd = transp_fd;
                                                     transp_map.flags = BPF_ANY;
                                                     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &transp_map, sizeof(transp_map));
-                                                    bool changed = false;
                                                     if (lookup)
                                                     {
                                                         o_routes.tentry[j].saddr = tuncidr;
@@ -1380,7 +1375,7 @@ int process_dial(json_object *jobj, char *action){
                                                     struct json_object *prefix_obj = json_object_object_get(address_obj, "Prefix");
                                                     char ip[strlen(json_object_get_string(ip_obj) + 1)];
                                                     sprintf(ip,"%s", json_object_get_string(ip_obj));
-                                                    int smask = sprintf(mask, "%d", json_object_get_int(prefix_obj));
+                                                    sprintf(mask, "%d", json_object_get_int(prefix_obj));
                                                     printf("Service_IP=%s\n", ip);
                                                     printf("Protocol=%s\n", protocol);
                                                     printf("Low=%s\n", lowport); 
@@ -1597,7 +1592,7 @@ int run(){
     return 0;    
 }
 
-int main(int argc, char *argv[]) {
+int main() {
     signal(SIGINT, INThandler);
     signal(SIGTERM, INThandler);
     //system("clear");
