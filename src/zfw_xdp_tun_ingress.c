@@ -156,6 +156,7 @@ static inline void send_event(struct bpf_event *new_event){
 struct dns_name_struct {
     char dns_name[MAX_DNS_CHARS];
     uint8_t dns_length;
+    uint8_t ipaddr[4];
 };
 
 struct {
@@ -343,7 +344,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
 
                     /* dns questio section */
                     struct dns_question_section *dnsqs = (struct dns_question_section *)((unsigned long)dnsh + sizeof(*dnsh));
-                    if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
+                    if ((unsigned long)(dnsqs + 1) > (unsigned long)ctx->data_end){
                         return XDP_PASS;
                     }
 
@@ -362,7 +363,16 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                                 if (result == 0) {
                                     event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
                                     send_event(&event);
-                                    
+                                    /* dns questio section */
+                                    struct dns_resource_record *dnsan = (struct dns_resource_record *)((unsigned long)dnsqs + sizeof(*dnsqs));
+                                    if ((unsigned long)(dnsan + 1) > (unsigned long)ctx->data_end){
+                                        return XDP_PASS;
+                                    }
+                                    // bpf_update_elem(&dns_map, &x, dnsan->ipaddr)
+                                    // memcpy(&domain_name_intercepted->ipaddr,&dnsan->ipaddr,4);
+                                    memcpy(&event.daddr, &dnsan->ipaddr, 4);
+                                    event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
+                                    send_event(&event);
                                 } 
                             } 
                         }
