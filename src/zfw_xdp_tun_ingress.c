@@ -156,7 +156,7 @@ static inline void send_event(struct bpf_event *new_event){
 struct dns_name_struct {
     char dns_name[MAX_DNS_CHARS];
     uint8_t dns_length;
-    uint8_t ipaddr[4];
+    __u32 ipaddr;
 };
 
 struct {
@@ -210,7 +210,7 @@ struct dns_resource_record {
     uint16_t class;
     uint16_t ttl[2];
     uint16_t rdlength;
-    uint8_t ipaddr[4];
+    uint8_t ipaddr;
 };
 
 /* get entry from domain_map map */
@@ -226,6 +226,7 @@ static inline struct dns_name_struct *get_dns(const int index, const void *dnsqs
     if(dns_name){
         const long length = bpf_probe_read_kernel_str((void *)&dns_name->dns_name, sizeof(dns_name->dns_name), dnsqs);
         dns_name->dns_length = length;
+        dns_name->ipaddr = (unsigned int) 0;
     }
     return dns_name;
 }
