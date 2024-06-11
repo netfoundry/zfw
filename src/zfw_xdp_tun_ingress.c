@@ -219,11 +219,11 @@ static inline struct dns_name_struct *get_domain_name(const uint32_t key){
 }
 
 /* get the length of dns question name */
-static inline struct dns_name_struct *get_dns(const int index, const void *dns_question) {
+static inline struct dns_name_struct *get_dns(const int index, const void *dnsqs) {
     struct dns_name_struct *dns_name = NULL;
     dns_name = bpf_map_lookup_elem(&dns_map, &index);
     if(dns_name){
-        const long length = bpf_probe_read_kernel_str((void *)&dns_name->dns_name, sizeof(dns_name->dns_name), dns_question);
+        const long length = bpf_probe_read_kernel_str((void *)&dns_name->dns_name, sizeof(dns_name->dns_name), dnsqs);
         dns_name->dns_length = length;
     }
     return dns_name;
@@ -237,19 +237,12 @@ static inline int compare_domain_names(const struct dns_name_struct *dnc, const 
         /* Point to the last char of each string to start counting */
         const uint8_t dni_reverse_start = dni->dns_length - 2 - z;
         const uint8_t dnc_reverse_start = dnc->dns_length - 2 - z;
-        // bpf_printk("char count is %d", y);
-        // bpf_printk("z is %d", z);
-        // bpf_printk("dnc->dns_length is %d", dnc->dns_length);
         /* if custom domain char is a dot and intercepted domain name char is dot in form of char count */
         if (dnc->dns_name[dnc_reverse_start] == '.' && dni->dns_name[dni_reverse_start] == y) {
-            // bpf_printk("dni start char is %x", dni->dns_name[dni_reverse_start]);
-            // bpf_printk("dnc start char is %x", dnc->dns_name[dnc_reverse_start]);
             /* reset character counter for domain/subdomain */
             y=0;
         /* if custom domain reached its length and intercepted domain char is dot in form of char count */
         } else if (dnc->dns_length == z+1 && dni->dns_name[dni_reverse_start] == y) {
-            // bpf_printk("dni start char is %x", dni->dns_name[dni_reverse_start]);
-            // bpf_printk("dnc start char is %x", dnc->dns_name[dnc_reverse_start]);
              break;
         /* if custom domain and intercepted domain chars are not the same */
         } else if (dni->dns_name[dni_reverse_start] != dnc->dns_name[dnc_reverse_start]) {
@@ -333,27 +326,29 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                 return XDP_PASS;
             }
 
-            /* Initial dns payload pointer */
-            __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
-            if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
-                return XDP_PASS;
-            }
-
             event.proto = protocol;
             event.saddr = iph->saddr;
             event.daddr = iph->daddr;
             event.dport = udph->dest;
             event.sport = udph->source;
             
-            /* logic to find dns name string */
-            if (bpf_htons(dnsh->qdcount) != 0 && bpf_htons(dnsh->ancount) != 0) {
+            /* 
+            * if both Questions and Answer Sections present, go through logic to find dns name string nad ip address 
+            */
+            if (bpf_htons(dnsh->qdcount) == 1 && bpf_htons(dnsh->ancount) == 1) {
                 for (int x = 0; x < MAX_QDCOUNT; x++) {
 
                     event.tracking_code = DNS_RESPONSE_MATCHED;
                     send_event(&event);
 
+                    /* dns questio section */
+                    struct dns_question_section *dnsqs = (struct dns_question_section *)((unsigned long)dnsh + sizeof(*dnsh));
+                    if ((unsigned long)(dnsh + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
+                    }
+
                     /* get interceptes domain name from interface */
-                    const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
+                    const struct dns_name_struct *domain_name_intercepted = get_dns(x, dnsqs);
                     if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
                         for (int y = 0; y < MAX_INDEX_ENTRIES; y++) {
                             /* get private domain name from map */
@@ -367,11 +362,12 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                                 if (result == 0) {
                                     event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
                                     send_event(&event);
+                                    
                                 } 
                             } 
                         }
                         /* Move dns payload pointer to next question or section */
-                        dns_payload = (dns_payload + domain_name_intercepted->dns_length + 4);
+                        dnsqs = (dnsqs + domain_name_intercepted->dns_length + 4);
                     } else {
                         break;
                     }
