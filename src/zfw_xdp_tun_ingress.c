@@ -33,14 +33,15 @@
 #define NO_REDIRECT_STATE_FOUND 10
 #define DNS_PORT                53
 #define MAX_QDCOUNT             1
+#define MAX_ANCOUNT             1
 #define MAX_DNS_CHARS           255
 #define MAX_ALLOWED_CHARS       64
 #define MAX_INDEX_ENTRIES       5
-#define DNS_RESPONSE_MATCHED    20
-#define DNS_BEFORE_MATCHED      21
+#define DNS_REQUEST_MATCHED     20
+#define DNS_RESPONSE_MATCHED    21
 #define DNS_INTERCEPTED_MATCHED 22
 #define DNS_CONFIGURED_MATCHED  23
-#define DNS_CONFIGURED_INTERCEPTED_MATCHED 24
+#define DNS_RESOLVED_MATCHED    24
 
 struct bpf_event{
     unsigned long long tstamp;
@@ -203,9 +204,7 @@ struct dns_question_section {
 };
 /* The resource record (i.e. answer, authority, additional sections) structure. */
 struct dns_resource_record {
-    /* DNS answer record starts with either a domain name or a pointer
-       to a name already present somewhere in the packet. */
-    char name[MAX_DNS_CHARS];
+    uint16_t ptr; /* DNS answer record starts with a pointer to a name already present somewhere in the packet. */
     uint16_t type;
     uint16_t class;
     uint16_t ttl[2];
@@ -255,22 +254,6 @@ static inline int compare_domain_names(const struct dns_name_struct *dnc, const 
         }
     }
     return 0;
-}
-
-static inline uint16_t ip_checksum(unsigned short *buf, int bufsz) {
-    unsigned long sum = 0;
-
-    while (bufsz > 1) {
-        sum += *buf;
-        buf++;
-        bufsz -= 2;
-    }
-    if (bufsz == 1) {
-        sum += *(unsigned char *)buf;
-    }
-    sum = (sum & 0xffff) + (sum >> 16);
-    sum = (sum & 0xffff) + (sum >> 16);
-    return ~sum;
 }
 
 SEC("xdp_redirect")
@@ -338,19 +321,20 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             * if both Questions and Answer Sections present, go through logic to find dns name string nad ip address 
             */
             if (bpf_htons(dnsh->qdcount) == 1 && bpf_htons(dnsh->ancount) == 1) {
+
+                /* Initial dns payload pointer */
+                __u8 *dns_payload = (__u8 *)((unsigned long)dnsh + sizeof(*dnsh));
+                if ((unsigned long)(dns_payload + 1) > (unsigned long)ctx->data_end) {
+                    return XDP_PASS;
+                }
+
                 for (int x = 0; x < MAX_QDCOUNT; x++) {
 
-                    event.tracking_code = DNS_RESPONSE_MATCHED;
+                    event.tracking_code = DNS_REQUEST_MATCHED;
                     send_event(&event);
 
-                    /* dns questio section */
-                    struct dns_question_section *dnsqs = (struct dns_question_section *)((unsigned long)dnsh + sizeof(*dnsh));
-                    if ((unsigned long)(dnsqs + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                    }
-
                     /* get interceptes domain name from interface */
-                    const struct dns_name_struct *domain_name_intercepted = get_dns(x, dnsqs);
+                    const struct dns_name_struct *domain_name_intercepted = get_dns(x, dns_payload);
                     if (domain_name_intercepted && domain_name_intercepted->dns_length > 0) {
                         for (int y = 0; y < MAX_INDEX_ENTRIES; y++) {
                             /* get private domain name from map */
@@ -362,27 +346,24 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                                 send_event(&event);
                                 const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
                                 if (result == 0) {
-                                    event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
-                                    send_event(&event);
-                                    /* dns questio section */
-                                    struct dns_resource_record *dnsan = (struct dns_resource_record *)((unsigned long)dnsqs + sizeof(*dnsqs));
-                                    if ((unsigned long)(dnsan + 1) > (unsigned long)ctx->data_end){
+                                    struct dns_resource_record *anhdr = (struct dns_resource_record *)(dns_payload + domain_name_intercepted->dns_length + 4);
+                                    if ((unsigned long)(anhdr + 1) > (unsigned long)ctx->data_end){
                                         return XDP_PASS;
                                     }
-                                    // bpf_update_elem(&dns_map, &x, dnsan->ipaddr)
-                                    // memcpy(&domain_name_intercepted->ipaddr,&dnsan->ipaddr,4);
-                                    event.daddr = dnsan->ipaddr;
-                                    event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
+                                    event.daddr = anhdr->ipaddr;
+                                    event.tracking_code = DNS_RESOLVED_MATCHED;
                                     send_event(&event);
+                                    break;
                                 } 
                             } 
                         }
                         /* Move dns payload pointer to next question or section */
-                        dnsqs = (dnsqs + domain_name_intercepted->dns_length + 4);
+                        dns_payload = (dns_payload + domain_name_intercepted->dns_length + 4);
                     } else {
                         break;
                     }
                 }
+
             }
         }
     }

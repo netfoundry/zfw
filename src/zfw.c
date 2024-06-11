@@ -75,11 +75,11 @@
 #define CLIENT_FINAL_ACK_RCVD 11
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
-#define DNS_RESPONSE_MATCHED 20
-#define DNS_BEFORE_MATCHED 21
+#define DNS_REQUEST_MATCHED 20
+#define DNS_RESPONSE_MATCHED 21
 #define DNS_INTERCEPTED_MATCHED 22
-#define DNS_CONFIGURED_MATCHED  23
-#define DNS_CONFIGURED_INTERCEPTED_MATCHED 24
+#define DNS_CONFIGURED_MATCHED 23
+#define DNS_RESOLVED_MATCHED 24
 
 bool ddos = false;
 bool add = false;
@@ -2229,9 +2229,9 @@ static int process_events(void *ctx, void *data, size_t len)
                 {
                     state = "CLIENT_INITIATED_UDP_SESSION";
                 }
-                else if (code == DNS_BEFORE_MATCHED)
+                else if (code == DNS_REQUEST_MATCHED)
                 {
-                    state = "DNS_BEFORE_MATCHED";
+                    state = "DNS_REQUEST_MATCHED";
                 }
                 else if (code == DNS_RESPONSE_MATCHED)
                 {
@@ -2245,9 +2245,9 @@ static int process_events(void *ctx, void *data, size_t len)
                 {
                     state = "DNS_CONFIGURED_MATCHED";
                 }
-                else if (code == DNS_CONFIGURED_INTERCEPTED_MATCHED)
+                else if (code == DNS_RESOLVED_MATCHED)
                 {
-                    state = "DNS_CONFIGURED_INTERCEPTED_MATCHED";
+                    state = "DNS_RESOLVED_MATCHED";
                 }
                 if (state)
                 {
