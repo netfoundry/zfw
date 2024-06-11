@@ -363,16 +363,16 @@ int xdp_redirect_prog(struct xdp_md *ctx)
                                 if (result == 0) {
                                     event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
                                     send_event(&event);
-                                    /* dns questio section */
-                                    struct dns_resource_record *dnsan = (struct dns_resource_record *)((unsigned long)dnsqs + sizeof(*dnsqs));
-                                    if ((unsigned long)(dnsan + 1) > (unsigned long)ctx->data_end){
-                                        return XDP_PASS;
-                                    }
-                                    // bpf_update_elem(&dns_map, &x, dnsan->ipaddr)
-                                    // memcpy(&domain_name_intercepted->ipaddr,&dnsan->ipaddr,4);
-                                    memcpy(&event.daddr, &dnsan->ipaddr, 4);
-                                    event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
-                                    send_event(&event);
+                                    // /* dns questio section */
+                                    // struct dns_resource_record *dnsan = (struct dns_resource_record *)((unsigned long)dnsqs + sizeof(*dnsqs));
+                                    // if ((unsigned long)(dnsan + 1) > (unsigned long)ctx->data_end){
+                                    //     return XDP_PASS;
+                                    // }
+                                    // // bpf_update_elem(&dns_map, &x, dnsan->ipaddr)
+                                    // // memcpy(&domain_name_intercepted->ipaddr,&dnsan->ipaddr,4);
+                                    // memcpy(&event.daddr, &dnsan->ipaddr, 4);
+                                    // event.tracking_code = DNS_CONFIGURED_INTERCEPTED_MATCHED;
+                                    // send_event(&event);
                                 } 
                             } 
                         }
