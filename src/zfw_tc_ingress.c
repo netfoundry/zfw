@@ -18,6 +18,8 @@
 #include <linux/ip.h>
 #include <linux/udp.h>
 #include <linux/pkt_cls.h>
+#include <linux/ipv6.h>
+#include <linux/icmpv6.h>
 #include <bcc/bcc_common.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
@@ -64,6 +66,8 @@
 #define UDP_MATCHED_EXPIRED_STATE           5
 #define UDP_MATCHED_ACTIVE_STATE            6
 #define ICMP_INNER_IP_HEADER_TOO_BIG        13
+#define IP6_HEADER_TOO_BIG                  30
+#define IPV6_TUPLE_TOO_BIG                  31
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -124,11 +128,12 @@ struct tproxy_key {
 
 
 struct bpf_event{
+    __u8 version;
     unsigned long long tstamp;
     __u32 ifindex;
     __u32 tun_ifindex;
-    __u32 daddr;
-    __u32 saddr;
+    __u32 daddr[4];
+    __u32 saddr[4];
     __u16 sport;
     __u16 dport;
     __u16 tport;
@@ -140,10 +145,10 @@ struct bpf_event{
     unsigned char dest[6];
 };
 
-/*Key to tcp_map*/
+/*Key to tcp_map/udp_map*/
 struct tuple_key {
-    __u32 daddr;
-    __u32 saddr;
+    __u32 daddr[4];
+    __u32 saddr[4];
     __u16 sport;
     __u16 dport;
 };
@@ -598,12 +603,12 @@ static inline void send_event(struct bpf_event *new_event){
     struct bpf_event *rb_event;
     rb_event = bpf_ringbuf_reserve(&rb_map, sizeof(*rb_event), 0);
     if(rb_event){
+        rb_event->version = new_event->version;
         rb_event->ifindex = new_event->ifindex;
         rb_event->tun_ifindex = new_event->tun_ifindex;
-        rb_event->tstamp = new_event->tstamp;
-        //rb_event->tstamp = bpf_ktime_get_ns();   
-        rb_event->daddr = new_event->daddr;
-        rb_event->saddr = new_event->saddr;
+        rb_event->tstamp = new_event->tstamp;   
+        memcpy(rb_event->daddr, new_event->daddr, sizeof(rb_event->daddr));
+        memcpy(rb_event->saddr, new_event->saddr, sizeof(rb_event->saddr));
         rb_event->dport = new_event->dport;
         rb_event->sport = new_event->sport;
         rb_event->tport = new_event->tport;
@@ -627,9 +632,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
     __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, bool *vrrp,
      struct bpf_event *event, struct diag_ip4 *local_diag){
 
-    struct bpf_sock_tuple *result;
+    struct bpf_sock_tuple *result = NULL;
     __u8 proto = 0;
-    int ret;
     
     /* check if ARP */
     if (eth_proto == bpf_htons(ETH_P_ARP)) {
@@ -637,39 +641,52 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         return NULL;
     }
     
-    /* check if IPv6 */
-    if (eth_proto == bpf_htons(ETH_P_IPV6)) {
-        *ipv6 = true;
-        return NULL;
-    }
-    
-    /* check IPv4 */
-    if (eth_proto == bpf_htons(ETH_P_IP)) {
-        *ipv4 = true;
-
-        /* find ip hdr */
-        struct iphdr *iph = (struct iphdr *)(skb->data + nh_off);
-        
+    /* check IP */
+    struct iphdr *iph = NULL;
+    struct ipv6hdr *ip6h = NULL;
+    if (eth_proto == bpf_htons(ETH_P_IP))
+     {
+        event->version = 4;
+        /* find ip hdr */     
+        iph = (struct iphdr *)(skb->data + nh_off);
         /* ensure ip header is in packet bounds */
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
             event->error_code = IP_HEADER_TOO_BIG;
             send_event(event);
             return NULL;
-		}
+        }
         /* ip options not allowed */
         if (iph->ihl != 5){
             if(local_diag->verbose){
                 event->error_code = NO_IP_OPTIONS_ALLOWED;
-		        send_event(event);
+                send_event(event);
             }
             return NULL;
         }
-        /* get ip protocol type */
+        *ipv4 = true;
         proto = iph->protocol;
+    }else if(eth_proto == bpf_htons(ETH_P_IPV6)){
+        event->version = 6;
+        ip6h = (struct ipv6hdr *)(skb->data + nh_off);
+        /* ensure ip header is in packet bounds */
+        if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+            event->error_code = IP6_HEADER_TOO_BIG;
+            send_event(event);
+            return NULL;
+        }
+        *ipv6 = true;
+        proto = ip6h->nexthdr;
+    }
+
         /* check if ip protocol is UDP */
-        if (proto == IPPROTO_UDP) {
+    if (proto == IPPROTO_UDP) {
             /* check outer ip header */
-            struct udphdr *udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct iphdr));
+            struct udphdr *udph = NULL;
+            if(*ipv4){
+                udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct iphdr));
+            }else{
+                udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct ipv6hdr));
+            }
             if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
                 event->error_code = UDP_HEADER_TOO_BIG;
                 send_event(event);
@@ -677,9 +694,10 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
             }
 
             /* If geneve port 6081, then do geneve header verification */
-            if (bpf_ntohs(udph->dest) == GENEVE_UDP_PORT){
+            if (*ipv4 && bpf_ntohs(udph->dest) == GENEVE_UDP_PORT){
                 /* read receive geneve version and header length */
-                __u8 *genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
+                __u8 *genhdr = NULL;
+                genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
                 if ((unsigned long)(genhdr + 1) > (unsigned long)skb->data_end){
                     event->error_code = GENEVE_HEADER_TOO_BIG;
                     send_event(event);
@@ -687,7 +705,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 }
                 __u32 gen_ver  = genhdr[0] & 0xC0 >> 6;
                 __u32 gen_hdr_len = genhdr[0] & 0x3F;
-                
+            
                 /* if the length is not equal to 32 bytes and version 0 */
                 if ((gen_hdr_len != AWS_GNV_HDR_OPT_LEN / 4) || (gen_ver != GENEVE_VER)){
                     event->error_code = GENEVE_HEADER_LENGTH_VERSION_ERROR;
@@ -696,6 +714,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 }
 
                 /* Updating the skb to pop geneve header */
+                int ret = 0;
                 ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
                 if (ret) {
                     event->error_code = SKB_ADJUST_ERROR;
@@ -709,7 +728,23 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                     send_event(event);
                     return NULL;
                 }
-                proto = iph->protocol;
+                unsigned char version = iph->version;
+                if(version == 6){
+                    *ipv4 = false;
+                    event->version = 6;
+                    ip6h = (struct ipv6hdr *)(skb->data + nh_off);
+                    /* ensure ip header is in packet bounds */
+                    if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                        event->error_code = IP6_HEADER_TOO_BIG;
+                        send_event(event);
+                        return NULL;
+                    }
+                    *ipv6 = true;
+                    proto = ip6h->nexthdr;
+                }else{
+                    proto = iph->protocol;
+                }
+                
             }
             /* set udp to true if inner is udp, and let all other inner protos to the next check point */
             if (proto == IPPROTO_UDP) {
@@ -720,7 +755,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         if (proto == IPPROTO_TCP) {
             *tcp = true;
         }
-        if(proto == IPPROTO_ICMP){
+        if((proto == IPPROTO_ICMP) || (proto == IPPROTO_ICMPV6)){
             *icmp = true;
             return NULL;
         }
@@ -731,12 +766,14 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         /* check if ip protocol is not UDP or TCP. Return NULL if true */
         if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
             return NULL;
-        }
+        } 
         /*return bpf_sock_tuple*/
-        result = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-    } else {
-        return NULL;
-    }
+        if(*ipv4){
+            result = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+        }else
+        {
+            result = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        }
     return result;
 }
 
@@ -780,8 +817,8 @@ static inline struct bpf_sock *get_sk(struct tproxy_key key, struct __sk_buff *s
 //ebpf tc code entry program
 SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
-    struct bpf_sock *sk; 
-    struct bpf_sock_tuple *tuple;
+    struct bpf_sock *sk = {0}; 
+    struct bpf_sock_tuple *tuple ={0};
     int tuple_len;
     bool ipv4 = false;
     bool ipv6 = false;
@@ -794,11 +831,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
+        0,
         tstamp,
         skb->ifindex,
         0,
-        0,
-        0,
+        {0,0,0,0},
+        {0,0,0,0},
         0,
         0,
         0,
@@ -811,9 +849,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
      };
     
     /*look up attached interface inbound diag status*/
-    struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ifindex);
     if(!local_diag){
-        if(skb->ingress_ifindex == 1){
+        if(skb->ifindex == 1){
             return TC_ACT_OK;
         }else{
             return TC_ACT_SHOT;
@@ -837,106 +875,142 @@ int bpf_sk_splice(struct __sk_buff *skb){
     /* check if incoming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, &vrrp, &event, local_diag);
 
-    /*look up attached interface IP address*/
-    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
+    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
-        if(skb->ingress_ifindex == 1){
+        if(skb->ifindex == 1){
             return TC_ACT_OK;
         }
         else if(arp){
             return TC_ACT_OK;
 	    }
         else if(icmp){
-            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                return TC_ACT_SHOT;
-            }
-            struct icmphdr *icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
-            if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
-                event.error_code = ICMP_HEADER_TOO_BIG;
-                send_event(&event);
-                return TC_ACT_SHOT;
-            }
-            else if((icmph->type == 8) && (icmph->code == 0)){
-                if(local_diag && local_diag->echo){
-                    return TC_ACT_OK;
-                }
-                else{
+            if(ipv4){
+                struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
                 }
-            }
-            else if((icmph->type == 0) && (icmph->code == 0)){
-                return TC_ACT_OK;
-            }
-            else if(icmph->type == 3){
-                struct iphdr *inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
-                if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
-                    if(local_diag->verbose){
-                        event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
-                        send_event(&event);
+                struct icmphdr *icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                    event.error_code = ICMP_HEADER_TOO_BIG;
+                    send_event(&event);
+                    return TC_ACT_SHOT;
+                }
+                else if(((icmph->type == 8)) && (icmph->code == 0)){
+                    if(local_diag && local_diag->echo){
+                        return TC_ACT_OK;
                     }
-                    return TC_ACT_SHOT;
-                }
-                if((inner_iph->protocol == IPPROTO_TCP) || ((inner_iph->protocol == IPPROTO_UDP))){
-                    event.source[0] = iph->ttl;
-                    event.dest[0] = inner_iph->ttl; 
-                    event.dest[1] = inner_iph->protocol;
-                    struct bpf_sock_tuple *o_session = (struct bpf_sock_tuple *)(void*)(long)&inner_iph->saddr; 
-                    if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
-                        event.error_code = IP_TUPLE_TOO_BIG;
-                        send_event(&event);
+                    else{
                         return TC_ACT_SHOT;
                     }
-                    if(inner_iph->protocol == IPPROTO_TCP){
-                        sk = bpf_skc_lookup_tcp(skb, o_session, sizeof(o_session->ipv4),BPF_F_CURRENT_NETNS, 0);
-                        if(sk){
-                            if (sk->state == BPF_TCP_LISTEN){
+                }
+                else if((icmph->type == 0) && (icmph->code == 0)){
+                    return TC_ACT_OK;
+                }
+                else if(ipv4 && (icmph->type == 3)){
+                    struct iphdr *inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                        if(local_diag->verbose){
+                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                            send_event(&event);
+                        }
+                        return TC_ACT_SHOT;
+                    }
+                    if((inner_iph->protocol == IPPROTO_TCP) || ((inner_iph->protocol == IPPROTO_UDP))){
+                        event.source[0] = iph->ttl;
+                        event.dest[0] = inner_iph->ttl; 
+                        event.dest[1] = inner_iph->protocol;
+                        struct bpf_sock_tuple *o_session = (struct bpf_sock_tuple *)(void*)(long)&inner_iph->saddr; 
+                        if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
+                            event.error_code = IP_TUPLE_TOO_BIG;
+                            send_event(&event);
+                            return TC_ACT_SHOT;
+                        }
+                        if(inner_iph->protocol == IPPROTO_TCP){
+                            sk = bpf_skc_lookup_tcp(skb, o_session, sizeof(o_session->ipv4),BPF_F_CURRENT_NETNS, 0);
+                            if(sk){
+                                if (sk->state == BPF_TCP_LISTEN){
+                                    event.proto = IPPROTO_ICMP;
+                                    __u32 saddr_array[4] = {iph->saddr,0,0,0};
+                                    __u32 daddr_array[4] = {o_session->ipv4.daddr,0,0,0};
+                                    memcpy(event.saddr,saddr_array, sizeof(saddr_array));
+                                    memcpy(event.daddr,daddr_array, sizeof(daddr_array));
+                                    event.tracking_code = icmph->code;
+                                    if(icmph->code == 4){
+                                        event.sport = icmph->un.frag.mtu;
+                                    }
+                                    event.dport = o_session->ipv4.dport;
+                                    send_event(&event);
+                                    bpf_sk_release(sk);
+                                    return TC_ACT_OK;
+                                }
+                                bpf_sk_release(sk);
+                            }
+                        }
+                        else{
+                            struct bpf_sock_tuple oudp_session = {0};
+                            oudp_session.ipv4.daddr = o_session->ipv4.saddr;
+                            oudp_session.ipv4.saddr = o_session->ipv4.daddr;
+                            oudp_session.ipv4.dport = o_session->ipv4.sport;
+                            oudp_session.ipv4.sport = o_session->ipv4.dport;
+                            sk = bpf_sk_lookup_udp(skb, &oudp_session, sizeof(oudp_session.ipv4), BPF_F_CURRENT_NETNS, 0);
+                            if(sk){
                                 event.proto = IPPROTO_ICMP;
-                                event.saddr = iph->saddr;
-                                event.daddr = o_session->ipv4.daddr;
+                                __u32 saddr_array[4] = {iph->saddr,0,0,0};
+                                __u32 daddr_array[4] = {o_session->ipv4.daddr,0,0,0};
+                                memcpy(event.saddr,saddr_array, sizeof(saddr_array));
+                                memcpy(event.daddr,daddr_array, sizeof(daddr_array));
                                 event.tracking_code = icmph->code;
                                 if(icmph->code == 4){
                                     event.sport = icmph->un.frag.mtu;
+                                }else{
+                                    event.sport = inner_iph->protocol;
                                 }
                                 event.dport = o_session->ipv4.dport;
                                 send_event(&event);
                                 bpf_sk_release(sk);
                                 return TC_ACT_OK;
                             }
-                            bpf_sk_release(sk);
                         }
+
+                    }
+                    return TC_ACT_SHOT;
+                }
+                else{
+                    return TC_ACT_SHOT;
+                }
+            }else{
+                struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+                if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                struct icmp6hdr *icmp6h = (struct icmp6hdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                if ((unsigned long)(icmp6h + 1) > (unsigned long)skb->data_end){
+                    event.error_code = ICMP_HEADER_TOO_BIG;
+                    send_event(&event);
+                    return TC_ACT_SHOT;
+                }
+                if((icmp6h->icmp6_type == 128) && (icmp6h->icmp6_code == 0)){
+                    if(local_diag && local_diag->echo){
+                        return TC_ACT_OK;
                     }
                     else{
-                        struct bpf_sock_tuple oudp_session = {0};
-                        oudp_session.ipv4.daddr = o_session->ipv4.saddr;
-                        oudp_session.ipv4.saddr = o_session->ipv4.daddr;
-                        oudp_session.ipv4.dport = o_session->ipv4.sport;
-                        oudp_session.ipv4.sport = o_session->ipv4.dport;
-                        sk = bpf_sk_lookup_udp(skb, &oudp_session, sizeof(oudp_session.ipv4), BPF_F_CURRENT_NETNS, 0);
-                        if(sk){
-                            event.proto = IPPROTO_ICMP;
-                            event.saddr = iph->saddr;
-                            event.daddr = o_session->ipv4.daddr;
-                            event.tracking_code = icmph->code;
-                            if(icmph->code == 4){
-                                event.sport = icmph->un.frag.mtu;
-                            }else{
-                                event.sport = inner_iph->protocol;
-                            }
-                            event.dport = o_session->ipv4.dport;
-                            send_event(&event);
-                            bpf_sk_release(sk);
-                            return TC_ACT_OK;
-                        }
+                        return TC_ACT_SHOT;
                     }
-
+                }else if((icmp6h->icmp6_type == 129) && (icmp6h->icmp6_code == 0)){
+                    return TC_ACT_OK;
+                }else if((icmp6h->icmp6_type == 133) && (icmp6h->icmp6_code == 0)){
+                    return TC_ACT_OK;
+                }else if((icmp6h->icmp6_type == 134) && (icmp6h->icmp6_code == 0)){
+                    return TC_ACT_OK;
+                }else if((icmp6h->icmp6_type == 135) && (icmp6h->icmp6_code == 0)){
+                    return TC_ACT_OK;
+                }else if((icmp6h->icmp6_type == 136) && (icmp6h->icmp6_code == 0)){
+                    return TC_ACT_OK;
+                }else{
+                    return TC_ACT_SHOT;
                 }
-                return TC_ACT_SHOT;
-            }
-            else{
-                return TC_ACT_SHOT;
             }
         }else if(vrrp && local_diag && local_diag->vrrp)
         {
@@ -948,252 +1022,426 @@ int bpf_sk_splice(struct __sk_buff *skb){
     }
 
     /* determine length of tuple */
-    tuple_len = sizeof(tuple->ipv4);
-    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-       if(local_diag->verbose){
-            event.error_code = IP_TUPLE_TOO_BIG;
-            send_event(&event);
-       }
-       return TC_ACT_SHOT;
-    }
-    event.saddr = tuple->ipv4.saddr;
-    event.daddr = tuple->ipv4.daddr;
-    event.sport = tuple->ipv4.sport;
-    event.dport = tuple->ipv4.dport;
-    if((skb->ingress_ifindex == 1) && udp && (bpf_ntohs(tuple->ipv4.dport) == 53)){
-       return TC_ACT_OK;
-    }
-    /* allow ssh to local interface ip addresses */
-    if(!local_diag->ssh_disable){
-        if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
-            if((!local_ip4 || !local_ip4->count)){
-                return TC_ACT_OK;
-            }else{
-                uint8_t addresses = 0; 
-                if(local_ip4->count < MAX_ADDRESSES){
-                    addresses = local_ip4->count;
-                }else{
-                    addresses = MAX_ADDRESSES;
-                }
-                for(int x = 0; x < addresses; x++){
-                    if(tuple->ipv4.daddr == local_ip4->ipaddr[x]){
-                        if(local_diag->verbose && ((event.tstamp % 2) == 0)){
-                            event.proto = IPPROTO_TCP;
-                            send_event(&event);
-                        }
-                        return TC_ACT_OK;
-                    }
-                }
-            }
-        }
-    }
-    /* forward DHCP messages to local system */
-    if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
-       return TC_ACT_OK;
-    }
-     /* if tcp based tuple implement stateful inspection to see if they were
-     * initiated by the local OS if not pass on to tproxy logic to determine if the
-     * openziti router has tproxy intercepts defined for the flow
-     */
-    if(tcp){
-        /*if tcp based tuple implement stateful inspection to see if they were
-        * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
-        outbound initiated from through the router interface. if not pass on to tproxy logic
-        to determine if the openziti router has tproxy intercepts defined for the flow*/
-        event.proto = IPPROTO_TCP;
-        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
-        }
-        struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
-        }
-        sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
-        if(sk){
-            if (sk->state != BPF_TCP_LISTEN){
-                if(local_diag->verbose){
+    if(ipv4){
+        tuple_len = sizeof(tuple->ipv4);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            if(local_diag->verbose){
+                    event.error_code = IP_TUPLE_TOO_BIG;
                     send_event(&event);
+            }
+            return TC_ACT_SHOT;
+        }
+        __u32 saddr_array[4] = {tuple->ipv4.saddr,0,0,0};
+        __u32 daddr_array[4] = {tuple->ipv4.daddr,0,0,0};
+        memcpy(event.saddr,saddr_array, sizeof(saddr_array));
+        memcpy(event.daddr,daddr_array, sizeof(daddr_array));
+        event.sport = tuple->ipv4.sport;
+        event.dport = tuple->ipv4.dport;
+        if((skb->ifindex == 1) && udp && (bpf_ntohs(tuple->ipv4.dport) == 53)){
+            return TC_ACT_OK;
+        }
+        /* allow ssh to local interface ip addresses */
+        if(!local_diag->ssh_disable){
+            if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
+                if((!local_ip4 || !local_ip4->count)){
+                    return TC_ACT_OK;
+                }else{
+                    uint8_t addresses = 0; 
+                    if(local_ip4->count < MAX_ADDRESSES){
+                        addresses = local_ip4->count;
+                    }else{
+                        addresses = MAX_ADDRESSES;
+                    }
+                    for(int x = 0; x < addresses; x++){
+                        if(tuple->ipv4.daddr == local_ip4->ipaddr[x]){
+                            if(local_diag->verbose && ((event.tstamp % 2) == 0)){
+                                event.proto = IPPROTO_TCP;
+                                send_event(&event);
+                            }
+                            return TC_ACT_OK;
+                        }
+                    }
                 }
-                goto assign;
             }
-            bpf_sk_release(sk);
-            if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
-                    uint8_t addresses = 0;
-                    if(local_ip4->count < MAX_ADDRESSES){
-                        addresses = local_ip4->count;
-                    }else{
-                        addresses = MAX_ADDRESSES;
-                    }
-                    for(int x = 0; x < addresses; x++){
-                        if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
-                            if(local_diag->verbose){
-                                event.proto = IPPROTO_TCP;
-                                send_event(&event);
-                            }
-			                if(tcph->syn){
-                                inc_syn_count(skb->ifindex);
-			                }
-			                if(local_diag->ddos_filtering){
-				                if(check_ddos_saddr(tuple->ipv4.saddr)){
-                                    return TC_ACT_OK;
-                                }else{
-                                    return TC_ACT_SHOT;
-				                }
-                            }
-                        }
-                    }
-             }   
-        /*reply to outbound passthrough check*/
-        }else{
-            if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
-                    uint8_t addresses = 0;
-                    if(local_ip4->count < MAX_ADDRESSES){
-                        addresses = local_ip4->count;
-                    }else{
-                        addresses = MAX_ADDRESSES;
-                    }
-                    for(int x = 0; x < addresses; x++){
-                        if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
-                            if(local_diag->verbose){
-                                event.proto = IPPROTO_TCP;
-                                send_event(&event);
-                            }
-			                if(tcph->syn){
-                                inc_syn_count(skb->ifindex);
-			                }
-			                if(local_diag->ddos_filtering){
-				                if(check_ddos_saddr(tuple->ipv4.saddr)){
-                                    return TC_ACT_OK;
-                                }else{
-                                    return TC_ACT_SHOT;
-				                }
-                            }
-                        }
-                    }
+        }
+        /* forward DHCP messages to local system */
+        if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
+            return TC_ACT_OK;
+        }
+        /* if tcp based tuple implement stateful inspection to see if they were
+        * initiated by the local OS if not pass on to tproxy logic to determine if the
+        * openziti router has tproxy intercepts defined for the flow
+        */
+        if(tcp){
+            /*if tcp based tuple implement stateful inspection to see if they were
+            * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
+            outbound initiated from through the router interface. if not pass on to tproxy logic
+            to determine if the openziti router has tproxy intercepts defined for the flow*/
+            event.proto = IPPROTO_TCP;
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
             }
-            tcp_state_key.daddr = tuple->ipv4.saddr;
-            tcp_state_key.saddr = tuple->ipv4.daddr;
-            tcp_state_key.sport = tuple->ipv4.dport;
-            tcp_state_key.dport = tuple->ipv4.sport;
-	        unsigned long long tstamp = bpf_ktime_get_ns();
-            struct tcp_state *tstate = get_tcp(tcp_state_key);
-            /*check tcp state and timeout if greater than 60 minutes without traffic*/
-            if(tstate && (tstamp < (tstate->tstamp + 3600000000000))){    
-                if(tcph->syn  && tcph->ack){
-                    tstate->ack =1;
-                    tstate->tstamp = tstamp;
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+                if (sk->state != BPF_TCP_LISTEN){
                     if(local_diag->verbose){
-                        event.tracking_code = SERVER_SYN_ACK_RCVD;
                         send_event(&event);
                     }
-                    return TC_ACT_OK;
+                    goto assign;
                 }
-                else if(tcph->fin){
-                    if(tstate->est){
+                bpf_sk_release(sk);
+                if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
+                        uint8_t addresses = 0;
+                        if(local_ip4->count < MAX_ADDRESSES){
+                            addresses = local_ip4->count;
+                        }else{
+                            addresses = MAX_ADDRESSES;
+                        }
+                        for(int x = 0; x < addresses; x++){
+                            if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                                if(local_diag->verbose){
+                                    event.proto = IPPROTO_TCP;
+                                    send_event(&event);
+                                }
+                                if(tcph->syn){
+                                    inc_syn_count(skb->ifindex);
+                                }
+                                if(local_diag->ddos_filtering){
+                                    if(check_ddos_saddr(tuple->ipv4.saddr)){
+                                        return TC_ACT_OK;
+                                    }else{
+                                        return TC_ACT_SHOT;
+                                    }
+                                }
+                            }
+                        }
+                }   
+            /*reply to outbound passthrough check*/
+            }else{
+                if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
+                        uint8_t addresses = 0;
+                        if(local_ip4->count < MAX_ADDRESSES){
+                            addresses = local_ip4->count;
+                        }else{
+                            addresses = MAX_ADDRESSES;
+                        }
+                        for(int x = 0; x < addresses; x++){
+                            if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                                if(local_diag->verbose){
+                                    event.proto = IPPROTO_TCP;
+                                    send_event(&event);
+                                }
+                                if(tcph->syn){
+                                    inc_syn_count(skb->ifindex);
+                                }
+                                if(local_diag->ddos_filtering){
+                                    if(check_ddos_saddr(tuple->ipv4.saddr)){
+                                        return TC_ACT_OK;
+                                    }else{
+                                        return TC_ACT_SHOT;
+                                    }
+                                }
+                            }
+                        }
+                }
+                memcpy(tcp_state_key.daddr,saddr_array, sizeof(saddr_array));
+                memcpy(tcp_state_key.saddr,daddr_array, sizeof(daddr_array));
+                tcp_state_key.sport = tuple->ipv4.dport;
+                tcp_state_key.dport = tuple->ipv4.sport;
+                unsigned long long tstamp = bpf_ktime_get_ns();
+                struct tcp_state *tstate = get_tcp(tcp_state_key);
+                /*check tcp state and timeout if greater than 60 minutes without traffic*/
+                if(tstate && (tstamp < (tstate->tstamp + 3600000000000))){    
+                    if(tcph->syn  && tcph->ack){
+                        tstate->ack =1;
                         tstate->tstamp = tstamp;
-                        tstate->sfin = 1;
-                        tstate->sfseq = tcph->seq;
                         if(local_diag->verbose){
-                            event.tracking_code = SERVER_FIN_RCVD;
+                            event.tracking_code = SERVER_SYN_ACK_RCVD;
                             send_event(&event);
                         }
                         return TC_ACT_OK;
                     }
-                }
-                else if(tcph->rst){
-                    del_tcp(tcp_state_key);
-                    tstate = get_tcp(tcp_state_key);
-                    if(!tstate){
-                        if(local_diag->verbose){
-                            event.tracking_code = SERVER_RST_RCVD;
-                            send_event(&event);
+                    else if(tcph->fin){
+                        if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            tstate->sfin = 1;
+                            tstate->sfseq = tcph->seq;
+                            if(local_diag->verbose){
+                                event.tracking_code = SERVER_FIN_RCVD;
+                                send_event(&event);
+                            }
+                            return TC_ACT_OK;
                         }
                     }
-                    return TC_ACT_OK;
-                }
-                else if(tcph->ack){
-                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                    else if(tcph->rst){
                         del_tcp(tcp_state_key);
                         tstate = get_tcp(tcp_state_key);
                         if(!tstate){
                             if(local_diag->verbose){
-                                event.tracking_code = SERVER_FINAL_ACK_RCVD;
+                                event.tracking_code = SERVER_RST_RCVD;
                                 send_event(&event);
                             }
                         }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->ack){
+                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            del_tcp(tcp_state_key);
+                            tstate = get_tcp(tcp_state_key);
+                            if(!tstate){
+                                if(local_diag->verbose){
+                                    event.tracking_code = SERVER_FINAL_ACK_RCVD;
+                                    send_event(&event);
+                                }
+                            }
 
-                    }
-                    else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
-                        tstate->sfack = 1;
-                        tstate->tstamp = tstamp;
-                        return TC_ACT_OK;
-                    }
-                    else if(tstate->est){
-                        tstate->tstamp = tstamp;
-                        return TC_ACT_OK;
-                    }
-                }
-            }
-            else if(tstate){
-                del_tcp(tcp_state_key);
-            }
-        }
-    }else{
-       /* if udp based tuple implement stateful inspection to 
-        * implement stateful inspection to see if they were initiated by the local OS and If yes jump
-        * to assign label. Then check if tuple is a reply to outbound initiated from through the router interface. 
-        * if not pass on to tproxy logic to determine if the openziti router has tproxy intercepts
-        * defined for the flow*/
-        event.proto = IPPROTO_UDP;
-        sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
-        if(sk){
-           /*
-            * check if there is a dest ip associated with the local socket. if yes jump to assign if not
-            * disregard and release the sk and continue on to check for tproxy mapping.
-            */
-           if(sk->dst_ip4){
-                if(local_diag->verbose){
-                    send_event(&event);
-                }
-                goto assign;
-           }
-           bpf_sk_release(sk);
-        /*reply to outbound passthrough check*/
-        }else{
-            udp_state_key.daddr = tuple->ipv4.saddr;
-            udp_state_key.saddr = tuple->ipv4.daddr;
-            udp_state_key.sport = tuple->ipv4.dport;
-            udp_state_key.dport = tuple->ipv4.sport;
-            unsigned long long tstamp = bpf_ktime_get_ns();
-            struct udp_state *ustate = get_udp(udp_state_key);
-            if(ustate){
-                /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
-                if(tstamp > (ustate->tstamp + 30000000000)){
-                    del_udp(udp_state_key);
-                    ustate = get_udp(udp_state_key);
-                    if(!ustate){
-                        if(local_diag->verbose){
-                            event.tracking_code = UDP_MATCHED_EXPIRED_STATE;
-                            send_event(&event);
+                        }
+                        else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            tstate->sfack = 1;
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                        else if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
                         }
                     }
                 }
-                else{
+                else if(tstate){
+                    del_tcp(tcp_state_key);
+                }
+            }
+        }else{
+        /* if udp based tuple implement stateful inspection to 
+            * implement stateful inspection to see if they were initiated by the local OS and If yes jump
+            * to assign label. Then check if tuple is a reply to outbound initiated from through the router interface. 
+            * if not pass on to tproxy logic to determine if the openziti router has tproxy intercepts
+            * defined for the flow*/
+            event.proto = IPPROTO_UDP;
+            sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+            /*
+                * check if there is a dest ip associated with the local socket. if yes jump to assign if not
+                * disregard and release the sk and continue on to check for tproxy mapping.
+                */
+            if(sk->dst_ip4){
                     if(local_diag->verbose){
-                        event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
                         send_event(&event);
                     }
-                    ustate->tstamp = tstamp;
-                    return TC_ACT_OK;
+                    goto assign;
+            }
+            bpf_sk_release(sk);
+            /*reply to outbound passthrough check*/
+            }else{
+                memcpy(udp_state_key.daddr,saddr_array, sizeof(saddr_array));
+                memcpy(udp_state_key.saddr,daddr_array, sizeof(daddr_array));
+                udp_state_key.sport = tuple->ipv4.dport;
+                udp_state_key.dport = tuple->ipv4.sport;
+                unsigned long long tstamp = bpf_ktime_get_ns();
+                struct udp_state *ustate = get_udp(udp_state_key);
+                if(ustate){
+                    /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                    if(tstamp > (ustate->tstamp + 30000000000)){
+                        del_udp(udp_state_key);
+                        ustate = get_udp(udp_state_key);
+                        if(!ustate){
+                            if(local_diag->verbose){
+                                event.tracking_code = UDP_MATCHED_EXPIRED_STATE;
+                                send_event(&event);
+                            }
+                        }
+                    }
+                    else{
+                        if(local_diag->verbose){
+                            event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
+                            send_event(&event);
+                        }
+                        ustate->tstamp = tstamp;
+                        return TC_ACT_OK;
+                    }
                 }
             }
         }
-    }
-    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, event.proto};
-    clear_match_tracker(mkey);
-    return TC_ACT_PIPE;
+        struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, event.proto};
+        clear_match_tracker(mkey);
+        return TC_ACT_PIPE;
+    }else if(ipv6)
+    {
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            if(local_diag->verbose){
+                event.error_code = IPV6_TUPLE_TOO_BIG;
+                send_event(&event);
+            }
+            return TC_ACT_SHOT;
+        }
+        memcpy(event.saddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+        memcpy(event.daddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+        event.sport = tuple->ipv6.sport;
+        event.dport = tuple->ipv6.dport;
+        if((skb->ifindex == 1) && udp && (bpf_ntohs(tuple->ipv6.dport) == 53)){
+            return TC_ACT_OK;
+        }
+        /* allow ssh to local interface ip addresses */
+        if(!local_diag->ssh_disable){
+            if(tcp && (bpf_ntohs(tuple->ipv6.dport) == 22)){
+                return TC_ACT_OK;
+            }
+        }
+        if(tcp){
+            /*if tcp based tuple implement stateful inspection to see if they were
+            * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
+            outbound initiated from through the router interface. if not pass on to tproxy logic
+            to determine if the openziti router has tproxy intercepts defined for the flow*/
+            event.proto = IPPROTO_TCP;
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+                if (sk->state != BPF_TCP_LISTEN){
+                    if(local_diag->verbose){
+                        send_event(&event);
+                    }
+                    goto assign;
+                }
+                bpf_sk_release(sk);   
+            /*reply to outbound passthrough check*/
+            }else{
+                memcpy(tcp_state_key.daddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(tcp_state_key.saddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                tcp_state_key.sport = tuple->ipv6.dport;
+                tcp_state_key.dport = tuple->ipv6.sport;
+                unsigned long long tstamp = bpf_ktime_get_ns();
+                struct tcp_state *tstate = get_tcp(tcp_state_key);
+                /*check tcp state and timeout if greater than 60 minutes without traffic*/
+                if(tstate && (tstamp < (tstate->tstamp + 3600000000000))){    
+                    if(tcph->syn  && tcph->ack){
+                        tstate->ack =1;
+                        tstate->tstamp = tstamp;
+                        if(local_diag->verbose){
+                            event.tracking_code = SERVER_SYN_ACK_RCVD;
+                            send_event(&event);
+                        }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->fin){
+                        if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            tstate->sfin = 1;
+                            tstate->sfseq = tcph->seq;
+                            if(local_diag->verbose){
+                                event.tracking_code = SERVER_FIN_RCVD;
+                                send_event(&event);
+                            }
+                            return TC_ACT_OK;
+                        }
+                    }
+                    else if(tcph->rst){
+                        del_tcp(tcp_state_key);
+                        tstate = get_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = SERVER_RST_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->ack){
+                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            del_tcp(tcp_state_key);
+                            tstate = get_tcp(tcp_state_key);
+                            if(!tstate){
+                                if(local_diag->verbose){
+                                    event.tracking_code = SERVER_FINAL_ACK_RCVD;
+                                    send_event(&event);
+                                }
+                            }
 
+                        }
+                        else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            tstate->sfack = 1;
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                        else if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                    }
+                }
+                else if(tstate){
+                    del_tcp(tcp_state_key);
+                }
+            }
+        }else{
+        /* if udp based tuple implement stateful inspection to 
+            * implement stateful inspection to see if they were initiated by the local OS and If yes jump
+            * to assign label. Then check if tuple is a reply to outbound initiated from through the router interface. 
+            * if not pass on to tproxy logic to determine if the openziti router has tproxy intercepts
+            * defined for the flow*/
+            event.proto = IPPROTO_UDP;
+            sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+            /*
+                * check if there is a dest ip associated with the local socket. if yes jump to assign if not
+                * disregard and release the sk and continue on to check for tproxy mapping.
+                */
+            if(sk->dst_ip4){
+                    if(local_diag->verbose){
+                        send_event(&event);
+                    }
+                    goto assign;
+            }
+            bpf_sk_release(sk);
+            /*reply to outbound passthrough check*/
+            }else{
+                memcpy(udp_state_key.daddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(udp_state_key.saddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                udp_state_key.sport = tuple->ipv6.dport;
+                udp_state_key.dport = tuple->ipv6.sport;
+                unsigned long long tstamp = bpf_ktime_get_ns();
+                struct udp_state *ustate = get_udp(udp_state_key);
+                if(ustate){
+                    /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                    if(tstamp > (ustate->tstamp + 30000000000)){
+                        del_udp(udp_state_key);
+                        ustate = get_udp(udp_state_key);
+                        if(!ustate){
+                            if(local_diag->verbose){
+                                event.tracking_code = UDP_MATCHED_EXPIRED_STATE;
+                                send_event(&event);
+                            }
+                        }
+                    }
+                    else{
+                        if(local_diag->verbose){
+                            event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
+                            send_event(&event);
+                        }
+                        ustate->tstamp = tstamp;
+                        return TC_ACT_OK;
+                    }
+                }
+            }
+        }
+        return TC_ACT_SHOT;
+    }
+    else
+    {
+        return TC_ACT_SHOT;
+    }
     assign:
     /*attempt to splice the skb to the tproxy or local socket*/
     ret = bpf_sk_assign(skb, sk, 0);
@@ -1204,7 +1452,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
     /*else drop packet if not running on loopback*/
-    if(skb->ingress_ifindex == 1){
+    if(skb->ifindex == 1){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;
@@ -1490,7 +1738,7 @@ int bpf_sk_splice4(struct __sk_buff *skb){
             if(dmask == 0x00000000){
                 if((tracked_key_data->count > 0)){
                     return TC_ACT_PIPE;
-                }else if(skb->ingress_ifindex == 1){
+                }else if(skb->ifindex == 1){
                     return TC_ACT_OK;
                 }
             }
@@ -1510,9 +1758,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     int tuple_len;
 
     /*look up attached interface inbound diag status*/
-    struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ifindex);
     if(!local_diag){
-        if(skb->ingress_ifindex == 1){
+        if(skb->ifindex == 1){
             return TC_ACT_OK;
         }else{
             return TC_ACT_SHOT;
@@ -1538,11 +1786,12 @@ int bpf_sk_splice5(struct __sk_buff *skb){
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
+        4,
         tstamp,
         skb->ifindex,
         0,
-        tuple->ipv4.daddr,
-        tuple->ipv4.saddr,
+        {tuple->ipv4.daddr,0,0,0},
+        {tuple->ipv4.saddr,0,0,0},
         tuple->ipv4.sport,
         tuple->ipv4.dport,
         0,
@@ -1556,7 +1805,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
 
     struct tproxy_key key;
      /*look up attached interface IP address*/
-    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
+    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
     if(!local_ip4){
        return TC_ACT_SHOT;
     }   
@@ -1722,7 +1971,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
             }
         }
     }
-    if(skb->ingress_ifindex == 1){
+    if(skb->ifindex == 1){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;
@@ -1737,7 +1986,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
     /*else drop packet if not running on loopback*/
-    if(skb->ingress_ifindex == 1){
+    if(skb->ifindex == 1){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;

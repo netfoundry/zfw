@@ -28,6 +28,8 @@
 #include <linux/icmp.h>
 #include <linux/if.h>
 #include <stdio.h>
+#include <linux/ipv6.h>
+#include <linux/icmpv6.h>
 
 #define MAX_IF_ENTRIES                256
 #define BPF_MAX_SESSIONS              10000
@@ -41,14 +43,18 @@
 #define TCP_CONNECTION_ESTABLISHED    10
 #define CLIENT_FINAL_ACK_RCVD         11
 #define CLIENT_INITIATED_UDP_SESSION  12
+#define IP6_HEADER_TOO_BIG                  30
+#define IPV6_TUPLE_TOO_BIG                  31
+#define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 
 
 struct bpf_event{
+    __u8 version;
     unsigned long long tstamp;
     __u32 ifindex;
     __u32 tun_ifindex;
-    __u32 daddr;
-    __u32 saddr;
+    __u32 daddr[4];
+    __u32 saddr[4];
     __u16 sport;
     __u16 dport;
     __u16 tport;
@@ -62,8 +68,8 @@ struct bpf_event{
 
 /*Key to tcp_map and udp_map*/
 struct tuple_key {
-    __u32 daddr;
-    __u32 saddr;
+    __u32 daddr[4];
+    __u32 saddr[4];
     __u16 sport;
     __u16 dport;
 };
@@ -203,12 +209,12 @@ static inline void send_event(struct bpf_event *new_event){
     struct bpf_event *rb_event;
     rb_event = bpf_ringbuf_reserve(&rb_map, sizeof(*rb_event), 0);
     if(rb_event){
+        rb_event->version = new_event->version;
         rb_event->ifindex = new_event->ifindex;
         rb_event->tun_ifindex = new_event->tun_ifindex;
-        rb_event->tstamp = new_event->tstamp;
-        //rb_event->tstamp = bpf_ktime_get_ns();   
-        rb_event->daddr = new_event->daddr;
-        rb_event->saddr = new_event->saddr;
+        rb_event->tstamp = new_event->tstamp; 
+        memcpy(rb_event->daddr, new_event->daddr, sizeof(rb_event->daddr));
+        memcpy(rb_event->saddr, new_event->saddr, sizeof(rb_event->saddr));
         rb_event->dport = new_event->dport;
         rb_event->sport = new_event->sport;
         rb_event->tport = new_event->tport;
@@ -226,7 +232,7 @@ static inline void send_event(struct bpf_event *new_event){
 */
 static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
     __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, struct bpf_event *event,struct diag_ip4 *local_diag){
-    struct bpf_sock_tuple *result;
+    struct bpf_sock_tuple *result = NULL;
     __u8 proto = 0;
     
     /* check if ARP */
@@ -235,57 +241,67 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         return NULL;
     }
     
-    /* check if IPv6 */
-    if (eth_proto == bpf_htons(ETH_P_IPV6)) {
-        *ipv6 = true;
-        return NULL;
-    }
-    
-    /* check IPv4 */
-    if (eth_proto == bpf_htons(ETH_P_IP)) {
-        *ipv4 = true;
-
-        /* find ip hdr */
-        struct iphdr *iph = (struct iphdr *)(skb->data + nh_off);
-        
+    /* check IP */
+    struct iphdr *iph = NULL;
+    struct ipv6hdr *ip6h = NULL;
+    if (eth_proto == bpf_htons(ETH_P_IP))
+     {
+        event->version = 4;
+        /* find ip hdr */     
+        iph = (struct iphdr *)(skb->data + nh_off);
         /* ensure ip header is in packet bounds */
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            event->error_code = IP_HEADER_TOO_BIG;
+            send_event(event);
+            return NULL;
+        }
+        /* ip options not allowed */
+        if (iph->ihl != 5){
             if(local_diag->verbose){
-                event->error_code = IP_HEADER_TOO_BIG;
+                event->error_code = NO_IP_OPTIONS_ALLOWED;
                 send_event(event);
             }
             return NULL;
-		}
-        /* ip options not allowed */
-        if (iph->ihl != 5){
-		    if(local_diag->verbose){
-                event->error_code = NO_IP_OPTIONS_ALLOWED;
-		        send_event(event);
-            }
-            return NULL;
         }
-        /* get ip protocol type */
+        *ipv4 = true;
         proto = iph->protocol;
-        /* check if ip protocol is UDP */
-        if (proto == IPPROTO_UDP) {
-            *udp = true;
-        }
-        /* check if ip protocol is TCP */
-        if (proto == IPPROTO_TCP) {
-            *tcp = true;
-        }
-        if(proto == IPPROTO_ICMP){
-            *icmp = true;
+    }else if(eth_proto == bpf_htons(ETH_P_IPV6)){
+        event->version = 6;
+        ip6h = (struct ipv6hdr *)(skb->data + nh_off);
+        /* ensure ip header is in packet bounds */
+        if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+            event->error_code = IP6_HEADER_TOO_BIG;
+            send_event(event);
             return NULL;
         }
-        /* check if ip protocol is not UDP or TCP. Return NULL if true */
-        if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
-            return NULL;
-        }
-        /*return bpf_sock_tuple*/
-        result = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-    } else {
+        *ipv6 = true;
+        proto = ip6h->nexthdr;
+    }else{
         return NULL;
+    }
+    /* check if ip protocol is UDP */
+    if (proto == IPPROTO_UDP) {
+            *udp = true;
+    }
+    
+    /* check if ip protocol is TCP */
+    if (proto == IPPROTO_TCP) {
+        *tcp = true;
+    }
+    if((proto == IPPROTO_ICMP) || (proto == IPPROTO_ICMPV6)){
+        *icmp = true;
+        return NULL;
+    }
+    /* check if ip protocol is not UDP or TCP. Return NULL if true */
+    if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
+        return NULL;
+    } 
+    /*return bpf_sock_tuple*/
+    if(*ipv4){
+        result = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+    }else
+    {
+        result = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
     }
     return result;
 }
@@ -307,11 +323,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
+        4,
         tstamp,
         skb->ifindex,
         0,
-        0,
-        0,
+        {0,0,0,0},
+        {0,0,0,0},
         0,
         0,
         0,
@@ -346,181 +363,352 @@ int bpf_sk_splice(struct __sk_buff *skb){
     if (!tuple){
         return TC_ACT_OK;
     }
-
-    /* determine length of tuple */
-    tuple_len = sizeof(tuple->ipv4);
-    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-       return TC_ACT_SHOT;
-    }
-    event.saddr = tuple->ipv4.saddr;
-    event.daddr = tuple->ipv4.daddr;
-    event.sport = tuple->ipv4.sport;
-    event.dport = tuple->ipv4.dport;
-    /*if packet egressing on loopback interface and its source is the ziti0 ip address 
-     *redirect the packet to the ziti0 interface. Added to provide support for L2tpV3 over
-     *over openziti with ziti-edge-tunnel
-     */
-    if((skb->ifindex == 1) && tun_if && tun_if->resolver){
-        uint32_t tun_ip =  bpf_ntohl(tun_if->resolver) - 1;
-        if(tuple->ipv4.saddr == bpf_htonl(tun_ip)){
-            return bpf_redirect(tun_if->index, 0);
+    if(ipv4){
+        /* determine length of tuple */
+        tuple_len = sizeof(tuple->ipv4);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
         }
-    }
-    /* if tcp based tuple implement stateful inspection to see if they were
-     * initiated by the local OS if not then its passthrough traffic and so wee need to
-     * setup our own state to track the outbound pass through connections in via shared hashmap
-     *  with with ingress tc program
-     */
-    if(tcp){
-        event.proto = IPPROTO_TCP;
-        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
+        __u32 saddr_array[4] = {tuple->ipv4.saddr,0,0,0};
+        __u32 daddr_array[4] = {tuple->ipv4.daddr,0,0,0};
+        memcpy(event.saddr,saddr_array, sizeof(saddr_array));
+        memcpy(event.daddr,daddr_array, sizeof(daddr_array));
+        event.sport = tuple->ipv4.sport;
+        event.dport = tuple->ipv4.dport;
+        /*if packet egressing on loopback interface and its source is the ziti0 ip address 
+        *redirect the packet to the ziti0 interface. Added to provide support for L2tpV3 over
+        *over openziti with ziti-edge-tunnel
+        */
+        if((skb->ifindex == 1) && tun_if && tun_if->resolver){
+            uint32_t tun_ip =  bpf_ntohl(tun_if->resolver) - 1;
+            if(tuple->ipv4.saddr == bpf_htonl(tun_ip)){
+                return bpf_redirect(tun_if->index, 0);
+            }
         }
-        struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
-        }
-        reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
-        reverse_tuple.ipv4.dport = tuple->ipv4.sport;
-        reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
-        reverse_tuple.ipv4.sport = tuple->ipv4.dport;
-        sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
-        if(sk){
-            if (sk->state != BPF_TCP_LISTEN){
+        /* if tcp based tuple implement stateful inspection to see if they were
+        * initiated by the local OS if not then its passthrough traffic and so wee need to
+        * setup our own state to track the outbound pass through connections in via shared hashmap
+        *  with with ingress tc program
+        */
+        if(tcp){
+            event.proto = IPPROTO_TCP;
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
+            reverse_tuple.ipv4.dport = tuple->ipv4.sport;
+            reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
+            reverse_tuple.ipv4.sport = tuple->ipv4.dport;
+            sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+                if (sk->state != BPF_TCP_LISTEN){
+                    bpf_sk_release(sk);
+                    if(local_diag->verbose){
+                        send_event(&event);
+                    }
+                    return TC_ACT_OK;
+                }
                 bpf_sk_release(sk);
-                if(local_diag->verbose){
-                    send_event(&event);
-                }
-                return TC_ACT_OK;
             }
-            bpf_sk_release(sk);
-        }
-        tcp_state_key.daddr = tuple->ipv4.daddr;
-        tcp_state_key.saddr = tuple->ipv4.saddr;
-        tcp_state_key.sport = tuple->ipv4.sport;
-        tcp_state_key.dport = tuple->ipv4.dport;
-        unsigned long long tstamp = bpf_ktime_get_ns();
-        struct tcp_state *tstate;
-        if(tcph->syn && !tcph->ack){
-            struct tcp_state ts = {
-            tstamp,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
-        };
-            insert_tcp(ts, tcp_state_key);
-            if(local_diag->verbose){
-                event.tracking_code = CLIENT_SYN_RCVD;
-                send_event(&event);
-            }
-        }
-        else if(tcph->fin){
-            tstate = get_tcp(tcp_state_key);
-            if(tstate){
-                tstate->tstamp = tstamp;
-                tstate->cfin = 1;
-                tstate->cfseq = tcph->seq;
+            memcpy(tcp_state_key.saddr,saddr_array, sizeof(saddr_array));
+            memcpy(tcp_state_key.daddr,daddr_array, sizeof(daddr_array));
+            tcp_state_key.sport = tuple->ipv4.sport;
+            tcp_state_key.dport = tuple->ipv4.dport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            struct tcp_state *tstate;
+            if(tcph->syn && !tcph->ack){
+                struct tcp_state ts = {
+                tstamp,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            };
+                insert_tcp(ts, tcp_state_key);
                 if(local_diag->verbose){
-                    event.tracking_code = CLIENT_FIN_RCVD;
+                    event.tracking_code = CLIENT_SYN_RCVD;
                     send_event(&event);
                 }
             }
-        }
-        else if(tcph->rst){
-            tstate = get_tcp(tcp_state_key);
-            if(tstate){
-                del_tcp(tcp_state_key);
+            else if(tcph->fin){
                 tstate = get_tcp(tcp_state_key);
-                if(!tstate){
+                if(tstate){
+                    tstate->tstamp = tstamp;
+                    tstate->cfin = 1;
+                    tstate->cfseq = tcph->seq;
                     if(local_diag->verbose){
-                        event.tracking_code = CLIENT_RST_RCVD;
+                        event.tracking_code = CLIENT_FIN_RCVD;
                         send_event(&event);
                     }
                 }
             }
-        }
-        else if(tcph->ack){
-            tstate = get_tcp(tcp_state_key);
-            if(tstate){
-                if(tstate->ack && tstate->syn){
-                    if(local_diag->verbose){
-                        event.tracking_code = TCP_CONNECTION_ESTABLISHED;
-                        send_event(&event);
-                    }
-                    tstate->tstamp = tstamp;
-                    tstate->syn = 0;
-                    tstate->est = 1;
-                }
-                if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+            else if(tcph->rst){
+                tstate = get_tcp(tcp_state_key);
+                if(tstate){
                     del_tcp(tcp_state_key);
                     tstate = get_tcp(tcp_state_key);
                     if(!tstate){
                         if(local_diag->verbose){
-                            event.tracking_code = CLIENT_FINAL_ACK_RCVD;
+                            event.tracking_code = CLIENT_RST_RCVD;
                             send_event(&event);
                         }
                     }
                 }
-                else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
-                    tstate->cfack = 1;
-                    tstate->tstamp = tstamp;
+            }
+            else if(tcph->ack){
+                tstate = get_tcp(tcp_state_key);
+                if(tstate){
+                    if(tstate->ack && tstate->syn){
+                        if(local_diag->verbose){
+                            event.tracking_code = TCP_CONNECTION_ESTABLISHED;
+                            send_event(&event);
+                        }
+                        tstate->tstamp = tstamp;
+                        tstate->syn = 0;
+                        tstate->est = 1;
+                    }
+                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        del_tcp(tcp_state_key);
+                        tstate = get_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = CLIENT_FINAL_ACK_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                    }
+                    else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        tstate->cfack = 1;
+                        tstate->tstamp = tstamp;
+                    }
+                    else{
+                        tstate->tstamp = tstamp;
+                    }
                 }
-                else{
-                    tstate->tstamp = tstamp;
+            }
+        }else{
+            /* if udp based tuple implement stateful inspection to see if they were
+            * initiated by the local OS if not then its passthrough traffic and so wee need to
+            * setup our own state to track the outbound pass through connections in via shared hashmap
+            * with with ingress tc program */
+            event.proto = IPPROTO_UDP;
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+            }
+            reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
+            reverse_tuple.ipv4.dport = tuple->ipv4.sport;
+            reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
+            reverse_tuple.ipv4.sport = tuple->ipv4.dport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            sk = bpf_sk_lookup_udp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4), BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+                bpf_sk_release(sk);
+            }else{
+                memcpy(udp_state_key.saddr, saddr_array, sizeof(saddr_array));
+                memcpy(udp_state_key.daddr, daddr_array, sizeof(daddr_array));
+                udp_state_key.sport = tuple->ipv4.sport;
+                udp_state_key.dport = tuple->ipv4.dport;
+                struct udp_state *ustate = get_udp(udp_state_key);
+                if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                    struct udp_state us = {
+                        tstamp
+                    };
+                    insert_udp(us, udp_state_key);
+                    if(local_diag->verbose){
+                        event.tracking_code = CLIENT_INITIATED_UDP_SESSION;
+                        send_event(&event);
+                    }
+                }
+                else if(ustate){
+                    ustate->tstamp = tstamp;
                 }
             }
         }
-    }else{
-        /* if udp based tuple implement stateful inspection to see if they were
+    }else if(ipv6){
+        /* determine length of tuple */
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+        }
+        memcpy(event.saddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+        memcpy(event.daddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+        event.sport = tuple->ipv6.sport;
+        event.dport = tuple->ipv6.dport;
+        /* if tcp based tuple implement stateful inspection to see if they were
         * initiated by the local OS if not then its passthrough traffic and so wee need to
         * setup our own state to track the outbound pass through connections in via shared hashmap
-        * with with ingress tc program */
-        event.proto = IPPROTO_UDP;
-        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
-        }
-        struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
-        if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
-        }
-        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-           return TC_ACT_SHOT;
-        }
-        reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
-        reverse_tuple.ipv4.dport = tuple->ipv4.sport;
-        reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
-        reverse_tuple.ipv4.sport = tuple->ipv4.dport;
-	    unsigned long long tstamp = bpf_ktime_get_ns();
-        sk = bpf_sk_lookup_udp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4), BPF_F_CURRENT_NETNS, 0);
-        if(sk){
-           bpf_sk_release(sk);
-        }else{
-            udp_state_key.daddr = tuple->ipv4.daddr;
-            udp_state_key.saddr = tuple->ipv4.saddr;
-            udp_state_key.sport = tuple->ipv4.sport;
-            udp_state_key.dport = tuple->ipv4.dport;
-            struct udp_state *ustate = get_udp(udp_state_key);
-            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
-                struct udp_state us = {
-                    tstamp
-                };
-                insert_udp(us, udp_state_key);
+        *  with with ingress tc program
+        */
+        if(tcp){
+            event.proto = IPPROTO_TCP;
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            memcpy(reverse_tuple.ipv6.daddr, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            reverse_tuple.ipv6.dport = tuple->ipv6.sport;
+            memcpy(reverse_tuple.ipv6.saddr, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            reverse_tuple.ipv6.sport = tuple->ipv6.dport;
+            sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv6),BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+                if (sk->state != BPF_TCP_LISTEN){
+                    bpf_sk_release(sk);
+                    if(local_diag->verbose){
+                        send_event(&event);
+                    }
+                    return TC_ACT_OK;
+                }
+                bpf_sk_release(sk);
+            }
+            memcpy(tcp_state_key.saddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            memcpy(tcp_state_key.daddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            tcp_state_key.sport = tuple->ipv6.sport;
+            tcp_state_key.dport = tuple->ipv6.dport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            struct tcp_state *tstate;
+            if(tcph->syn && !tcph->ack){
+                struct tcp_state ts = {
+                tstamp,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            };
+                insert_tcp(ts, tcp_state_key);
                 if(local_diag->verbose){
-                    event.tracking_code = CLIENT_INITIATED_UDP_SESSION;
+                    event.tracking_code = CLIENT_SYN_RCVD;
                     send_event(&event);
                 }
             }
-            else if(ustate){
-                ustate->tstamp = tstamp;
+            else if(tcph->fin){
+                tstate = get_tcp(tcp_state_key);
+                if(tstate){
+                    tstate->tstamp = tstamp;
+                    tstate->cfin = 1;
+                    tstate->cfseq = tcph->seq;
+                    if(local_diag->verbose){
+                        event.tracking_code = CLIENT_FIN_RCVD;
+                        send_event(&event);
+                    }
+                }
+            }
+            else if(tcph->rst){
+                tstate = get_tcp(tcp_state_key);
+                if(tstate){
+                    del_tcp(tcp_state_key);
+                    tstate = get_tcp(tcp_state_key);
+                    if(!tstate){
+                        if(local_diag->verbose){
+                            event.tracking_code = CLIENT_RST_RCVD;
+                            send_event(&event);
+                        }
+                    }
+                }
+            }
+            else if(tcph->ack){
+                tstate = get_tcp(tcp_state_key);
+                if(tstate){
+                    if(tstate->ack && tstate->syn){
+                        if(local_diag->verbose){
+                            event.tracking_code = TCP_CONNECTION_ESTABLISHED;
+                            send_event(&event);
+                        }
+                        tstate->tstamp = tstamp;
+                        tstate->syn = 0;
+                        tstate->est = 1;
+                    }
+                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        del_tcp(tcp_state_key);
+                        tstate = get_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = CLIENT_FINAL_ACK_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                    }
+                    else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        tstate->cfack = 1;
+                        tstate->tstamp = tstamp;
+                    }
+                    else{
+                        tstate->tstamp = tstamp;
+                    }
+                }
+            }
+        }else{
+            /* if udp based tuple implement stateful inspection to see if they were
+            * initiated by the local OS if not then its passthrough traffic and so wee need to
+            * setup our own state to track the outbound pass through connections in via shared hashmap
+            * with with ingress tc program */
+            event.proto = IPPROTO_UDP;
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+            }
+            memcpy(reverse_tuple.ipv6.daddr, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            reverse_tuple.ipv6.dport = tuple->ipv6.sport;
+            memcpy(reverse_tuple.ipv6.saddr, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            reverse_tuple.ipv6.sport = tuple->ipv6.dport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            sk = bpf_sk_lookup_udp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv6), BPF_F_CURRENT_NETNS, 0);
+            if(sk){
+                bpf_sk_release(sk);
+            }else{
+                memcpy(udp_state_key.saddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(udp_state_key.daddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                udp_state_key.sport = tuple->ipv6.sport;
+                udp_state_key.dport = tuple->ipv6.dport;
+                struct udp_state *ustate = get_udp(udp_state_key);
+                if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                    struct udp_state us = {
+                        tstamp
+                    };
+                    insert_udp(us, udp_state_key);
+                    if(local_diag->verbose){
+                        event.tracking_code = CLIENT_INITIATED_UDP_SESSION;
+                        send_event(&event);
+                    }
+                }
+                else if(ustate){
+                    ustate->tstamp = tstamp;
+                }
             }
         }
     }
