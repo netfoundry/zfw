@@ -1299,11 +1299,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
             outbound initiated from through the router interface. if not pass on to tproxy logic
             to determine if the openziti router has tproxy intercepts defined for the flow*/
             event.proto = IPPROTO_TCP;
-            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;
             }
-            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
             if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;
             }
