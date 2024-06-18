@@ -76,6 +76,7 @@
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
 #define IP6_HEADER_TOO_BIG 30
+#define IPV6_TUPLE_TOO_BIG 31
 
 bool ddos = false;
 bool add = false;
@@ -2583,6 +2584,168 @@ static int process_events(void *ctx, void *data, size_t len)
             {
                 free(ts);
             }
+        }else{
+            if (evt->error_code)
+            {
+                if (evt->error_code == IP6_HEADER_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : IPv6 Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (evt->error_code == UDP_HEADER_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (evt->error_code == ICMP_HEADER_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (evt->error_code == IPV6_TUPLE_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+            }
+            else
+            {
+                char saddr6[INET6_ADDRSTRLEN];
+                char daddr6[INET6_ADDRSTRLEN];
+                struct in6_addr saddr_6 = {0};
+                struct in6_addr daddr_6 = {0};
+                memcpy(saddr_6.__in6_u.__u6_addr32, evt->saddr, sizeof(evt->saddr));
+                memcpy(daddr_6.__in6_u.__u6_addr32, evt->daddr, sizeof(evt->daddr));
+                inet_ntop(AF_INET6,&saddr_6, saddr6,INET6_ADDRSTRLEN);
+                inet_ntop(AF_INET6,&daddr_6, daddr6,INET6_ADDRSTRLEN);
+                char *protocol;
+                if (evt->proto == IPPROTO_TCP)
+                {
+                    protocol = "TCP";
+                }
+                else if (evt->proto == IPPROTO_ICMP)
+                {
+                    protocol = "ICMP";
+                }
+                else
+                {
+                    protocol = "UDP";
+                }
+    
+                if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
+                {
+                    char *state = NULL;
+                    __u16 code = evt->tracking_code;
+
+                    if (code == SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "SERVER_SYN_ACK_RCVD";
+                    }
+                    else if (code == SERVER_FIN_RCVD)
+                    {
+                        state = "SERVER_FIN_RCVD";
+                    }
+                    else if (code == SERVER_RST_RCVD)
+                    {
+                        state = "SERVER_RST_RCVD";
+                    }
+                    else if (code == SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "SERVER_FINAL_ACK_RCVD";
+                    }
+                    else if (code == UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "UDP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == CLIENT_SYN_RCVD)
+                    {
+                        state = "CLIENT_SYN_RCVD";
+                    }
+                    else if (code == CLIENT_FIN_RCVD)
+                    {
+                        state = "CLIENT_FIN_RCVD";
+                    }
+                    else if (code == CLIENT_RST_RCVD)
+                    {
+                        state = "CLIENT_RST_RCVD";
+                    }
+                    else if (code == TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "TCP_CONNECTION_ESTABLISHED";
+                    }
+                    else if (code == CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "CLIENT_FINAL_ACK_RCVD";
+                    }
+                    else if (code == CLIENT_INITIATED_UDP_SESSION)
+                    {
+                        state = "CLIENT_INITIATED_UDP_SESSION";
+                    }
+                    if (state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport), daddr6, ntohs(evt->dport), state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                }
+                else if (ifname)
+                {
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
+                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport), daddr6, ntohs(evt->dport));
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+            }
+            if (ts)
+            {
+                free(ts);
+            }
+
         }
     }
     if (res)

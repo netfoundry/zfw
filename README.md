@@ -7,6 +7,16 @@ filtering.  It can be used in conjunction with ufw's masquerade feature on a Wan
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
 edge-routers.
 
+## New in release 0.8.0 - Initial support for ipv6
+
+- Supports ipv6 neighbor discovery (redirects not supported)
+- Supports inbound ipv6 echo (disabled by default)/ echo reply
+- Supports inbound ssh (Can be disabled via zfw -x <ifname>)
+- Supports outbound stateful host connections (Inbound only if outbound initiated)
+- Supports outbound passthrough tracking.  Sessions initiated from trusted InterfaceInterface out through interface defined as ExternalInterface or with
+  "OutboundPassThroughTrack": true in /opt/openziti/etc/ebpf_config.json or manually applied with sudo zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o 
+   -z egress with allow stateful udp and tcp session traffic back in.
+- Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
 
 ## Build
 
