@@ -132,6 +132,8 @@ char *protocol_name;
 __u8 protocol;
 union bpf_attr if_map;
 int if_fd = -1;
+union bpf_attr if6_map;
+int if6_fd = -1;
 union bpf_attr ddos_saddr_map;
 int ddos_saddr_fd = -1;
 union bpf_attr ddos_dport_map;
@@ -152,6 +154,7 @@ const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
 const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+const char *if6_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip6_map";
 const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
 const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
 const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
@@ -195,6 +198,14 @@ struct interface
     uint32_t addresses[MAX_ADDRESSES];
 };
 
+struct interface6
+{
+    uint32_t index;
+    char *name;
+    uint16_t addr_count;
+    uint32_t addresses[MAX_ADDRESSES][4];
+};
+
 struct port_extension_key {
     __u32 dst_ip;
     __u32 src_ip;
@@ -213,8 +224,10 @@ int ifcount = 0;
 int get_key_count();
 void interface_tc();
 int add_if_index(struct interface intf);
+int add_if6_index(struct interface6 intf);
 void open_diag_map();
 void open_if_map();
+void open_if6_map();
 void open_rb_map();
 void open_tun_map();
 void open_ddos_saddr_map();
@@ -224,8 +237,10 @@ void open_if_list_ext_map();
 void open_range_map();
 void if_list_ext_delete_key(struct port_extension_key key);
 bool interface_map();
+void interface_map6();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
+void if6_delete_key(uint32_t key);
 void diag_delete_key(uint32_t key);
 char *get_ts(unsigned long long tstamp);
 
@@ -243,6 +258,13 @@ struct ifindex_ip4
 {
     uint32_t ipaddr[MAX_ADDRESSES];
     char ifname[IF_NAMESIZE];
+    uint8_t count;
+};
+
+/*value to ifindex_ip6_map*/
+struct ifindex_ip6 {
+    char ifname[IF_NAMESIZE];
+    uint32_t ipaddr[MAX_ADDRESSES][4];
     uint8_t count;
 };
 
@@ -919,6 +941,7 @@ bool set_tun_diag()
         open_tun_map();
     }
     interface_map();
+    interface_map6();
     tun_map.map_fd = tun_fd;
     struct ifindex_tun o_tdiag;
     uint32_t key = 0;
@@ -1272,7 +1295,7 @@ bool set_diag(uint32_t *idx)
     }
     else
     {
-        printf("%s: %d\n", diag_interface, *idx);
+        printf("%s: %u\n", diag_interface, *idx);
         printf("--------------------------\n");
         if (*idx != 1)
         {
@@ -1369,6 +1392,7 @@ void interface_tc()
                         {
                             set_tc_filter("add");
                             interface_map();
+                            interface_map6();
                             if (diag_fd == -1)
                             {
                                 open_diag_map();
@@ -1400,6 +1424,7 @@ void interface_diag()
         open_diag_map();
     }
     interface_map();
+    interface_map6();
     struct ifaddrs *addrs;
 
     /* call function to get a linked list of interface structs from system */
@@ -1670,6 +1695,120 @@ int prune_if_map(struct interface if_array[], uint32_t if_count)
     return 0;
 }
 
+// remove stale ifindex_ip6_map entries
+int prune_if6_map(struct interface6 if6_array[], uint32_t if6_count)
+{
+    if (if6_fd == -1)
+    {
+        open_if6_map();
+    }
+    uint32_t init_key = {0};
+    uint32_t *key = &init_key;
+    uint32_t current_key;
+    struct ifindex_ip6 o_ifip;
+    if6_map.file_flags = BPF_ANY;
+    if6_map.map_fd = if6_fd;
+    if6_map.key = (uint64_t)key;
+    if6_map.value = (uint64_t)&o_ifip;
+    int lookup = 0;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &if6_map, sizeof(if6_map));
+        if (ret == -1)
+        {
+            break;
+        }
+        if6_map.key = if6_map.next_key;
+        current_key = *(uint32_t *)if6_map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if6_map, sizeof(if6_map));
+        if (!lookup)
+        {
+            bool match = false;
+            for (uint32_t x = 0; x < if6_count; x++)
+            {
+                if (current_key == if6_array[x].index)
+                {
+                    match = true;
+                }
+            }
+            if (!match)
+            {
+                if6_delete_key(current_key);
+            }
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        if6_map.key = (uint64_t)&current_key;
+    }
+    return 0;
+}
+
+void if6_delete_key(uint32_t key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)if6_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        printf("Pruned index %u from ifindex_ip6_map\n", key);
+    }
+    close(fd);
+}
+
+int add_if6_index(struct interface6 intf)
+{
+    if (intf.addr_count > 0)
+    {
+        if (if6_fd == -1)
+        {
+            open_if6_map();
+        }
+        if6_map.map_fd = if6_fd;
+        struct ifindex_ip6 o_ifip6 = {0};
+        if6_map.key = (uint64_t)&intf.index;
+        if6_map.flags = BPF_ANY;
+        if6_map.value = (uint64_t)&o_ifip6;
+        for (int x = 0; x < MAX_ADDRESSES; x++)
+        {
+            if (x < intf.addr_count)
+            {
+                memcpy(o_ifip6.ipaddr[x],intf.addresses[x], sizeof(o_ifip6.ipaddr[x]));
+            }
+            else
+            {
+                memset(o_ifip6.ipaddr[x], 0, sizeof(o_ifip6.ipaddr[x]));
+            }
+        }
+        o_ifip6.count = intf.addr_count;
+        sprintf(o_ifip6.ifname, "%s", intf.name);
+        int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if6_map, sizeof(if6_map));
+        if (ret)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int add_if_index(struct interface intf)
 {
     if (intf.addr_count > 0)
@@ -1704,6 +1843,119 @@ int add_if_index(struct interface intf)
         }
     }
     return 0;
+}
+
+void interface_map6()
+{
+    struct ifaddrs *addrs;
+    /* call function to get a linked list of interface structs from system */
+    if (getifaddrs(&addrs) == -1)
+    {
+        printf("can't get addrs");
+        close_maps(1);
+    }
+    struct ifaddrs *address = addrs;
+    uint32_t idx = 0;
+    int lo_count = 0;
+   
+    /*
+     * traverse linked list of interfaces and for each non-loopback interface
+     *  populate the index into the map with ifindex as the key and ipv6 address
+     *  as the value
+     */
+
+    uint32_t ip6_index_count = 0;
+    uint32_t addr6_array[MAX_ADDRESSES][4];
+    struct interface6 ip6_index_array[MAX_IF_ENTRIES] = {0};
+    char *cur_name;
+    uint32_t cur_idx;
+    uint8_t addr_count = 0;
+    uint8_t addr6_count = 0;
+    unsigned short last_af;
+    while (address && (ip6_index_count < MAX_IF_ENTRIES))
+    {
+        idx = if_nametoindex(address->ifa_name);
+        if (address->ifa_addr && ((address->ifa_addr->sa_family == AF_INET) || (address->ifa_addr->sa_family == AF_INET6)))
+        {
+            if (!idx)
+            {
+                printf("unable to get interface index fd!\n");
+                address = address->ifa_next;
+                continue;
+            }
+            if (!strncmp(address->ifa_name, "lo", 2))
+            {
+                lo_count++;
+                if (lo_count > 1)
+                {
+                    address = address->ifa_next;
+                    continue;
+                }
+            }
+            if (strncmp(address->ifa_name, "ziti", 4))
+            {
+                if(addr6_count == 0)
+                {
+                    cur_name = address->ifa_name;
+                    cur_idx = idx;
+                    if(!strncmp(address->ifa_name, "lo", 2)){
+                        __u32 loipv6[4] = {0,0,0,1};
+                        memcpy(addr6_array[addr6_count],loipv6, sizeof(loipv6));
+                    }else{
+                       struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
+                       memcpy(addr6_array[addr6_count], sa->sin6_addr.__in6_u.__u6_addr32, sizeof(sa->sin6_addr.__in6_u.__u6_addr32));
+                    }
+                     addr6_count++;
+                }
+                else if (cur_idx != idx)
+                {
+                    struct interface6 intf6 = {  
+                        cur_idx,
+                        cur_name,
+                        addr6_count,
+                        {0}
+                    };
+                    memcpy(intf6.addresses, addr6_array, sizeof(intf6.addresses));
+                    ip6_index_array[ip6_index_count] = intf6;
+                    ip6_index_count++;
+                    addr6_count = 0;
+                    cur_idx = idx;
+                    cur_name = address->ifa_name;
+                    struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
+                    memcpy(addr6_array[addr6_count], sa->sin6_addr.__in6_u.__u6_addr32, sizeof(sa->sin6_addr.__in6_u.__u6_addr32));
+                    addr6_count++;
+                }
+                else
+                {
+                    if (addr6_count < MAX_ADDRESSES)
+                    {
+                        struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
+                        memcpy(addr6_array[addr6_count], sa->sin6_addr.__in6_u.__u6_addr32, sizeof(sa->sin6_addr.__in6_u.__u6_addr32));
+                        addr6_count++;
+                    }
+                }
+            }
+            
+        }
+        address = address->ifa_next;
+    }
+    if ((idx > 0) && (addr6_count > 0) && (addr6_count <= MAX_ADDRESSES)){
+        struct interface6 intf6 = {  
+            cur_idx,
+            cur_name,
+            addr6_count,
+            {0}
+        };
+        memcpy(intf6.addresses, addr6_array, sizeof(addr6_array));
+        ip6_index_array[ip6_index_count] = intf6;
+        ip6_index_count++;
+    }
+    prune_if6_map(ip6_index_array, ip6_index_count);
+    for (uint32_t x = 0; x < ip6_index_count; x++)
+    {
+        add_if6_index(ip6_index_array[x]);
+    }
+    freeifaddrs(addrs);
 }
 
 bool interface_map()
@@ -1834,7 +2086,7 @@ bool interface_map()
                         {0}};
                     memcpy(intf.addresses, addr_array, sizeof(intf.addresses));
                     ip_index_array[ip_index_count] = intf;
-		            if(all_index_count < MAX_ADDRESSES){
+		            if(all_index_count < MAX_IF_ENTRIES){
                 	    all_index_array[all_index_count] = intf;
         	        }
                     ip_index_count++;
@@ -1938,7 +2190,7 @@ bool interface_map()
                 0,
                 {0}
             };
-            if(all_index_count < MAX_ADDRESSES){
+            if(all_index_count < MAX_IF_ENTRIES){
                 all_index_array[all_index_count] = intf;
             }
             all_index_count++;
@@ -1957,7 +2209,7 @@ bool interface_map()
         };
         memcpy(intf.addresses, addr_array, sizeof(addr_array));
         ip_index_array[ip_index_count] = intf;
-        if(all_index_count < MAX_ADDRESSES){
+        if(all_index_count < MAX_IF_ENTRIES){
             all_index_array[all_index_count] = intf;
         }
         ip_index_count++;
@@ -2597,7 +2849,7 @@ void if_delete_key(uint32_t key)
     }
     else
     {
-        printf("Pruned index %d from ifindex_map\n", key);
+        printf("Pruned index %u from ifindex_map\n", key);
     }
     close(fd);
 }
@@ -2706,7 +2958,7 @@ void diag_delete_key(uint32_t key)
     }
     else
     {
-        printf("Pruned index %d from diag_map\n", key);
+        printf("Pruned index %u from diag_map\n", key);
     }
     close(fd);
 }
@@ -3842,6 +4094,10 @@ void close_maps(int code)
     {
        close(if_list_ext_fd);
     }
+    if (if6_fd != -1)
+    {
+       close(if6_fd);
+    }
     if (range_fd != -1)
     {
        close(range_fd);
@@ -3982,6 +4238,21 @@ void open_if_map()
     if_map.file_flags = 0;
     /* make system call to get fd for map */
     if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_if6_map()
+{
+    memset(&if6_map, 0, sizeof(if6_map));
+    /* set path name with location of map in filesystem */
+    if6_map.pathname = (uint64_t)if6_map_path;
+    if6_map.bpf_fd = 0;
+    if6_map.file_flags = 0;
+    /* make system call to get fd for map */
+    if6_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if6_map, sizeof(if6_map));
     if (if_fd == -1)
     {
         ebpf_usage();

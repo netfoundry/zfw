@@ -205,6 +205,13 @@ struct ifindex_ip4 {
     uint8_t count;
 };
 
+/*value to ifindex_ip6_map*/
+struct ifindex_ip6 {
+    char ifname[IFNAMSIZ];
+    uint32_t ipaddr[MAX_ADDRESSES][4];
+    uint8_t count;
+};
+
 /*value to ifindex_tun_map*/
 struct ifindex_tun {
     uint32_t index;
@@ -315,6 +322,22 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } ifindex_ip_map SEC(".maps");
+
+/* File system pinned Array Map key mapping to ifindex with used to allow 
+ * ebpf program to learn the ip address
+ * of the interface it is attached to by reading the mapping
+ * provided by user space it can use skb->ifindex __uint(key_size, sizeof(uint32_t));ss_ifindex
+ * to find its corresponding ip6 address. Currently used to limit
+ * ssh to only the attached interface ip6 
+*/
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(struct ifindex_ip6));
+    __uint(max_entries, MAX_IF_ENTRIES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} ifindex_ip6_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -511,6 +534,18 @@ static inline struct ifindex_ip4 *get_local_ip4(__u32 key){
     struct ifindex_ip4 *ifip4;
     ifip4 = bpf_map_lookup_elem(&ifindex_ip_map, &key);
 	return ifip4;
+}
+
+/* Function used by ebpf program to access ifindex_ip6_map
+ * in order to lookup the ipv6 addr associated with its attached interface
+ * This allows distinguishing between socket to the local system i.e. ssh
+ *  vs socket that need to be forwarded to the tproxy splicing function
+ * 
+ */
+static inline struct ifindex_ip6 *get_local_ip6(__u32 key){
+    struct ifindex_ip6 *ifip6;
+    ifip6 = bpf_map_lookup_elem(&ifindex_ip6_map, &key);
+	return ifip6;
 }
 
 static inline struct diag_ip4 *get_diag_ip4(__u32 key){
@@ -875,7 +910,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
     /* check if incoming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, &vrrp, &event, local_diag);
 
+    //get ipv6 interface addr mappings
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
+
+    //get ipv6 interface addr mappings
+    struct ifindex_ip6 *local_ip6 = get_local_ip6(skb->ifindex);
+   
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
@@ -1037,9 +1077,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
         memcpy(event.daddr,daddr_array, sizeof(daddr_array));
         event.sport = tuple->ipv4.sport;
         event.dport = tuple->ipv4.dport;
-        if((skb->ifindex == 1) && udp && (bpf_ntohs(tuple->ipv4.dport) == 53)){
-            return TC_ACT_OK;
-        }
         /* allow ssh to local interface ip addresses */
         if(!local_diag->ssh_disable){
             if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
@@ -1064,10 +1101,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
             }
         }
-        /* forward DHCP messages to local system */
-        if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
-            return TC_ACT_OK;
-        }
+        
         /* if tcp based tuple implement stateful inspection to see if they were
         * initiated by the local OS if not pass on to tproxy logic to determine if the
         * openziti router has tproxy intercepts defined for the flow
@@ -1103,7 +1137,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             addresses = MAX_ADDRESSES;
                         }
                         for(int x = 0; x < addresses; x++){
-                            if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                            if(tuple->ipv4.daddr == local_ip4->ipaddr[x]){
                                 if(local_diag->verbose){
                                     event.proto = IPPROTO_TCP;
                                     send_event(&event);
@@ -1131,7 +1165,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             addresses = MAX_ADDRESSES;
                         }
                         for(int x = 0; x < addresses; x++){
-                            if((tuple->ipv4.daddr == local_ip4->ipaddr[x]) && !local_diag->ssh_disable){
+                            if(tuple->ipv4.daddr == local_ip4->ipaddr[x]){
                                 if(local_diag->verbose){
                                     event.proto = IPPROTO_TCP;
                                     send_event(&event);
@@ -1223,6 +1257,13 @@ int bpf_sk_splice(struct __sk_buff *skb){
             * if not pass on to tproxy logic to determine if the openziti router has tproxy intercepts
             * defined for the flow*/
             event.proto = IPPROTO_UDP;
+            if((skb->ifindex == 1) && (bpf_ntohs(tuple->ipv4.dport) == 53)){
+                return TC_ACT_OK;
+            }
+            /* forward DHCP messages to local system */
+            if((bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
+                return TC_ACT_OK;
+            }
             sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
             if(sk){
             /*
@@ -1290,7 +1331,28 @@ int bpf_sk_splice(struct __sk_buff *skb){
         /* allow ssh to local interface ip addresses */
         if(!local_diag->ssh_disable){
             if(tcp && (bpf_ntohs(tuple->ipv6.dport) == 22)){
-                return TC_ACT_OK;
+                if((!local_ip6 || !local_ip6->count)){
+                    return TC_ACT_OK;
+                }else{
+                    
+                    uint8_t addresses = 0; 
+                    if(local_ip6->count < MAX_ADDRESSES){
+                        addresses = local_ip6->count;
+                    }else{
+                        addresses = MAX_ADDRESSES;
+                    }
+                    
+                    for(int x = 0; x < addresses; x++){
+                        if((local_ip6->ipaddr[x][0] == tuple->ipv6.daddr[0]) && (local_ip6->ipaddr[x][1] == tuple->ipv6.daddr[1]) && 
+                        (local_ip6->ipaddr[x][2] == tuple->ipv6.daddr[2]) && (local_ip6->ipaddr[x][3] == tuple->ipv6.daddr[3])){
+                            if(local_diag->verbose && ((event.tstamp % 2) == 0)){
+                                event.proto = IPPROTO_TCP;
+                                send_event(&event);
+                            }
+                            return TC_ACT_OK;
+                        }
+                    }
+                }
             }
         }
         if(tcp){
