@@ -522,11 +522,11 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[18] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[19] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
-                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path};
-    for (int map_count = 0; map_count < 18; map_count++)
+                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, if6_map_path};
+    for (int map_count = 0; map_count < 19; map_count++)
     {
 
         int stat = remove(maps[map_count]);
