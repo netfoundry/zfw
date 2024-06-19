@@ -1900,7 +1900,7 @@ void interface_map6()
                     cur_name = address->ifa_name;
                     cur_idx = idx;
                     if(!strncmp(address->ifa_name, "lo", 2)){
-                        __u32 loipv6[4] = {0,0,0,1};
+                        __u32 loipv6[4] = {0,0,0,0x1000000};
                         memcpy(addr6_array[addr6_count],loipv6, sizeof(loipv6));
                     }else{
                        struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
