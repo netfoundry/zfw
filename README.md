@@ -13,7 +13,7 @@ edge-routers.
 - Supports inbound ipv6 echo (disabled by default)/ echo reply
 - Supports inbound ssh (Can be disabled via zfw -x <ifname>)
 - Supports outbound stateful host connections (Inbound only if outbound initiated)
-- Supports outbound passthrough tracking.  Sessions initiated from trusted InterfaceInterface out through interface defined as ExternalInterface or with
+- Supports outbound passthrough tracking.  Sessions initiated from non-ebpf enabled interfaces out through interface(s) defined as ExternalInterface or with
   "OutboundPassThroughTrack": true in /opt/openziti/etc/ebpf_config.json or manually applied with sudo zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o 
    -z egress with allow stateful udp and tcp session traffic back in.
 - Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
