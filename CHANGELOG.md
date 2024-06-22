@@ -7,8 +7,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
-- Initial support for IPv6.  Added basic neighbor discovery, inbound ipv6 echo (disabled by default)/ echo reply, Inbound ssh,  Outbound 
-  stateful tracking.
+- Initial support for IPv6. Added basic neighbor discovery, inbound ipv6 echo (disabled by default)/ echo reply, Inbound ssh,  Outbound 
+  stateful tracking. IPv6 is disabled by default except for inbound ipv6 router advertisments so that the ipv6 auto-configuration(SLAAC) can occur before zfw enumerates ipv6 interfaces 
+  to ensure the ipv6 interface address is included in the ifindex_ip6_map.'
 - Removed unused tuple_key struct from zfw_xdp_tun_ingress.c
 
 # [0.7.8] - 2024-06-13

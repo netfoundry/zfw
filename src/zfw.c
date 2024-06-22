@@ -117,6 +117,7 @@ bool ddos_saddr_list = false;
 bool ddport =false;
 bool ddos_dport_list = false;
 bool service = false;
+bool v6 = false;
 char *service_string;
 char *ddos_saddr;
 char *ddos_dport;
@@ -182,6 +183,7 @@ char *tun_interface;
 char *vrrp_interface;
 char *ddos_interface;
 char *monitor_interface;
+char *ipv6_interface;
 char *tc_interface;
 char *log_file_name;
 char *object_file;
@@ -310,6 +312,7 @@ struct diag_ip4
     bool vrrp;
     bool eapol;
     bool ddos_filtering;
+    bool ipv6_enable;
 };
 
 struct tproxy_tuple
@@ -1171,6 +1174,25 @@ bool set_diag(uint32_t *idx)
                 printf("icmp echo is always set to 1 for lo\n");
             }
         }
+        if (v6)
+        {
+            if (!disable || *idx == 1)
+            {
+                o_diag.ipv6_enable = true;
+            }
+            else
+            {
+                o_diag.ipv6_enable = false;
+            }
+            if (*idx != 1)
+            {
+                printf("Set ipv6_enable to %d for %s\n", !disable, ipv6_interface);
+            }
+            else
+            {
+                printf("ipv6_enable is always set to 1 for lo\n");
+            }
+        }
         if (verbose)
         {
             if (!disable)
@@ -1315,6 +1337,14 @@ bool set_diag(uint32_t *idx)
         printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
         printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
         printf("%-24s:%d\n", "ddos filtering", o_diag.ddos_filtering);
+        if (*idx != 1)
+        {
+            printf("%-24s:%d\n", "ipv6 enable", o_diag.ipv6_enable);
+        }
+        else
+        {
+            printf("%-24s:%d\n", "ipv6 enable", 1);
+        }
         printf("--------------------------\n\n");
     }
     return true;
@@ -1470,36 +1500,41 @@ void interface_diag()
                 vrrp_interface = address->ifa_name;
                 eapol_interface = address->ifa_name;
                 ddos_interface = address->ifa_name;
+                ipv6_interface = address->ifa_name;
             }
-            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos))
+            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6))
             {
                 if (per_interface && !strncmp(prefix_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (tun && !strncmp(tun_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (ssh_disable && !strncmp(ssh_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (echo && !strncmp(echo_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (vrrp && !strncmp(vrrp_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (eapol && !strncmp(eapol_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (ddos && !strncmp(ddos_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
+                }
+                if (v6 && !strncmp(ipv6_interface, "ziti", 4))
+                {
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 address = address->ifa_next;
                 continue;
@@ -1579,6 +1614,14 @@ void interface_diag()
             if (ssh_disable)
             {
                 if (!strcmp(ssh_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (v6)
+            {
+                if (!strcmp(ipv6_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -3776,6 +3819,8 @@ static struct argp_option options[] = {
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
+    {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
+    {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
@@ -3795,7 +3840,6 @@ static struct argp_option options[] = {
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
     {"ddos-saddr-add", 'y', "", 0, "Add source IP Address to DDOS IP whitelist i.e. 192.168.1.1", 0},
-    {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"direction", 'z', "", 0, "Set direction", 0},
     {0}};
 
@@ -4016,6 +4060,29 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         else
         {
             ddos_interface = arg;
+        }
+        break;
+    case '6':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -6, --ipv6-enable: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        v6 = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            ipv6_interface = arg;
         }
         break;
     case 'c':
@@ -4471,6 +4538,15 @@ int main(int argc, char **argv)
         usage("-X, --set-tc-filter requires -z, --direction for add operation");
     }
 
+    if (v6)
+    {
+        if ((dsip ||tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush 
+        || eapol) || ddos || vrrp || monitor || logging|| ddport)
+        {
+            usage("-6, --ipv6-enable can not be used in combination call");
+        }
+    }
+
     if (ddport)
     {
         if ((dsip ||tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush 
@@ -4491,7 +4567,7 @@ int main(int argc, char **argv)
 
     if (logging)
     {
-        if ((tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol) || ddos || vrrp || (!monitor))
+        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol || ddos || vrrp || (!monitor))
         {
             usage("W, --write-log can only be used in combination call to -M, --monitor");
         }
@@ -4593,9 +4669,9 @@ int main(int argc, char **argv)
     }
 
     if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol && !ddos 
-    && !dsip && !ddport))
+    && !dsip && !ddport && !v6))
     {
-        usage("Missing argument at least one of -e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -6,-e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
 
     if (direction && !tcfilter)
@@ -4764,7 +4840,7 @@ int main(int argc, char **argv)
             map_list();
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6)
     {
         interface_diag();
     }

@@ -234,6 +234,7 @@ struct diag_ip4 {
     bool vrrp;
     bool eapol;
     bool ddos_filtering;
+    bool ipv6_enable;
 };
 
 /*Value to tun_map*/
@@ -1020,7 +1021,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 else{
                     return TC_ACT_SHOT;
                 }
-            }else{
+            }else if(ipv6){
                 struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
                 if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
@@ -1031,26 +1032,28 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     send_event(&event);
                     return TC_ACT_SHOT;
                 }
-                if((icmp6h->icmp6_type == 128) && (icmp6h->icmp6_code == 0)){
-                    if(local_diag && local_diag->echo){
+                if(local_diag->ipv6_enable){
+                    if((icmp6h->icmp6_type == 128) && (icmp6h->icmp6_code == 0)){ //echo
+                        if(local_diag && local_diag->echo){
+                            return TC_ACT_OK;
+                        }
+                        else{
+                            return TC_ACT_SHOT;
+                        }
+                    }else if((icmp6h->icmp6_type == 129) && (icmp6h->icmp6_code == 0)){ //echo-reply
+                        return TC_ACT_OK;
+                    }else if((icmp6h->icmp6_type == 133) && (icmp6h->icmp6_code == 0)){ //router solicitation
+                        return TC_ACT_OK;
+                    }else if((icmp6h->icmp6_type == 135) && (icmp6h->icmp6_code == 0)){ //neighbor solicitation
+                        return TC_ACT_OK;
+                    }else if((icmp6h->icmp6_type == 136) && (icmp6h->icmp6_code == 0)){ //neighbor advertisement
                         return TC_ACT_OK;
                     }
-                    else{
-                        return TC_ACT_SHOT;
-                    }
-                }else if((icmp6h->icmp6_type == 129) && (icmp6h->icmp6_code == 0)){
-                    return TC_ACT_OK;
-                }else if((icmp6h->icmp6_type == 133) && (icmp6h->icmp6_code == 0)){
-                    return TC_ACT_OK;
-                }else if((icmp6h->icmp6_type == 134) && (icmp6h->icmp6_code == 0)){
-                    return TC_ACT_OK;
-                }else if((icmp6h->icmp6_type == 135) && (icmp6h->icmp6_code == 0)){
-                    return TC_ACT_OK;
-                }else if((icmp6h->icmp6_type == 136) && (icmp6h->icmp6_code == 0)){
-                    return TC_ACT_OK;
-                }else{
-                    return TC_ACT_SHOT;
                 }
+                if((icmp6h->icmp6_type == 134) && (icmp6h->icmp6_code == 0)){ //router advertisement
+                    return TC_ACT_OK;
+                }
+                return TC_ACT_SHOT;
             }
         }else if(vrrp && local_diag && local_diag->vrrp)
         {
@@ -1311,7 +1314,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, event.proto};
         clear_match_tracker(mkey);
         return TC_ACT_PIPE;
-    }else if(ipv6)
+    }else if(ipv6 && local_diag->ipv6_enable)
     {
         tuple_len = sizeof(tuple->ipv6);
         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){

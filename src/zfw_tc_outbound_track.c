@@ -106,6 +106,7 @@ struct diag_ip4 {
     bool vrrp;
     bool eapol;
     bool ddos_filtering;
+    bool ipv6_enable;
 };
 
 /*value to ifindex_tun_map*/
@@ -543,7 +544,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
             }
         }
-    }else if(ipv6){
+    }else if(ipv6 && local_diag->ipv6_enable){
         /* determine length of tuple */
         tuple_len = sizeof(tuple->ipv6);
         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){

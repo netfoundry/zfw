@@ -8,15 +8,17 @@ the zfw_outbound_track.o is activated in the egress direction. It can also be us
 edge-routers.
 
 ## New in release 0.8.0 - Initial support for ipv6
-
+- *Enabled via sudo zfw -6 <ifname | all> 
+  Note: Router discovery is always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
-- Supports inbound ipv6 echo (disabled by default)/ echo reply
-- Supports inbound ssh (Can be disabled via zfw -x <ifname>)
+- *Supports inbound ipv6 echo (disabled by default can be enabled via zfw -e)/ echo reply 
+- *Supports inbound ssh (Can be disabled via zfw -x <ifname | all>) (Care should be taken as this affects IPv4 as well)
 - Supports outbound stateful host connections (Inbound only if outbound initiated)
 - Supports outbound passthrough tracking.  Sessions initiated from non-ebpf enabled interfaces out through interface(s) defined as ExternalInterface or with
   "OutboundPassThroughTrack": true in /opt/openziti/etc/ebpf_config.json or manually applied with sudo zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o 
    -z egress with allow stateful udp and tcp session traffic back in.
 - Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
+*These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots
 
 ## Build
 
