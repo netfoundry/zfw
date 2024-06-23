@@ -349,7 +349,6 @@ if(status.returncode):
         if(not tc_status(e, "ingress")):
             test1 = os.system("/opt/openziti/bin/zfw -X " + e + " -O " + ingress_object_file + " -z ingress")
             if(test1):
-                os.system("/opt/openziti/bin/zfw -Q")
                 print("Cant attach " + e + " to tc ingress with " + ingress_object_file)
                 continue
             else:
@@ -363,7 +362,6 @@ if(status.returncode):
                 test1 = os.system("/opt/openziti/bin/zfw -X " + e + " -O " + egress_object_file + " -z egress")
                 if(test1):
                     print("Cant attach " + e + " to tc egress with " + egress_object_file)
-                    os.system("/opt/openziti/bin/zfw -Q")
                     continue
                 else:
                     print("Attached " + egress_object_file + " to " + e)
