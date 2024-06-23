@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.8.1] - 2024-06-23
+
+###
+
+- Fixed issue in start_ebpf_router.py and start_ebpf_tunnel.py where if an ExternalInterface does not exist but is configured it causes zfw to disable ebpf on the system
+  for all interfaces preventing the FW from starting.  Note this only could occur on initial start of ebpf and did not occur if the start scripts were run after ebpf was already 
+  running on other interfaces.
+
 # [0.8.0] - 2024-06-13
 
 ###
