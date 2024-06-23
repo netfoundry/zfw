@@ -75,6 +75,8 @@
 #define CLIENT_FINAL_ACK_RCVD 11
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
+#define IP6_HEADER_TOO_BIG 30
+#define IPV6_TUPLE_TOO_BIG 31
 
 bool ddos = false;
 bool add = false;
@@ -115,6 +117,7 @@ bool ddos_saddr_list = false;
 bool ddport =false;
 bool ddos_dport_list = false;
 bool service = false;
+bool v6 = false;
 char *service_string;
 char *ddos_saddr;
 char *ddos_dport;
@@ -131,6 +134,8 @@ char *protocol_name;
 __u8 protocol;
 union bpf_attr if_map;
 int if_fd = -1;
+union bpf_attr if6_map;
+int if6_fd = -1;
 union bpf_attr ddos_saddr_map;
 int ddos_saddr_fd = -1;
 union bpf_attr ddos_dport_map;
@@ -151,6 +156,7 @@ const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
 const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
 const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+const char *if6_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip6_map";
 const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
 const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
 const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
@@ -177,12 +183,13 @@ char *tun_interface;
 char *vrrp_interface;
 char *ddos_interface;
 char *monitor_interface;
+char *ipv6_interface;
 char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.7.8";
+const char *argp_program_version = "0.8.0";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -192,6 +199,14 @@ struct interface
     char *name;
     uint16_t addr_count;
     uint32_t addresses[MAX_ADDRESSES];
+};
+
+struct interface6
+{
+    uint32_t index;
+    char *name;
+    uint16_t addr_count;
+    uint32_t addresses[MAX_ADDRESSES][4];
 };
 
 struct port_extension_key {
@@ -212,8 +227,10 @@ int ifcount = 0;
 int get_key_count();
 void interface_tc();
 int add_if_index(struct interface intf);
+int add_if6_index(struct interface6 intf);
 void open_diag_map();
 void open_if_map();
+void open_if6_map();
 void open_rb_map();
 void open_tun_map();
 void open_ddos_saddr_map();
@@ -223,8 +240,10 @@ void open_if_list_ext_map();
 void open_range_map();
 void if_list_ext_delete_key(struct port_extension_key key);
 bool interface_map();
+void interface_map6();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
+void if6_delete_key(uint32_t key);
 void diag_delete_key(uint32_t key);
 char *get_ts(unsigned long long tstamp);
 
@@ -245,6 +264,13 @@ struct ifindex_ip4
     uint8_t count;
 };
 
+/*value to ifindex_ip6_map*/
+struct ifindex_ip6 {
+    char ifname[IF_NAMESIZE];
+    uint32_t ipaddr[MAX_ADDRESSES][4];
+    uint8_t count;
+};
+
 /*value to ifindex_tun_map*/
 struct ifindex_tun {
     uint32_t index;
@@ -257,11 +283,12 @@ struct ifindex_tun {
 
 struct bpf_event
 {
+    __u8 version;
     unsigned long long tstamp;
     __u32 ifindex;
     __u32 tun_ifindex;
-    __u32 daddr;
-    __u32 saddr;
+    __u32 daddr[4];
+    __u32 saddr[4];
     __u16 sport;
     __u16 dport;
     __u16 tport;
@@ -285,6 +312,7 @@ struct diag_ip4
     bool vrrp;
     bool eapol;
     bool ddos_filtering;
+    bool ipv6_enable;
 };
 
 struct tproxy_tuple
@@ -497,11 +525,11 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[18] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[19] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
-                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path};
-    for (int map_count = 0; map_count < 18; map_count++)
+                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, if6_map_path};
+    for (int map_count = 0; map_count < 19; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -917,6 +945,7 @@ bool set_tun_diag()
         open_tun_map();
     }
     interface_map();
+    interface_map6();
     tun_map.map_fd = tun_fd;
     struct ifindex_tun o_tdiag;
     uint32_t key = 0;
@@ -1145,6 +1174,25 @@ bool set_diag(uint32_t *idx)
                 printf("icmp echo is always set to 1 for lo\n");
             }
         }
+        if (v6)
+        {
+            if (!disable || *idx == 1)
+            {
+                o_diag.ipv6_enable = true;
+            }
+            else
+            {
+                o_diag.ipv6_enable = false;
+            }
+            if (*idx != 1)
+            {
+                printf("Set ipv6_enable to %d for %s\n", !disable, ipv6_interface);
+            }
+            else
+            {
+                printf("ipv6_enable is always set to 1 for lo\n");
+            }
+        }
         if (verbose)
         {
             if (!disable)
@@ -1270,7 +1318,7 @@ bool set_diag(uint32_t *idx)
     }
     else
     {
-        printf("%s: %d\n", diag_interface, *idx);
+        printf("%s: %u\n", diag_interface, *idx);
         printf("--------------------------\n");
         if (*idx != 1)
         {
@@ -1289,6 +1337,14 @@ bool set_diag(uint32_t *idx)
         printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
         printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
         printf("%-24s:%d\n", "ddos filtering", o_diag.ddos_filtering);
+        if (*idx != 1)
+        {
+            printf("%-24s:%d\n", "ipv6 enable", o_diag.ipv6_enable);
+        }
+        else
+        {
+            printf("%-24s:%d\n", "ipv6 enable", 1);
+        }
         printf("--------------------------\n\n");
     }
     return true;
@@ -1367,6 +1423,7 @@ void interface_tc()
                         {
                             set_tc_filter("add");
                             interface_map();
+                            interface_map6();
                             if (diag_fd == -1)
                             {
                                 open_diag_map();
@@ -1398,6 +1455,7 @@ void interface_diag()
         open_diag_map();
     }
     interface_map();
+    interface_map6();
     struct ifaddrs *addrs;
 
     /* call function to get a linked list of interface structs from system */
@@ -1442,36 +1500,41 @@ void interface_diag()
                 vrrp_interface = address->ifa_name;
                 eapol_interface = address->ifa_name;
                 ddos_interface = address->ifa_name;
+                ipv6_interface = address->ifa_name;
             }
-            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos))
+            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6))
             {
                 if (per_interface && !strncmp(prefix_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (tun && !strncmp(tun_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (ssh_disable && !strncmp(ssh_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (echo && !strncmp(echo_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (vrrp && !strncmp(vrrp_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (eapol && !strncmp(eapol_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (ddos && !strncmp(ddos_interface, "ziti", 4))
                 {
-                    printf("%s:zfw does not allow setting on tun interfaces!\n", address->ifa_name);
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
+                }
+                if (v6 && !strncmp(ipv6_interface, "ziti", 4))
+                {
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 address = address->ifa_next;
                 continue;
@@ -1551,6 +1614,14 @@ void interface_diag()
             if (ssh_disable)
             {
                 if (!strcmp(ssh_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (v6)
+            {
+                if (!strcmp(ipv6_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -1668,6 +1739,120 @@ int prune_if_map(struct interface if_array[], uint32_t if_count)
     return 0;
 }
 
+// remove stale ifindex_ip6_map entries
+int prune_if6_map(struct interface6 if6_array[], uint32_t if6_count)
+{
+    if (if6_fd == -1)
+    {
+        open_if6_map();
+    }
+    uint32_t init_key = {0};
+    uint32_t *key = &init_key;
+    uint32_t current_key;
+    struct ifindex_ip6 o_ifip;
+    if6_map.file_flags = BPF_ANY;
+    if6_map.map_fd = if6_fd;
+    if6_map.key = (uint64_t)key;
+    if6_map.value = (uint64_t)&o_ifip;
+    int lookup = 0;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &if6_map, sizeof(if6_map));
+        if (ret == -1)
+        {
+            break;
+        }
+        if6_map.key = if6_map.next_key;
+        current_key = *(uint32_t *)if6_map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if6_map, sizeof(if6_map));
+        if (!lookup)
+        {
+            bool match = false;
+            for (uint32_t x = 0; x < if6_count; x++)
+            {
+                if (current_key == if6_array[x].index)
+                {
+                    match = true;
+                }
+            }
+            if (!match)
+            {
+                if6_delete_key(current_key);
+            }
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        if6_map.key = (uint64_t)&current_key;
+    }
+    return 0;
+}
+
+void if6_delete_key(uint32_t key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)if6_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        printf("Pruned index %u from ifindex_ip6_map\n", key);
+    }
+    close(fd);
+}
+
+int add_if6_index(struct interface6 intf)
+{
+    if (intf.addr_count > 0)
+    {
+        if (if6_fd == -1)
+        {
+            open_if6_map();
+        }
+        if6_map.map_fd = if6_fd;
+        struct ifindex_ip6 o_ifip6 = {0};
+        if6_map.key = (uint64_t)&intf.index;
+        if6_map.flags = BPF_ANY;
+        if6_map.value = (uint64_t)&o_ifip6;
+        for (int x = 0; x < MAX_ADDRESSES; x++)
+        {
+            if (x < intf.addr_count)
+            {
+                memcpy(o_ifip6.ipaddr[x],intf.addresses[x], sizeof(o_ifip6.ipaddr[x]));
+            }
+            else
+            {
+                memset(o_ifip6.ipaddr[x], 0, sizeof(o_ifip6.ipaddr[x]));
+            }
+        }
+        o_ifip6.count = intf.addr_count;
+        sprintf(o_ifip6.ifname, "%s", intf.name);
+        int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if6_map, sizeof(if6_map));
+        if (ret)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int add_if_index(struct interface intf)
 {
     if (intf.addr_count > 0)
@@ -1702,6 +1887,119 @@ int add_if_index(struct interface intf)
         }
     }
     return 0;
+}
+
+void interface_map6()
+{
+    struct ifaddrs *addrs;
+    /* call function to get a linked list of interface structs from system */
+    if (getifaddrs(&addrs) == -1)
+    {
+        printf("can't get addrs");
+        close_maps(1);
+    }
+    struct ifaddrs *address = addrs;
+    uint32_t idx = 0;
+    int lo_count = 0;
+   
+    /*
+     * traverse linked list of interfaces and for each non-loopback interface
+     *  populate the index into the map with ifindex as the key and ipv6 address
+     *  as the value
+     */
+
+    uint32_t ip6_index_count = 0;
+    uint32_t addr6_array[MAX_ADDRESSES][4];
+    struct interface6 ip6_index_array[MAX_IF_ENTRIES] = {0};
+    char *cur_name;
+    uint32_t cur_idx;
+    uint8_t addr_count = 0;
+    uint8_t addr6_count = 0;
+    unsigned short last_af;
+    while (address && (ip6_index_count < MAX_IF_ENTRIES))
+    {
+        idx = if_nametoindex(address->ifa_name);
+        if (address->ifa_addr && ((address->ifa_addr->sa_family == AF_INET) || (address->ifa_addr->sa_family == AF_INET6)))
+        {
+            if (!idx)
+            {
+                printf("unable to get interface index fd!\n");
+                address = address->ifa_next;
+                continue;
+            }
+            if (!strncmp(address->ifa_name, "lo", 2))
+            {
+                lo_count++;
+                if (lo_count > 1)
+                {
+                    address = address->ifa_next;
+                    continue;
+                }
+            }
+            if (strncmp(address->ifa_name, "ziti", 4))
+            {
+                if(addr6_count == 0)
+                {
+                    cur_name = address->ifa_name;
+                    cur_idx = idx;
+                    if(!strncmp(address->ifa_name, "lo", 2)){
+                        __u32 loipv6[4] = {0,0,0,0x1000000};
+                        memcpy(addr6_array[addr6_count],loipv6, sizeof(loipv6));
+                    }else{
+                       struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
+                       memcpy(addr6_array[addr6_count], sa->sin6_addr.__in6_u.__u6_addr32, sizeof(sa->sin6_addr.__in6_u.__u6_addr32));
+                    }
+                     addr6_count++;
+                }
+                else if (cur_idx != idx)
+                {
+                    struct interface6 intf6 = {  
+                        cur_idx,
+                        cur_name,
+                        addr6_count,
+                        {0}
+                    };
+                    memcpy(intf6.addresses, addr6_array, sizeof(intf6.addresses));
+                    ip6_index_array[ip6_index_count] = intf6;
+                    ip6_index_count++;
+                    addr6_count = 0;
+                    cur_idx = idx;
+                    cur_name = address->ifa_name;
+                    struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
+                    memcpy(addr6_array[addr6_count], sa->sin6_addr.__in6_u.__u6_addr32, sizeof(sa->sin6_addr.__in6_u.__u6_addr32));
+                    addr6_count++;
+                }
+                else
+                {
+                    if (addr6_count < MAX_ADDRESSES)
+                    {
+                        struct sockaddr_in6 *sa = (struct sockaddr_in6 *)address->ifa_addr; 
+                        memcpy(addr6_array[addr6_count], sa->sin6_addr.__in6_u.__u6_addr32, sizeof(sa->sin6_addr.__in6_u.__u6_addr32));
+                        addr6_count++;
+                    }
+                }
+            }
+            
+        }
+        address = address->ifa_next;
+    }
+    if ((idx > 0) && (addr6_count > 0) && (addr6_count <= MAX_ADDRESSES)){
+        struct interface6 intf6 = {  
+            cur_idx,
+            cur_name,
+            addr6_count,
+            {0}
+        };
+        memcpy(intf6.addresses, addr6_array, sizeof(addr6_array));
+        ip6_index_array[ip6_index_count] = intf6;
+        ip6_index_count++;
+    }
+    prune_if6_map(ip6_index_array, ip6_index_count);
+    for (uint32_t x = 0; x < ip6_index_count; x++)
+    {
+        add_if6_index(ip6_index_array[x]);
+    }
+    freeifaddrs(addrs);
 }
 
 bool interface_map()
@@ -1832,7 +2130,7 @@ bool interface_map()
                         {0}};
                     memcpy(intf.addresses, addr_array, sizeof(intf.addresses));
                     ip_index_array[ip_index_count] = intf;
-		            if(all_index_count < MAX_ADDRESSES){
+		            if(all_index_count < MAX_IF_ENTRIES){
                 	    all_index_array[all_index_count] = intf;
         	        }
                     ip_index_count++;
@@ -1936,7 +2234,7 @@ bool interface_map()
                 0,
                 {0}
             };
-            if(all_index_count < MAX_ADDRESSES){
+            if(all_index_count < MAX_IF_ENTRIES){
                 all_index_array[all_index_count] = intf;
             }
             all_index_count++;
@@ -1955,7 +2253,7 @@ bool interface_map()
         };
         memcpy(intf.addresses, addr_array, sizeof(addr_array));
         ip_index_array[ip_index_count] = intf;
-        if(all_index_count < MAX_ADDRESSES){
+        if(all_index_count < MAX_IF_ENTRIES){
             all_index_array[all_index_count] = intf;
         }
         ip_index_count++;
@@ -1998,298 +2296,157 @@ static int process_events(void *ctx, void *data, size_t len)
     int res = 0;
     if (((ifname && monitor_interface && !strcmp(monitor_interface, ifname)) || all_interface) && ts)
     {
-        if (evt->error_code)
+        if(evt->version == 4)
         {
-            if (evt->error_code == IP_HEADER_TOO_BIG)
+            if (evt->error_code)
             {
-                sprintf(message, "%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
+                if (evt->error_code == IP_HEADER_TOO_BIG)
                 {
-                    res = write_log(log_file_name, message);
+                    sprintf(message, "%s : %s : %s : IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-                else
+                else if (evt->error_code == NO_IP_OPTIONS_ALLOWED)
                 {
-                    printf("%s", message);
+                    sprintf(message, "%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-            }
-            else if (evt->error_code == NO_IP_OPTIONS_ALLOWED)
-            {
-                sprintf(message, "%s : %s : %s : No IP Options Allowed\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
+                else if (evt->error_code == UDP_HEADER_TOO_BIG)
                 {
-                    res = write_log(log_file_name, message);
+                    sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-                else
+                else if (evt->error_code == GENEVE_HEADER_TOO_BIG)
                 {
-                    printf("%s", message);
+                    sprintf(message, "%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-            }
-            else if (evt->error_code == UDP_HEADER_TOO_BIG)
-            {
-                sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
+                else if (evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR)
                 {
-                    res = write_log(log_file_name, message);
+                    sprintf(message, "%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-                else
+                else if (evt->error_code == SKB_ADJUST_ERROR)
                 {
-                    printf("%s", message);
+                    sprintf(message, "%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-            }
-            else if (evt->error_code == GENEVE_HEADER_TOO_BIG)
-            {
-                sprintf(message, "%s : %s : %s : Geneve Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
+                else if (evt->error_code == ICMP_HEADER_TOO_BIG)
                 {
-                    res = write_log(log_file_name, message);
+                    sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-                else
+                else if (evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG)
                 {
-                    printf("%s", message);
+                    sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-            }
-            else if (evt->error_code == GENEVE_HEADER_LENGTH_VERSION_ERROR)
-            {
-                sprintf(message, "%s : %s : %s : Geneve Header Length: Version Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
+                else if (evt->error_code == IF_LIST_MATCH_ERROR)
                 {
-                    res = write_log(log_file_name, message);
+                    sprintf(message, "%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-                else
+                else if (evt->error_code == NO_REDIRECT_STATE_FOUND)
                 {
-                    printf("%s", message);
+                    sprintf(message, "%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
-            }
-            else if (evt->error_code == SKB_ADJUST_ERROR)
-            {
-                sprintf(message, "%s : %s : %s : SKB Adjust Error\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
-                {
-                    res = write_log(log_file_name, message);
-                }
-                else
-                {
-                    printf("%s", message);
-                }
-            }
-            else if (evt->error_code == ICMP_HEADER_TOO_BIG)
-            {
-                sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
-                {
-                    res = write_log(log_file_name, message);
-                }
-                else
-                {
-                    printf("%s", message);
-                }
-            }
-            else if (evt->error_code == ICMP_INNER_IP_HEADER_TOO_BIG)
-            {
-                sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
-                {
-                    res = write_log(log_file_name, message);
-                }
-                else
-                {
-                    printf("%s", message);
-                }
-            }
-            else if (evt->error_code == IF_LIST_MATCH_ERROR)
-            {
-                sprintf(message, "%s : %s : %s : Interface did not match and per interface filtering is enabled\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
-                {
-                    res = write_log(log_file_name, message);
-                }
-                else
-                {
-                    printf("%s", message);
-                }
-            }
-            else if (evt->error_code == NO_REDIRECT_STATE_FOUND)
-            {
-                sprintf(message, "%s : %s : %s : No Redirect State found\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
-                if (logging)
-                {
-                    res = write_log(log_file_name, message);
-                }
-                else
-                {
-                    printf("%s", message);
-                }
-            }
-        }
-        else
-        {
-            char *saddr = nitoa(ntohl(evt->saddr));
-            char *daddr = nitoa(ntohl(evt->daddr));
-            char *protocol;
-            if (evt->proto == IPPROTO_TCP)
-            {
-                protocol = "TCP";
-            }
-            else if (evt->proto == IPPROTO_ICMP)
-            {
-                protocol = "ICMP";
             }
             else
             {
-                protocol = "UDP";
-            }
-            if (evt->tun_ifindex && ifname)
-            {
-                char tbuf[IF_NAMESIZE];
-                char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
-                if (tun_ifname)
+                char *saddr = nitoa(ntohl(evt->saddr[0]));
+                char *daddr = nitoa(ntohl(evt->daddr[0]));
+                char *protocol;
+                if (evt->proto == IPPROTO_TCP)
                 {
-                    sprintf(message, "%s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, protocol, saddr, ntohs(evt->sport),
-                            evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
-                            evt->dest[0], evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
-                    if (logging)
-                    {
-                        res = write_log(log_file_name, message);
-                    }
-                    else
-                    {
-                        printf("%s", message);
-                    }
+                    protocol = "TCP";
                 }
-            }
-            else if (evt->tport && ifname)
-            {
-                sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
-                        ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
-                        daddr, ntohs(evt->dport), ntohs(evt->tport));
-                if (logging)
+                else if (evt->proto == IPPROTO_ICMP)
                 {
-                    res = write_log(log_file_name, message);
+                    protocol = "ICMP";
                 }
                 else
                 {
-                    printf("%s", message);
+                    protocol = "UDP";
                 }
-            }
-            else if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
-            {
-                char *state = NULL;
-                __u16 code = evt->tracking_code;
-
-                if (code == SERVER_SYN_ACK_RCVD)
+                if (evt->tun_ifindex && ifname)
                 {
-                    state = "SERVER_SYN_ACK_RCVD";
-                }
-                else if (code == SERVER_FIN_RCVD)
-                {
-                    state = "SERVER_FIN_RCVD";
-                }
-                else if (code == SERVER_RST_RCVD)
-                {
-                    state = "SERVER_RST_RCVD";
-                }
-                else if (code == SERVER_FINAL_ACK_RCVD)
-                {
-                    state = "SERVER_FINAL_ACK_RCVD";
-                }
-                else if (code == UDP_MATCHED_EXPIRED_STATE)
-                {
-                    state = "UDP_MATCHED_EXPIRED_STATE";
-                }
-                else if (code == UDP_MATCHED_ACTIVE_STATE)
-                {
-                    state = "UDP_MATCHED_ACTIVE_STATE";
-                }
-                else if (code == CLIENT_SYN_RCVD)
-                {
-                    state = "CLIENT_SYN_RCVD";
-                }
-                else if (code == CLIENT_FIN_RCVD)
-                {
-                    state = "CLIENT_FIN_RCVD";
-                }
-                else if (code == CLIENT_RST_RCVD)
-                {
-                    state = "CLIENT_RST_RCVD";
-                }
-                else if (code == TCP_CONNECTION_ESTABLISHED)
-                {
-                    state = "TCP_CONNECTION_ESTABLISHED";
-                }
-                else if (code == CLIENT_FINAL_ACK_RCVD)
-                {
-                    state = "CLIENT_FINAL_ACK_RCVD";
-                }
-                else if (code == CLIENT_INITIATED_UDP_SESSION)
-                {
-                    state = "CLIENT_INITIATED_UDP_SESSION";
-                }
-                if (state)
-                {
-                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
-                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
-                    if (logging)
+                    char tbuf[IF_NAMESIZE];
+                    char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
+                    if (tun_ifname)
                     {
-                        res = write_log(log_file_name, message);
-                    }
-                    else
-                    {
-                        printf("%s", message);
-                    }
-                }
-            }
-            else if (evt->proto == IPPROTO_ICMP && ifname)
-            {
-                __u16 code = evt->tracking_code;
-                __u8 inner_ttl = evt->dest[0];
-                __u8 outer_ttl = evt->source[0];
-                if (code == 4)
-                {
-                    /*evt->sport is use repurposed store next hop mtu*/
-                    sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
-                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
-                    if (logging)
-                    {
-                        res = write_log(log_file_name, message);
-                    }
-                    else
-                    {
-                        printf("%s", message);
-                    }
-                }
-                else
-                {
-                    char *code_string = NULL;
-                    char *protocol_string = NULL;
-                    if (evt->dest[1] == IPPROTO_TCP)
-                    {
-                        protocol_string = "TCP";
-                    }
-                    else
-                    {
-                        protocol_string = "UDP";
-                    }
-                    if (code == 0)
-                    {
-                        code_string = "NET UNREACHABLE";
-                    }
-                    else if (code == 1)
-                    {
-                        code_string = "HOST UNREACHABLE";
-                    }
-                    else if (code == 2)
-                    {
-                        code_string = "PROTOCOL UNREACHABLE";
-                    }
-                    else if (code == 3)
-                    {
-                        code_string = "PORT UNREACHABLE";
-                    }
-
-                    if (code_string)
-                    {
-                        sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d OUTER-TTL:%d INNER-TTL:%d\n", ts, ifname,
-                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, code_string, daddr, protocol_string, ntohs(evt->dport), outer_ttl, inner_ttl);
+                        sprintf(message, "%s : %s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS",protocol, saddr, ntohs(evt->sport),
+                                evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr, ntohs(evt->dport),
+                                evt->dest[0], evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
                         if (logging)
                         {
                             res = write_log(log_file_name, message);
@@ -2300,32 +2457,338 @@ static int process_events(void *ctx, void *data, size_t len)
                         }
                     }
                 }
-            }
-            else if (ifname)
-            {
-                sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
-                        (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
-                if (logging)
+                else if (evt->tport && ifname)
                 {
-                    res = write_log(log_file_name, message);
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
+                            ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
+                            daddr, ntohs(evt->dport), ntohs(evt->tport));
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
+                {
+                    char *state = NULL;
+                    __u16 code = evt->tracking_code;
+
+                    if (code == SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "SERVER_SYN_ACK_RCVD";
+                    }
+                    else if (code == SERVER_FIN_RCVD)
+                    {
+                        state = "SERVER_FIN_RCVD";
+                    }
+                    else if (code == SERVER_RST_RCVD)
+                    {
+                        state = "SERVER_RST_RCVD";
+                    }
+                    else if (code == SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "SERVER_FINAL_ACK_RCVD";
+                    }
+                    else if (code == UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "UDP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == CLIENT_SYN_RCVD)
+                    {
+                        state = "CLIENT_SYN_RCVD";
+                    }
+                    else if (code == CLIENT_FIN_RCVD)
+                    {
+                        state = "CLIENT_FIN_RCVD";
+                    }
+                    else if (code == CLIENT_RST_RCVD)
+                    {
+                        state = "CLIENT_RST_RCVD";
+                    }
+                    else if (code == TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "TCP_CONNECTION_ESTABLISHED";
+                    }
+                    else if (code == CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "CLIENT_FINAL_ACK_RCVD";
+                    }
+                    else if (code == CLIENT_INITIATED_UDP_SESSION)
+                    {
+                        state = "CLIENT_INITIATED_UDP_SESSION";
+                    }
+                    if (state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport), state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                }
+                else if (evt->proto == IPPROTO_ICMP && ifname)
+                {
+                    __u16 code = evt->tracking_code;
+                    __u8 inner_ttl = evt->dest[0];
+                    __u8 outer_ttl = evt->source[0];
+                    if (code == 4)
+                    {
+                        /*evt->sport is use repurposed store next hop mtu*/
+                        sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                    else
+                    {
+                        char *code_string = NULL;
+                        char *protocol_string = NULL;
+                        if (evt->dest[1] == IPPROTO_TCP)
+                        {
+                            protocol_string = "TCP";
+                        }
+                        else
+                        {
+                            protocol_string = "UDP";
+                        }
+                        if (code == 0)
+                        {
+                            code_string = "NET UNREACHABLE";
+                        }
+                        else if (code == 1)
+                        {
+                            code_string = "HOST UNREACHABLE";
+                        }
+                        else if (code == 2)
+                        {
+                            code_string = "PROTOCOL UNREACHABLE";
+                        }
+                        else if (code == 3)
+                        {
+                            code_string = "PORT UNREACHABLE";
+                        }
+
+                        if (code_string)
+                        {
+                            sprintf(message, "%s : %s : %s : %s :%s --> REPORTED:%s > in PATH TO:%s:%s:%d OUTER-TTL:%d INNER-TTL:%d\n", ts, ifname,
+                                    (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, code_string, daddr, protocol_string, ntohs(evt->dport), outer_ttl, inner_ttl);
+                            if (logging)
+                            {
+                                res = write_log(log_file_name, message);
+                            }
+                            else
+                            {
+                                printf("%s", message);
+                            }
+                        }
+                    }
+                }
+                else if (ifname)
+                {
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
+                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport), daddr, ntohs(evt->dport));
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                if (saddr)
+                {
+                    free(saddr);
+                }
+                if (daddr)
+                {
+                    free(daddr);
+                }
+            }
+            if (ts)
+            {
+                free(ts);
+            }
+        }else{
+            if (evt->error_code)
+            {
+                if (evt->error_code == IP6_HEADER_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : IPv6 Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (evt->error_code == UDP_HEADER_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : UDP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (evt->error_code == ICMP_HEADER_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : ICMP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+                else if (evt->error_code == IPV6_TUPLE_TOO_BIG)
+                {
+                    sprintf(message, "%s : %s : %s : ICMP Inner IP Header Too Big\n", ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS");
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }
+            }
+            else
+            {
+                char saddr6[INET6_ADDRSTRLEN];
+                char daddr6[INET6_ADDRSTRLEN];
+                struct in6_addr saddr_6 = {0};
+                struct in6_addr daddr_6 = {0};
+                memcpy(saddr_6.__in6_u.__u6_addr32, evt->saddr, sizeof(evt->saddr));
+                memcpy(daddr_6.__in6_u.__u6_addr32, evt->daddr, sizeof(evt->daddr));
+                inet_ntop(AF_INET6,&saddr_6, saddr6,INET6_ADDRSTRLEN);
+                inet_ntop(AF_INET6,&daddr_6, daddr6,INET6_ADDRSTRLEN);
+                char *protocol;
+                if (evt->proto == IPPROTO_TCP)
+                {
+                    protocol = "TCP";
+                }
+                else if (evt->proto == IPPROTO_ICMP)
+                {
+                    protocol = "ICMP";
                 }
                 else
                 {
-                    printf("%s", message);
+                    protocol = "UDP";
+                }
+    
+                if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
+                {
+                    char *state = NULL;
+                    __u16 code = evt->tracking_code;
+
+                    if (code == SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "SERVER_SYN_ACK_RCVD";
+                    }
+                    else if (code == SERVER_FIN_RCVD)
+                    {
+                        state = "SERVER_FIN_RCVD";
+                    }
+                    else if (code == SERVER_RST_RCVD)
+                    {
+                        state = "SERVER_RST_RCVD";
+                    }
+                    else if (code == SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "SERVER_FINAL_ACK_RCVD";
+                    }
+                    else if (code == UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "UDP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == CLIENT_SYN_RCVD)
+                    {
+                        state = "CLIENT_SYN_RCVD";
+                    }
+                    else if (code == CLIENT_FIN_RCVD)
+                    {
+                        state = "CLIENT_FIN_RCVD";
+                    }
+                    else if (code == CLIENT_RST_RCVD)
+                    {
+                        state = "CLIENT_RST_RCVD";
+                    }
+                    else if (code == TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "TCP_CONNECTION_ESTABLISHED";
+                    }
+                    else if (code == CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "CLIENT_FINAL_ACK_RCVD";
+                    }
+                    else if (code == CLIENT_INITIATED_UDP_SESSION)
+                    {
+                        state = "CLIENT_INITIATED_UDP_SESSION";
+                    }
+                    if (state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport), daddr6, ntohs(evt->dport), state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                }
+                else if (ifname)
+                {
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d\n", ts, ifname,
+                            (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport), daddr6, ntohs(evt->dport));
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
                 }
             }
-            if (saddr)
+            if (ts)
             {
-                free(saddr);
+                free(ts);
             }
-            if (daddr)
-            {
-                free(daddr);
-            }
-        }
-        if (ts)
-        {
-            free(ts);
+
         }
     }
     if (res)
@@ -2592,7 +3055,7 @@ void if_delete_key(uint32_t key)
     }
     else
     {
-        printf("Pruned index %d from ifindex_map\n", key);
+        printf("Pruned index %u from ifindex_map\n", key);
     }
     close(fd);
 }
@@ -2701,7 +3164,7 @@ void diag_delete_key(uint32_t key)
     }
     else
     {
-        printf("Pruned index %d from diag_map\n", key);
+        printf("Pruned index %u from diag_map\n", key);
     }
     close(fd);
 }
@@ -3356,6 +3819,8 @@ static struct argp_option options[] = {
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
+    {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
+    {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
@@ -3375,7 +3840,6 @@ static struct argp_option options[] = {
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
     {"ddos-saddr-add", 'y', "", 0, "Add source IP Address to DDOS IP whitelist i.e. 192.168.1.1", 0},
-    {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"direction", 'z', "", 0, "Set direction", 0},
     {0}};
 
@@ -3596,6 +4060,29 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         else
         {
             ddos_interface = arg;
+        }
+        break;
+    case '6':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -6, --ipv6-enable: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        v6 = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            ipv6_interface = arg;
         }
         break;
     case 'c':
@@ -3837,6 +4324,10 @@ void close_maps(int code)
     {
        close(if_list_ext_fd);
     }
+    if (if6_fd != -1)
+    {
+       close(if6_fd);
+    }
     if (range_fd != -1)
     {
        close(range_fd);
@@ -3983,6 +4474,21 @@ void open_if_map()
     }
 }
 
+void open_if6_map()
+{
+    memset(&if6_map, 0, sizeof(if6_map));
+    /* set path name with location of map in filesystem */
+    if6_map.pathname = (uint64_t)if6_map_path;
+    if6_map.bpf_fd = 0;
+    if6_map.file_flags = 0;
+    /* make system call to get fd for map */
+    if6_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if6_map, sizeof(if6_map));
+    if (if_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
 void open_rb_map()
 {
     memset(&rb_map, 0, sizeof(rb_map));
@@ -4032,6 +4538,15 @@ int main(int argc, char **argv)
         usage("-X, --set-tc-filter requires -z, --direction for add operation");
     }
 
+    if (v6)
+    {
+        if ((dsip ||tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush 
+        || eapol) || ddos || vrrp || monitor || logging|| ddport)
+        {
+            usage("-6, --ipv6-enable can not be used in combination call");
+        }
+    }
+
     if (ddport)
     {
         if ((dsip ||tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush 
@@ -4052,7 +4567,7 @@ int main(int argc, char **argv)
 
     if (logging)
     {
-        if ((tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol) || ddos || vrrp || (!monitor))
+        if (tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol || ddos || vrrp || (!monitor))
         {
             usage("W, --write-log can only be used in combination call to -M, --monitor");
         }
@@ -4154,9 +4669,9 @@ int main(int argc, char **argv)
     }
 
     if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol && !ddos 
-    && !dsip && !ddport))
+    && !dsip && !ddport && !v6))
     {
-        usage("Missing argument at least one of -e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -6,-e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
 
     if (direction && !tcfilter)
@@ -4325,7 +4840,7 @@ int main(int argc, char **argv)
             map_list();
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6)
     {
         interface_diag();
     }

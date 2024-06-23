@@ -33,11 +33,12 @@
 #define NO_REDIRECT_STATE_FOUND 10
 
 struct bpf_event{
+    __u8 version;
     unsigned long long tstamp;
     __u32 ifindex;
     __u32 tun_ifindex;
-    __u32 daddr;
-    __u32 saddr;
+    __u32 daddr[4];
+    __u32 saddr[4];
     __u16 sport;
     __u16 dport;
     __u16 tport;
@@ -47,14 +48,6 @@ struct bpf_event{
     __u8 tracking_code;
     unsigned char source[6];
     unsigned char dest[6];
-};
-
-/*Key to tun_map, tcp_map and udp_map*/
-struct tuple_key {
-    __u32 daddr;
-    __u32 saddr;
-    __u16 sport;
-    __u16 dport;
 };
 
 /*Key to tun_map*/
@@ -123,11 +116,12 @@ static inline void send_event(struct bpf_event *new_event){
     struct bpf_event *rb_event;
     rb_event = bpf_ringbuf_reserve(&rb_map, sizeof(*rb_event), 0);
     if(rb_event){
+        rb_event->version = new_event->version;
         rb_event->ifindex = new_event->ifindex;
         rb_event->tun_ifindex = new_event->tun_ifindex;
         rb_event->tstamp = new_event->tstamp;   
-        rb_event->daddr = new_event->daddr;
-        rb_event->saddr = new_event->saddr;
+        memcpy(rb_event->daddr, new_event->daddr, sizeof(rb_event->daddr));
+        memcpy(rb_event->saddr, new_event->saddr, sizeof(rb_event->saddr));
         rb_event->dport = new_event->dport;
         rb_event->sport = new_event->sport;
         rb_event->tport = new_event->tport;
@@ -164,11 +158,12 @@ int xdp_redirect_prog(struct xdp_md *ctx)
     }
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
+        4,
         tstamp,
         ctx->ingress_ifindex,
         0,
-        0,
-        0,
+        {0,0,0,0},
+        {0,0,0,0},
         0,
         0,
         0,
@@ -215,8 +210,10 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             }
             event.tun_ifindex = tus->ifindex;
             event.proto = protocol;
-            event.saddr = iph->saddr;
-            event.daddr = iph->daddr;
+            __u32 saddr_array[4] = {iph->saddr,0,0,0};
+            __u32 daddr_array[4] = {iph->daddr,0,0,0};
+            memcpy(event.saddr,saddr_array, sizeof(event.saddr));
+            memcpy(event.daddr,daddr_array, sizeof(event.daddr));
             memcpy(&event.source, &tus->dest, 6);
             memcpy(&event.dest, &tus->source, 6);
             send_event(&event);
