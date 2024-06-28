@@ -87,8 +87,14 @@ struct if_list_extension_mapping {
 };
 
 struct port_extension_key {
-    __u32 dst_ip;
-    __u32 src_ip;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
     __u16 low_port;
     __u8 dprefix_len;
     __u8 sprefix_len;
@@ -126,6 +132,15 @@ struct tproxy_key {
     __u8 pad;
 };
 
+/*key to zt_tproxy_map6*/
+struct tproxy6_key {
+    __u32 dst_ip[4];
+    __u32 src_ip[4];
+    __u8 dprefix_len;
+    __u8 sprefix_len;
+    __u8 protocol;
+    __u8 pad;
+};
 
 struct bpf_event{
     __u8 version;
@@ -147,8 +162,14 @@ struct bpf_event{
 
 /*Key to tcp_map/udp_map*/
 struct tuple_key {
-    __u32 daddr[4];
-    __u32 saddr[4];
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
     __u16 sport;
     __u16 dport;
 };
@@ -377,21 +398,33 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tuple_count_map SEC(".maps");
 
+//map to keep track of total entries in zt_tproxy6_map
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, 1);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} tuple6_count_map SEC(".maps");
+
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
 *
 * struct tproxy_key {
+*    struct tproxy_key {
 *    __u32 dst_ip;
-*    __u16 dprefix_len;
-*    __u16 pad;
+*    __u32 src_ip;
+*    __u8 dprefix_len;
+*    __u8 sprefix_len;
+*    __u8 protocol;
+*    __u8 pad;
+};
 *
 *    which is a combination of ip prefix and cidr mask length.
 *
 *    The value is has the format of the following struct
 *
 *    struct tproxy_tuple {
-*    __u32 dst_ip; future use
-*	 __u32 src_ip; 
 *    __u16 index_len; //tracks the number of entries in the index_table
 *    __u16 index_table[MAX_INDEX_ENTRIES];
 *    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
@@ -405,6 +438,38 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zt_tproxy_map SEC(".maps");
+
+/* File system pinned Hashmap to store the ipv6 socket mapping with look up key with the 
+* following struct format. 
+*
+*    struct tproxy6_key {
+*    struct tproxy6_key {
+*   __u32 dst_ip[4];
+*   __u32 src_ip[4];
+*   __u8 dprefix_len;
+*   __u8 sprefix_len;
+*   __u8 protocol;
+*   __u8 pad;
+};
+*
+*    which is a combination of ip prefix and cidr mask length.
+*
+*    The value is has the format of the following struct
+*
+*    struct tproxy_tuple {
+*    __u16 index_len; //tracks the number of entries in the index_table
+*    __u16 index_table[MAX_INDEX_ENTRIES];
+*    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
+*    }
+*/
+struct {
+     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(key_size, sizeof(struct tproxy6_key));
+     __uint(value_size,sizeof(struct tproxy_tuple));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     __uint(map_flags, BPF_F_NO_PREALLOC);
+} zt_tproxy6_map SEC(".maps");
 
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -893,8 +958,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             return TC_ACT_SHOT;
         }
     }
-    struct tuple_key tcp_state_key;
-    struct tuple_key udp_state_key;
+    struct tuple_key tcp_state_key = {0};
+    struct tuple_key udp_state_key = {0};
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -1186,8 +1251,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             }
                         }
                 }
-                memcpy(tcp_state_key.daddr,saddr_array, sizeof(saddr_array));
-                memcpy(tcp_state_key.saddr,daddr_array, sizeof(daddr_array));
+                tcp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
+                tcp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 tcp_state_key.sport = tuple->ipv4.dport;
                 tcp_state_key.dport = tuple->ipv4.sport;
                 unsigned long long tstamp = bpf_ktime_get_ns();
@@ -1282,8 +1347,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             bpf_sk_release(sk);
             /*reply to outbound passthrough check*/
             }else{
-                memcpy(udp_state_key.daddr,saddr_array, sizeof(saddr_array));
-                memcpy(udp_state_key.saddr,daddr_array, sizeof(daddr_array));
+                udp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
+                udp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.dport;
                 udp_state_key.dport = tuple->ipv4.sport;
                 unsigned long long tstamp = bpf_ktime_get_ns();
@@ -1383,8 +1448,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 bpf_sk_release(sk);   
             /*reply to outbound passthrough check*/
             }else{
-                memcpy(tcp_state_key.daddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-                memcpy(tcp_state_key.saddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 tcp_state_key.sport = tuple->ipv6.dport;
                 tcp_state_key.dport = tuple->ipv6.sport;
                 unsigned long long tstamp = bpf_ktime_get_ns();
@@ -1472,8 +1537,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             bpf_sk_release(sk);
             /*reply to outbound passthrough check*/
             }else{
-                memcpy(udp_state_key.daddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-                memcpy(udp_state_key.saddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 udp_state_key.sport = tuple->ipv6.dport;
                 udp_state_key.dport = tuple->ipv6.sport;
                 unsigned long long tstamp = bpf_ktime_get_ns();
@@ -1899,8 +1964,8 @@ int bpf_sk_splice5(struct __sk_buff *skb){
             for (int index = 0; index < max_entries; index++){
                 __u16 port_key = tproxy->index_table[index];
                 struct port_extension_key ext_key = {0};
-                ext_key.dst_ip = key.dst_ip;
-                ext_key.src_ip = key.src_ip;
+                ext_key.__in46_u_dst.ip = key.dst_ip;
+                ext_key.__in46_u_src.ip = key.src_ip;
                 ext_key.low_port = port_key;
                 ext_key.dprefix_len = key.dprefix_len;
                 ext_key.sprefix_len = key.sprefix_len; 

@@ -69,8 +69,14 @@ struct range_mapping {
 };
 
 struct port_extension_key {
-    __u32 dst_ip;
-    __u32 src_ip;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
     __u16 low_port;
     __u8 dprefix_len;
     __u8 sprefix_len;
@@ -315,8 +321,8 @@ void process_service_updates(char * service_id)
             struct port_extension_key port_ext_key = {0};
             for(int x = 0; x < orule.index_len; x++){
                 struct port_extension_key port_ext_key = {0};
-                port_ext_key.dst_ip = current_key.dst_ip;
-                port_ext_key.src_ip = current_key.src_ip;
+                port_ext_key.__in46_u_dst.ip = current_key.dst_ip;
+                port_ext_key.__in46_u_src.ip = current_key.src_ip;
                 port_ext_key.low_port = orule.index_table[x];
                 port_ext_key.dprefix_len = current_key.dprefix_len;
                 port_ext_key.sprefix_len = current_key.sprefix_len;
@@ -386,8 +392,8 @@ bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
             struct port_extension_key port_ext_key = {0};
             for(int x = 0; x < orule.index_len; x++){
                 struct port_extension_key port_ext_key = {0};
-                port_ext_key.dst_ip = current_key.dst_ip;
-                port_ext_key.src_ip = current_key.src_ip;
+                port_ext_key.__in46_u_dst.ip = current_key.dst_ip;
+                port_ext_key.__in46_u_src.ip = current_key.src_ip;
                 port_ext_key.low_port = orule.index_table[x];
                 port_ext_key.dprefix_len = current_key.dprefix_len;
                 port_ext_key.sprefix_len = current_key.sprefix_len;
@@ -456,8 +462,8 @@ void process_rules()
             struct port_extension_key port_ext_key = {0};
             for(int x = 0; x < orule.index_len; x++){
                 struct port_extension_key port_ext_key = {0};
-                port_ext_key.dst_ip = current_key.dst_ip;
-                port_ext_key.src_ip = current_key.src_ip;
+                port_ext_key.__in46_u_dst.ip = current_key.dst_ip;
+                port_ext_key.__in46_u_src.ip = current_key.src_ip;
                 port_ext_key.low_port = orule.index_table[x];
                 port_ext_key.dprefix_len = current_key.dprefix_len;
                 port_ext_key.sprefix_len = current_key.sprefix_len;
@@ -526,8 +532,8 @@ void range_delete_key(struct port_extension_key key)
     int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
     if (!result)
     {
-        char *saddr = nitoa(ntohl(key.src_ip));
-        char *daddr = nitoa(ntohl(key.dst_ip));
+        char *saddr = nitoa(ntohl(key.__in46_u_dst.ip));
+        char *daddr = nitoa(ntohl(key.__in46_u_src.ip));
         if(saddr && daddr){
             printf("cleared range_map entry: Range dest=%s/%u, source=%s/%u, protocol=%s, low_port=%u\n", daddr,  key.dprefix_len, saddr,
             key.sprefix_len, key.protocol == 6 ? "tcp" : "udp" , htons(key.low_port));

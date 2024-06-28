@@ -68,8 +68,14 @@ struct bpf_event{
 
 /*Key to tcp_map and udp_map*/
 struct tuple_key {
-    __u32 daddr[4];
-    __u32 saddr[4];
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
     __u16 sport;
     __u16 dport;
 };
@@ -319,8 +325,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool tcp=false;
     bool arp=false;
     bool icmp=false;
-    struct tuple_key tcp_state_key;
-    struct tuple_key udp_state_key;
+    struct tuple_key tcp_state_key = {0};
+    struct tuple_key udp_state_key ={0};
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
@@ -416,8 +422,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 bpf_sk_release(sk);
             }
-            memcpy(tcp_state_key.saddr,saddr_array, sizeof(saddr_array));
-            memcpy(tcp_state_key.daddr,daddr_array, sizeof(daddr_array));
+            tcp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+            tcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.sport;
             tcp_state_key.dport = tuple->ipv4.dport;
             unsigned long long tstamp = bpf_ktime_get_ns();
@@ -524,8 +530,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             if(sk){
                 bpf_sk_release(sk);
             }else{
-                memcpy(udp_state_key.saddr, saddr_array, sizeof(saddr_array));
-                memcpy(udp_state_key.daddr, daddr_array, sizeof(daddr_array));
+                udp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.sport;
                 udp_state_key.dport = tuple->ipv4.dport;
                 struct udp_state *ustate = get_udp(udp_state_key);
@@ -584,8 +590,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 bpf_sk_release(sk);
             }
-            memcpy(tcp_state_key.saddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-            memcpy(tcp_state_key.daddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             tcp_state_key.sport = tuple->ipv6.sport;
             tcp_state_key.dport = tuple->ipv6.dport;
             unsigned long long tstamp = bpf_ktime_get_ns();
@@ -692,8 +698,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             if(sk){
                 bpf_sk_release(sk);
             }else{
-                memcpy(udp_state_key.saddr,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-                memcpy(udp_state_key.daddr,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 udp_state_key.sport = tuple->ipv6.sport;
                 udp_state_key.dport = tuple->ipv6.dport;
                 struct udp_state *ustate = get_udp(udp_state_key);
