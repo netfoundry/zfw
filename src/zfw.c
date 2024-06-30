@@ -157,6 +157,7 @@ union bpf_attr if_list_ext_map;
 int if_list_ext_fd = -1;
 union bpf_attr range_map;
 int range_fd = -1;
+
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *tproxy6_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy6_map";
 const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
@@ -164,6 +165,7 @@ const char *count6_map_path = "/sys/fs/bpf/tc/globals/tuple6_count_map";
 const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
 const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
 const char *if6_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip6_map";
+const char *matched6_map_path ="/sys/fs/bpf/tc/globals/matched6_map";
 const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
 const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
 const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
@@ -565,11 +567,11 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[21] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[22] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
-                            tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path, if6_map_path, count6_map_path};
-    for (int map_count = 0; map_count < 21; map_count++)
+                            tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path, if6_map_path, count6_map_path, matched6_map_path};
+    for (int map_count = 0; map_count < 22; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -4202,7 +4204,7 @@ int flush6()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy_map_path;
+    map.pathname = (uint64_t)tproxy6_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
