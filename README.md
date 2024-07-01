@@ -7,7 +7,7 @@ filtering.  It can be used in conjunction with ufw's masquerade feature on a Wan
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
 edge-routers.
 
-## New feaaturs - Initial support for ipv6
+## New features - Initial support for ipv6
 - *Enabled via sudo zfw -6 <ifname | all> 
    Note: Router discovery is always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
