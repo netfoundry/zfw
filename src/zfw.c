@@ -1199,6 +1199,7 @@ void usage(char *message)
     fprintf(stderr, "       zfw -L\n");
     fprintf(stderr, "       zfw -L -i\n");
     fprintf(stderr, "       zfw -L -f\n");
+    fprintf(stderr, "       zfw -L -6 all\n");
     fprintf(stderr, "       zfw -F\n");
     fprintf(stderr, "       zfw -e <ifname>\n");
     fprintf(stderr, "       zfw -e <ifname> -d\n");
@@ -5570,6 +5571,10 @@ int main(int argc, char **argv)
         {
             usage("-6, --ipv6-enable can not be used in combination call");
         }
+    }
+
+    if(v6 && list && !all_interface){
+         usage("-6, --ipv6-enable when used in combination with -L --list requires the argument \'all\'");
     }
 
     if (ddport)
