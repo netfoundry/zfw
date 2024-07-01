@@ -176,8 +176,14 @@ struct tuple_key {
 
 /*Key to tun_map*/
 struct tun_key {
-    __u32 daddr;
-    __u32 saddr;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
 };
 
 
@@ -341,7 +347,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(key_size, sizeof(struct match_key));
+    __uint(key_size, sizeof(struct match6_key));
     __uint(value_size, sizeof(struct tproxy6_key));
     __uint(max_entries, 65535);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
@@ -940,19 +946,27 @@ static inline void iterate_masks(__u32 *mask, __u32 *exponent){
     }
 }
 
-static inline struct bpf_sock *get_sk(struct tproxy_key key, struct __sk_buff *skb, struct bpf_sock_tuple sockcheck){
+static inline struct bpf_sock *get_sk(struct bpf_event event, struct __sk_buff *skb, struct bpf_sock_tuple sockcheck){
     struct bpf_sock *sk;
-        if(key.protocol == IPPROTO_TCP){
+    if(event.version == 4){
+        if(event.proto == IPPROTO_TCP){
             sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
         }else{
             sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
         }
-        if(sk){
-            if((key.protocol == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
-                bpf_sk_release(sk);
-                return NULL;
-            }    
+    }else{
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
         }
+    }
+    if(sk){
+        if((event.proto == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
+            bpf_sk_release(sk);
+            return NULL;
+        }    
+    }
     return sk;
 }
 
@@ -1648,18 +1662,22 @@ int bpf_sk_splice1(struct __sk_buff *skb){
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    
-
-    /* check if incoming packet is a UDP or TCP tuple */
-    struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-    protocol = iph->protocol;
-    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-    tuple_len = sizeof(tuple->ipv4);
-    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-       return TC_ACT_SHOT;
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
     }
-    struct tproxy_tuple *tproxy;
-    if(iph->version == 4){
+    struct tproxy_tuple *tproxy = NULL;
+    if(eth->h_proto == bpf_htons(ETH_P_IP)){
+        /* check if incoming packet is a UDP or TCP tuple */
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        protocol = iph->protocol;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+        tuple_len = sizeof(tuple->ipv4);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+        }
         __u32 dexponent=24;  /* unsigned integer used to calculate prefix matches */
         __u32 dmask = 0xffffffff;  /* starting mask value used in prefix match calculation */
         __u32 sexponent=24;  /* unsigned integer used to calculate prefix matches */
@@ -1762,7 +1780,6 @@ int bpf_sk_splice1(struct __sk_buff *skb){
             memcpy(key.dst_ip ,daddr, sizeof(daddr));
             memcpy(key.src_ip, saddr, sizeof(saddr));
             if ((tproxy = get_tproxy6(key))){
-                bpf_printk("inserted key 2");
                 insert_matched6_key(key, mkey);
                 return TC_ACT_PIPE;
             }
@@ -1794,12 +1811,6 @@ int bpf_sk_splice1(struct __sk_buff *skb){
             unsigned int daddr[4] = {tuple->ipv6.daddr[0] & mask0, tuple->ipv6.daddr[1] & mask1, tuple->ipv6.daddr[2] & mask2, tuple->ipv6.daddr[3] & mask3};
             memcpy(key.dst_ip ,daddr, sizeof(daddr));
             memcpy(key.src_ip, saddr, sizeof(saddr));
-            /*if(key.dprefix_len == 31){
-                bpf_printk("mask=%x %x %x 0x0", mask0, mask1, mask2);
-                bpf_printk("key0-2=%x %x %x", key.dst_ip[0], key.dst_ip[1], key.dst_ip[2]);
-                bpf_printk("key3=%x", key.dst_ip[3]);
-                bpf_printk("masked tuple=%x %x %x", tuple->ipv6.daddr[0] & mask0, tuple->ipv6.daddr[1] & mask1, tuple->ipv6.daddr[1] & mask2);
-            }*/
             if ((tproxy = get_tproxy6(key))){
                 insert_matched6_key(key, mkey);
                 return TC_ACT_PIPE;
@@ -1828,10 +1839,17 @@ int bpf_sk_splice2(struct __sk_buff *skb){
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    
-
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
+    if(eth->h_proto == bpf_htons(ETH_P_IPV6)){
+        return TC_ACT_PIPE;
+    }
     /* check if incomming packet is a UDP or TCP tuple */
     struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
     protocol = iph->protocol;
     tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
     tuple_len = sizeof(tuple->ipv4);
@@ -1900,10 +1918,17 @@ int bpf_sk_splice3(struct __sk_buff *skb){
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    
-
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
+    if(eth->h_proto == bpf_htons(ETH_P_IPV6)){
+        return TC_ACT_PIPE;
+    }
     /* check if incomming packet is a UDP or TCP tuple */
     struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
     protocol = iph->protocol;
     tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
     tuple_len = sizeof(tuple->ipv4);
@@ -1970,11 +1995,18 @@ int bpf_sk_splice4(struct __sk_buff *skb){
     __u8 protocol;
 
     /* find ethernet header from skb->data pointer */
-    struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    
-
+   struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
+    if(eth->h_proto == bpf_htons(ETH_P_IPV6)){
+        return TC_ACT_PIPE;
+    }
     /* check if incomming packet is a UDP or TCP tuple */
     struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
     protocol = iph->protocol;
     tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
     tuple_len = sizeof(tuple->ipv4);
@@ -2055,31 +2087,20 @@ int bpf_sk_splice5(struct __sk_buff *skb){
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
-    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
         return TC_ACT_SHOT;
-    }
-    __u8 protocol = iph->protocol;
-    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-    if(!tuple){
-       return TC_ACT_SHOT;
-    }
-    /* determine length of tuple */
-    tuple_len = sizeof(tuple->ipv4);
-    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-       return TC_ACT_SHOT;
     }
 
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
-        4,
+        0,
         tstamp,
         skb->ifindex,
         0,
-        {tuple->ipv4.daddr,0,0,0},
-        {tuple->ipv4.saddr,0,0,0},
-        tuple->ipv4.sport,
-        tuple->ipv4.dport,
+        {0},
+        {0},
+        0,
+        0,
         0,
         0,
         INGRESS,
@@ -2089,169 +2110,376 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         {}
      };
 
-    struct tproxy_key key;
-     /*look up attached interface IP address*/
-    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
-    if(!local_ip4){
-       return TC_ACT_SHOT;
-    }   
-    struct tproxy_tuple *tproxy;
-    struct match_tracker *key_tracker;
-    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, protocol};
-    __u16 match_count = get_matched_count(mkey);
-    if (match_count > MATCHED_KEY_DEPTH){
-       match_count = MATCHED_KEY_DEPTH;
-    }
-    for(__u16 count =0; count < match_count; count++)
-    {
-        key_tracker = get_matched_keys(mkey);
-        if(key_tracker){
-           key = key_tracker->matched_keys[count];
-        }else{
-            break;
+    struct tproxy_tuple *tproxy = NULL;
+    if(eth->h_proto == bpf_htons(ETH_P_IP)){
+        struct tproxy_key key;
+        /* check if incomming packet is a UDP or TCP tuple */
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
         }
-    
-        if((tproxy = get_tproxy(key)) && tuple)
+        __u8 protocol = iph->protocol;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+        if(!tuple){
+            return TC_ACT_SHOT;
+        }
+        /* determine length of tuple */
+        tuple_len = sizeof(tuple->ipv4);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        event.version = iph->version;
+        uint32_t daddr[4] = {tuple->ipv4.daddr,0,0,0};
+        uint32_t saddr[4] = {tuple->ipv4.saddr,0,0,0};
+        memcpy(event.daddr, daddr, sizeof(event.daddr));
+        memcpy(event.saddr, saddr, sizeof(event.saddr));  
+        event.dport = tuple->ipv4.dport;
+        event.sport = tuple->ipv4.sport;
+        struct match_tracker *key_tracker;
+        struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, protocol};
+        __u16 match_count = get_matched_count(mkey);
+        if (match_count > MATCHED_KEY_DEPTH){
+        match_count = MATCHED_KEY_DEPTH;
+        }
+        for(__u16 count =0; count < match_count; count++)
         {
-            __u16 max_entries = tproxy->index_len;
-            if (max_entries > MAX_INDEX_ENTRIES) {
-                max_entries = MAX_INDEX_ENTRIES;
+            key_tracker = get_matched_keys(mkey);
+            if(key_tracker){
+            key = key_tracker->matched_keys[count];
+            }else{
+                break;
             }
-            for (int index = 0; index < max_entries; index++){
-                __u16 port_key = tproxy->index_table[index];
-                struct port_extension_key ext_key = {0};
-                ext_key.__in46_u_dst.ip = key.dst_ip;
-                ext_key.__in46_u_src.ip = key.src_ip;
-                ext_key.low_port = port_key;
-                ext_key.dprefix_len = key.dprefix_len;
-                ext_key.sprefix_len = key.sprefix_len; 
-                ext_key.protocol = key.protocol;
-                ext_key.pad = 0;
-                struct range_mapping *range = get_range_ports(ext_key);
-                //check if there is a udp or tcp destination port match
-                if (range && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
-                     && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(range->high_port)))) 
-                {
-                    event.proto = key.protocol;
-                    event.tport = range->tproxy_port;
-                    /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
-                    the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
-                    sockcheck.ipv4.daddr = 0x0100007f;
-                    sockcheck.ipv4.dport = range->tproxy_port;
-                    if(!local_diag->per_interface){
-                        if(range->tproxy_port == 0){
-                            if(local_diag->verbose){
-                                send_event(&event);
-                            }
-                            return TC_ACT_OK;
-                        }
-                        if(!local_diag->tun_mode){
-                            sk = get_sk(key, skb, sockcheck);
-                            if(!sk){
-                                return TC_ACT_SHOT;
-                            }
-                            if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
-                                send_event(&event);
-                            }
-                            goto assign;
-                        }else
-                        {
-                            struct tun_key tun_state_key;
-                            tun_state_key.daddr = tuple->ipv4.daddr;
-                            tun_state_key.saddr = tuple->ipv4.saddr;
-                            unsigned long long tstamp = bpf_ktime_get_ns();
-                            struct tun_state *tustate = get_tun(tun_state_key);
-                            if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
-                                struct tun_state tus = {
-                                    tstamp,
-                                    skb->ifindex,
-                                    {0},
-                                    {0}
-                                };
-                                memcpy(&tus.source, &eth->h_source, 6);
-                                memcpy(&tus.dest, &eth->h_dest, 6);
-                                insert_tun(tus, tun_state_key);
-                            }
-                            else if(tustate){
-                                tustate->tstamp = tstamp;
-                                insert_tun(*tustate, tun_state_key);
-                            }
-                            struct ifindex_tun *tun_index = get_tun_index(0);
-                            if(tun_index){
+        
+            if((tproxy = get_tproxy(key)) && tuple)
+            {
+                __u16 max_entries = tproxy->index_len;
+                if (max_entries > MAX_INDEX_ENTRIES) {
+                    max_entries = MAX_INDEX_ENTRIES;
+                }
+                for (int index = 0; index < max_entries; index++){
+                    __u16 port_key = tproxy->index_table[index];
+                    struct port_extension_key ext_key = {0};
+                    ext_key.__in46_u_dst.ip = key.dst_ip;
+                    ext_key.__in46_u_src.ip = key.src_ip;
+                    ext_key.low_port = port_key;
+                    ext_key.dprefix_len = key.dprefix_len;
+                    ext_key.sprefix_len = key.sprefix_len; 
+                    ext_key.protocol = key.protocol;
+                    ext_key.pad = 0;
+                    struct range_mapping *range = get_range_ports(ext_key);
+                    //check if there is a udp or tcp destination port match
+                    if (range && ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(port_key))
+                        && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(range->high_port)))) 
+                    {
+                        event.proto = key.protocol;
+                        event.tport = range->tproxy_port;
+                        /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
+                        the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
+                        sockcheck.ipv4.daddr = 0x0100007f;
+                        sockcheck.ipv4.dport = range->tproxy_port;
+                        if(!local_diag->per_interface){
+                            if(range->tproxy_port == 0){
                                 if(local_diag->verbose){
-                                    memcpy(event.source, eth->h_source, 6);
-                                    memcpy(event.dest, eth->h_dest, 6);
-                                    event.tun_ifindex = tun_index->index;
                                     send_event(&event);
                                 }
-                                return bpf_redirect(tun_index->index, 0);
+                                return TC_ACT_OK;
+                            }
+                            if(!local_diag->tun_mode){
+                                sk = get_sk(event, skb, sockcheck);
+                                if(!sk){
+                                    return TC_ACT_SHOT;
+                                }
+                                if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
+                                    uint32_t loop_addr[4] = {sockcheck.ipv4.daddr,0,0,0};
+                                    memcpy(event.daddr, loop_addr, sizeof(event.daddr));
+                                    send_event(&event);
+                                }
+                                goto assign;
+                            }else
+                            {
+                                struct tun_key tun_state_key = {0};
+                                tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+                                tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                                unsigned long long tstamp = bpf_ktime_get_ns();
+                                struct tun_state *tustate = get_tun(tun_state_key);
+                                if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                    struct tun_state tus = {
+                                        tstamp,
+                                        skb->ifindex,
+                                        {0},
+                                        {0}
+                                    };
+                                    memcpy(&tus.source, &eth->h_source, 6);
+                                    memcpy(&tus.dest, &eth->h_dest, 6);
+                                    insert_tun(tus, tun_state_key);
+                                }
+                                else if(tustate){
+                                    tustate->tstamp = tstamp;
+                                    insert_tun(*tustate, tun_state_key);
+                                }
+                                struct ifindex_tun *tun_index = get_tun_index(0);
+                                if(tun_index){
+                                    if(local_diag->verbose){
+                                        memcpy(event.source, eth->h_source, 6);
+                                        memcpy(event.dest, eth->h_dest, 6);
+                                        event.tun_ifindex = tun_index->index;
+                                        send_event(&event);
+                                    }
+                                    return bpf_redirect(tun_index->index, 0);
+                                }
                             }
                         }
-                    }
-                    struct if_list_extension_mapping *ext_mapping = get_if_list_ext_mapping(ext_key);
-                    if(ext_mapping){
-                        for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
-                            if(ext_mapping->if_list[x] == skb->ifindex){
-                                if(range->tproxy_port == 0){
-                                    if(local_diag->verbose){
-                                        send_event(&event);
-                                    }
-                                    return TC_ACT_OK;
-                                }
-                                if(!local_diag->tun_mode){
-                                    sk = get_sk(key, skb, sockcheck);
-                                    if(!sk){
-                                        return TC_ACT_SHOT;
-                                    }
-                                    if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
-                                        send_event(&event);
-                                    }
-                                    goto assign;
-                                }else{
-                                    struct tun_key tun_state_key;
-                                    tun_state_key.daddr = tuple->ipv4.daddr;
-                                    tun_state_key.saddr = tuple->ipv4.saddr;
-
-                                    unsigned long long tstamp = bpf_ktime_get_ns();
-                                    struct tun_state *tustate = get_tun(tun_state_key);
-                                    if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
-                                        struct tun_state tus = {
-                                            tstamp,
-                                            skb->ifindex,
-                                            {0},
-                                            {0}
-                                        };
-                                        memcpy(&tus.source, &eth->h_source, 6);
-                                        memcpy(&tus.dest, &eth->h_dest, 6);
-                                        insert_tun(tus, tun_state_key);
-                                    }
-                                    else if(tustate){
-                                        tustate->tstamp = tstamp;
-                                        insert_tun(*tustate, tun_state_key);
-                                    }
-                                    struct ifindex_tun *tun_index = get_tun_index(0);
-                                    if(tun_index){
+                        struct if_list_extension_mapping *ext_mapping = get_if_list_ext_mapping(ext_key);
+                        if(ext_mapping){
+                            for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
+                                if(ext_mapping->if_list[x] == skb->ifindex){
+                                    if(range->tproxy_port == 0){
                                         if(local_diag->verbose){
-                                            memcpy(event.source, eth->h_source, 6);
-                                            memcpy(event.dest, eth->h_dest, 6);
-                                            event.tun_ifindex = tun_index->index;
                                             send_event(&event);
                                         }
-                                        return bpf_redirect(tun_index->index, 0);
+                                        return TC_ACT_OK;
+                                    }
+                                    if(!local_diag->tun_mode){
+                                        sk = get_sk(event, skb, sockcheck);
+                                        if(!sk){
+                                            return TC_ACT_SHOT;
+                                        }
+                                        if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
+                                            send_event(&event);
+                                        }
+                                        goto assign;
+                                    }else{
+                                        struct tun_key tun_state_key = {0};
+                                        tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+                                        tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                                        unsigned long long tstamp = bpf_ktime_get_ns();
+                                        struct tun_state *tustate = get_tun(tun_state_key);
+                                        if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                            struct tun_state tus = {
+                                                tstamp,
+                                                skb->ifindex,
+                                                {0},
+                                                {0}
+                                            };
+                                            memcpy(&tus.source, &eth->h_source, 6);
+                                            memcpy(&tus.dest, &eth->h_dest, 6);
+                                            insert_tun(tus, tun_state_key);
+                                        }
+                                        else if(tustate){
+                                            tustate->tstamp = tstamp;
+                                            insert_tun(*tustate, tun_state_key);
+                                        }
+                                        struct ifindex_tun *tun_index = get_tun_index(0);
+                                        if(tun_index){
+                                            if(local_diag->verbose){
+                                                memcpy(event.source, eth->h_source, 6);
+                                                memcpy(event.dest, eth->h_dest, 6);
+                                                event.tun_ifindex = tun_index->index;
+                                                send_event(&event);
+                                            }
+                                            return bpf_redirect(tun_index->index, 0);
+                                        }
                                     }
                                 }
                             }
                         }
+                        if(skb->ifindex == 1){
+                            event.error_code = IF_LIST_MATCH_ERROR;
+                            send_event(&event);
+                            return TC_ACT_OK;
+                        }
+                        else{
+                            event.error_code = IF_LIST_MATCH_ERROR;
+                            send_event(&event);
+                            return TC_ACT_SHOT;
+                        }
                     }
-                    if(skb->ifindex == 1){
-                        event.error_code = IF_LIST_MATCH_ERROR;
-                        send_event(&event);
-                        return TC_ACT_OK;
-                    }
-                    else{
-                        event.error_code = IF_LIST_MATCH_ERROR;
-                        send_event(&event);
-                        return TC_ACT_SHOT;
+                }
+            }
+        }
+    }else
+    {
+        struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+        // ensure ip header is in packet bounds
+        if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        if(!tuple){
+            return TC_ACT_SHOT;
+        }
+        // determine length of tuple
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        memcpy(event.daddr, tuple->ipv6.daddr, sizeof(event.daddr));
+        memcpy(event.saddr, tuple->ipv6.saddr, sizeof(event.saddr));  
+        event.dport = tuple->ipv6.dport;
+        event.sport = tuple->ipv6.sport;
+        event.version = ip6h->version;
+        __u8 protocol = ip6h->nexthdr;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        struct match6_key mkey = {0};
+        memcpy(mkey.daddr, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+        memcpy(mkey.saddr, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr)); 
+        mkey.sport = tuple->ipv6.sport;
+        mkey.dport = tuple->ipv6.dport;
+        mkey.ifindex = skb->ifindex;
+        mkey.protocol = protocol;
+        struct tproxy6_key *key = get_matched6_key(mkey);
+        if(key)
+        {
+            if((tproxy = get_tproxy6(*key)) && tuple)
+            {
+                __u16 max_entries = tproxy->index_len;
+                if (max_entries > MAX_INDEX_ENTRIES) {
+                    max_entries = MAX_INDEX_ENTRIES;
+                }
+                struct port_extension_key ext_key = {0};
+                memcpy(ext_key.__in46_u_dst.ip6, key->dst_ip, sizeof(key->dst_ip));
+                memcpy(ext_key.__in46_u_src.ip6, key->src_ip, sizeof(key->src_ip));
+                ext_key.dprefix_len = key->dprefix_len;
+                ext_key.sprefix_len = key->sprefix_len; 
+                ext_key.protocol = key->protocol;
+                ext_key.pad = 0;
+                for (int index = 0; index < max_entries; index++){
+                    __u16 port_key = tproxy->index_table[index];
+                    ext_key.low_port = port_key;
+                    struct range_mapping *range = get_range_ports(ext_key);
+                    //check if there is a udp or tcp destination port match
+                    if (range && ((bpf_ntohs(tuple->ipv6.dport) >= bpf_ntohs(port_key))
+                        && (bpf_ntohs(tuple->ipv6.dport) <= bpf_ntohs(range->high_port)))) 
+                    {
+                        event.proto = key->protocol;
+                        event.tport = range->tproxy_port;
+                        /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
+                        the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
+                        sockcheck.ipv6.daddr[0]= 0;
+                        sockcheck.ipv6.daddr[1]= 0;
+                        sockcheck.ipv6.daddr[2]= 0;
+                        sockcheck.ipv6.daddr[3]= 0x1000000;
+                        sockcheck.ipv6.dport = range->tproxy_port;
+                        if(!local_diag->per_interface){
+                            if(range->tproxy_port == 0){
+                                if(local_diag->verbose){
+                                    send_event(&event);
+                                }
+                                return TC_ACT_OK;
+                            }
+                            if(!local_diag->tun_mode){
+                                sk = get_sk(event, skb, sockcheck);
+                                if(!sk){
+                                    return TC_ACT_SHOT;
+                                }
+                                if(!(key->protocol == IPPROTO_UDP) || local_diag->verbose){
+                                    memcpy(event.daddr, sockcheck.ipv6.daddr, sizeof(event.daddr));
+                                    send_event(&event);
+                                }
+                                goto assign;
+                            }else
+                            {
+                                struct tun_key tun_state_key = {0};
+                                memcpy(tun_state_key.__in46_u_dst.ip6, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                                memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                                unsigned long long tstamp = bpf_ktime_get_ns();
+                                struct tun_state *tustate = get_tun(tun_state_key);
+                                if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                    struct tun_state tus = {
+                                        tstamp,
+                                        skb->ifindex,
+                                        {0},
+                                        {0}
+                                    };
+                                    memcpy(&tus.source, &eth->h_source, 6);
+                                    memcpy(&tus.dest, &eth->h_dest, 6);
+                                    insert_tun(tus, tun_state_key);
+                                }
+                                else if(tustate){
+                                    tustate->tstamp = tstamp;
+                                    insert_tun(*tustate, tun_state_key);
+                                }
+                                struct ifindex_tun *tun_index = get_tun_index(0);
+                                if(tun_index){
+                                    if(local_diag->verbose){
+                                        memcpy(event.source, eth->h_source, 6);
+                                        memcpy(event.dest, eth->h_dest, 6);
+                                        event.tun_ifindex = tun_index->index;
+                                        send_event(&event);
+                                    }
+                                    return bpf_redirect(tun_index->index, 0);
+                                }
+                            }
+                        }
+                        struct if_list_extension_mapping *ext_mapping = get_if_list_ext_mapping(ext_key);
+                        if(ext_mapping){
+                            for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
+                                if(ext_mapping->if_list[x] == skb->ifindex){
+                                    if(range->tproxy_port == 0){
+                                        if(local_diag->verbose){
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_OK;
+                                    }
+                                    if(!local_diag->tun_mode){
+                                        sk = get_sk(event, skb, sockcheck);
+                                        if(!sk){
+                                            return TC_ACT_SHOT;
+                                        }
+                                        if(!(key->protocol == IPPROTO_UDP) || local_diag->verbose){
+                                            send_event(&event);
+                                        }
+                                        goto assign;
+                                    }else{
+                                        struct tun_key tun_state_key = {0};
+                                        memcpy(tun_state_key.__in46_u_dst.ip6, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                                        memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+
+                                        unsigned long long tstamp = bpf_ktime_get_ns();
+                                        struct tun_state *tustate = get_tun(tun_state_key);
+                                        if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                            struct tun_state tus = {
+                                                tstamp,
+                                                skb->ifindex,
+                                                {0},
+                                                {0}
+                                            };
+                                            memcpy(&tus.source, &eth->h_source, 6);
+                                            memcpy(&tus.dest, &eth->h_dest, 6);
+                                            insert_tun(tus, tun_state_key);
+                                        }
+                                        else if(tustate){
+                                            tustate->tstamp = tstamp;
+                                            insert_tun(*tustate, tun_state_key);
+                                        }
+                                        struct ifindex_tun *tun_index = get_tun_index(0);
+                                        if(tun_index){
+                                            if(local_diag->verbose){
+                                                memcpy(event.source, eth->h_source, 6);
+                                                memcpy(event.dest, eth->h_dest, 6);
+                                                event.tun_ifindex = tun_index->index;
+                                                send_event(&event);
+                                            }
+                                            return bpf_redirect(tun_index->index, 0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if(skb->ifindex == 1){
+                            event.error_code = IF_LIST_MATCH_ERROR;
+                            send_event(&event);
+                            return TC_ACT_OK;
+                        }
+                        else{
+                            event.error_code = IF_LIST_MATCH_ERROR;
+                            send_event(&event);
+                            return TC_ACT_SHOT;
+                        }
                     }
                 }
             }

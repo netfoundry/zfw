@@ -2755,9 +2755,9 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 else if (evt->tport && ifname)
                 {
-                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> %s:%d\n",
                             ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
-                            daddr, ntohs(evt->dport), ntohs(evt->tport));
+                            daddr, ntohs(evt->dport), daddr,ntohs(evt->tport));
                     if (logging)
                     {
                         res = write_log(log_file_name, message);
@@ -3000,8 +3000,40 @@ static int process_events(void *ctx, void *data, size_t len)
                 {
                     protocol = "UDP";
                 }
-
-                if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
+                if (evt->tun_ifindex && ifname)
+                {
+                    char tbuf[IF_NAMESIZE];
+                    char *tun_ifname = if_indextoname(evt->tun_ifindex, tbuf);
+                    if (tun_ifname)
+                    {
+                        sprintf(message, "%s : %s : %s : %s :%s:%d[%x:%x:%x:%x:%x:%x] > %s:%d[%x:%x:%x:%x:%x:%x] redirect ---> %s\n",
+                         ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport),
+                                evt->source[0], evt->source[1], evt->source[2], evt->source[3], evt->source[4], evt->source[5], daddr6, ntohs(evt->dport),
+                                evt->dest[0], evt->dest[1], evt->dest[2], evt->dest[3], evt->dest[4], evt->dest[5], tun_ifname);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                }
+                else if (evt->tport && ifname)
+                {
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> %s:%d\n",
+                            ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport),
+                            daddr6, ntohs(evt->dport), daddr6,ntohs(evt->tport));
+                    if (logging)
+                    {
+                        res = write_log(log_file_name, message);
+                    }
+                    else
+                    {
+                        printf("%s", message);
+                    }
+                }else if (((evt->proto == IPPROTO_TCP) | (evt->proto == IPPROTO_UDP)) && evt->tracking_code && ifname)
                 {
                     char *state = NULL;
                     __u16 code = evt->tracking_code;
@@ -5741,12 +5773,6 @@ int main(int argc, char **argv)
             }
             if (cd6)
             {
-                /*char saddr6[INET6_ADDRSTRLEN];
-                char daddr6[INET6_ADDRSTRLEN];
-                inet_ntop(AF_INET6,&scidr6, saddr6,INET6_ADDRSTRLEN);
-                inet_ntop(AF_INET6,&dcidr6, daddr6,INET6_ADDRSTRLEN);
-                printf("-c %s\n", daddr6);
-                printf("-o %s\n", saddr6);*/
                 map_insert6();
             }
             else
@@ -5815,12 +5841,6 @@ int main(int argc, char **argv)
             }
             if (cd6)
             {
-                /*char saddr6[INET6_ADDRSTRLEN];
-                char daddr6[INET6_ADDRSTRLEN];
-                inet_ntop(AF_INET6,&scidr6, saddr6,INET6_ADDRSTRLEN);
-                inet_ntop(AF_INET6,&dcidr6, daddr6,INET6_ADDRSTRLEN);
-                printf("-c %s\n", daddr6);
-                printf("-o %s\n", saddr6);*/
                 map_delete6();
             }
             else
