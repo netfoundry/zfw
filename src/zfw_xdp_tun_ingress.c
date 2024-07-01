@@ -23,6 +23,7 @@
 #include <linux/tcp.h>
 #include <linux/udp.h>
 #include <linux/in.h>
+#include <linux/ipv6.h>
 
 #ifndef memcpy
  #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
@@ -52,8 +53,14 @@ struct bpf_event{
 
 /*Key to tun_map*/
 struct tun_key {
-    __u32 daddr;
-    __u32 saddr;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
 };
 
 /*Value to tun_map*/
@@ -158,7 +165,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
     }
     unsigned long long tstamp = bpf_ktime_get_ns();
     struct bpf_event event = {
-        4,
+        0,
         tstamp,
         ctx->ingress_ifindex,
         0,
@@ -174,55 +181,110 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         {0},
         {0}
      };
-   
-    struct tun_key tun_state_key;
-    tun_state_key.daddr = iph->saddr;
-    tun_state_key.saddr = iph->daddr;
-    struct tun_state *tus = get_tun(tun_state_key);
-    if(tus){
-        bpf_xdp_adjust_head(ctx, -14);
-        struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
-        /* verify its a valid eth header within the packet bounds */
-        if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
+    struct tun_key tun_state_key = {0};
+    if(iph->version == 4){
+        event.version = iph->version;
+        tun_state_key.__in46_u_dst.ip = iph->saddr;
+        tun_state_key.__in46_u_src.ip = iph->daddr;
+        struct tun_state *tus = get_tun(tun_state_key);
+        if(tus){
+            bpf_xdp_adjust_head(ctx, -14);
+            struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
+            /* verify its a valid eth header within the packet bounds */
+            if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
+                    return XDP_PASS;
+            }
+            if(tun_diag->verbose){
+                struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
+                /* ensure ip header is in packet bounds */
+                if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
+                }
+                __u8 protocol = iph->protocol;
+                if(protocol == IPPROTO_TCP){
+                    struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                    if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
+                    }
+                    event.dport = tcph->dest;
+                    event.sport = tcph->source;
+                }else if (protocol == IPPROTO_UDP){
+                    struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                    if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
+                    }
+                    event.dport = udph->dest;
+                    event.sport = udph->source;
+                }
+                event.tun_ifindex = tus->ifindex;
+                event.proto = protocol;
+                __u32 saddr_array[4] = {iph->saddr,0,0,0};
+                __u32 daddr_array[4] = {iph->daddr,0,0,0};
+                memcpy(event.saddr,saddr_array, sizeof(event.saddr));
+                memcpy(event.daddr,daddr_array, sizeof(event.daddr));
+                memcpy(&event.source, &tus->dest, 6);
+                memcpy(&event.dest, &tus->source, 6);
+                send_event(&event);
+            }
+            memcpy(&eth->h_dest, &tus->source,6);
+            memcpy(&eth->h_source, &tus->dest,6);
+            unsigned short proto = bpf_htons(ETH_P_IP);
+            memcpy(&eth->h_proto, &proto, sizeof(proto));
+            return bpf_redirect(tus->ifindex,0);
+        }
+    }else
+    {
+        struct ipv6hdr *ip6h = (struct ipv6hdr *)(unsigned long)(ctx->data);
+    /* ensure ip header is in packet bounds */
+        if ((unsigned long)(ip6h + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
         }
-        if(tun_diag->verbose){
-            struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
-            /* ensure ip header is in packet bounds */
-            if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
+        memcpy(tun_state_key.__in46_u_dst.ip6, ip6h->saddr.in6_u.u6_addr32, sizeof(ip6h->saddr.in6_u.u6_addr32));
+        memcpy(tun_state_key.__in46_u_src.ip6, ip6h->daddr.in6_u.u6_addr32, sizeof(ip6h->daddr.in6_u.u6_addr32));
+        struct tun_state *tus = get_tun(tun_state_key);
+        if(tus){
+            bpf_xdp_adjust_head(ctx, -14);
+            struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
+            /* verify its a valid eth header within the packet bounds */
+            if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                     return XDP_PASS;
             }
-            __u8 protocol = iph->protocol;
-            if(protocol == IPPROTO_TCP){
-                struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-                if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
-                    return XDP_PASS;
+            if(tun_diag->verbose){
+                struct ipv6hdr *ip6h = (struct ipv6hdr *)(ctx->data + sizeof(*eth));
+                /* ensure ip header is in packet bounds */
+                if ((unsigned long)(ip6h + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
                 }
-                event.dport = tcph->dest;
-                event.sport = tcph->source;
-            }else if (protocol == IPPROTO_UDP){
-                struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
-                if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
-                    return XDP_PASS;
+                __u8 protocol = ip6h->nexthdr;
+                if(protocol == IPPROTO_TCP){
+                    struct tcphdr *tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                    if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
+                    }
+                    event.dport = tcph->dest;
+                    event.sport = tcph->source;
+                }else if (protocol == IPPROTO_UDP){
+                    struct udphdr *udph = (struct udphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                    if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+                        return XDP_PASS;
+                    }
+                    event.dport = udph->dest;
+                    event.sport = udph->source;
                 }
-                event.dport = udph->dest;
-                event.sport = udph->source;
+                event.tun_ifindex = tus->ifindex;
+                event.proto = protocol;
+                memcpy(event.saddr,ip6h->saddr.in6_u.u6_addr32, sizeof(event.saddr));
+                memcpy(event.daddr,ip6h->daddr.in6_u.u6_addr32, sizeof(event.daddr));
+                memcpy(&event.source, &tus->dest, 6);
+                memcpy(&event.dest, &tus->source, 6);
+                send_event(&event);
             }
-            event.tun_ifindex = tus->ifindex;
-            event.proto = protocol;
-            __u32 saddr_array[4] = {iph->saddr,0,0,0};
-            __u32 daddr_array[4] = {iph->daddr,0,0,0};
-            memcpy(event.saddr,saddr_array, sizeof(event.saddr));
-            memcpy(event.daddr,daddr_array, sizeof(event.daddr));
-            memcpy(&event.source, &tus->dest, 6);
-            memcpy(&event.dest, &tus->source, 6);
-            send_event(&event);
+            memcpy(&eth->h_dest, &tus->source,6);
+            memcpy(&eth->h_source, &tus->dest,6);
+            unsigned short proto = bpf_htons(ETH_P_IPV6);
+            memcpy(&eth->h_proto, &proto, sizeof(proto));
+            return bpf_redirect(tus->ifindex,0);
         }
-        memcpy(&eth->h_dest, &tus->source,6);
-        memcpy(&eth->h_source, &tus->dest,6);
-        unsigned short proto = bpf_htons(ETH_P_IP);
-        memcpy(&eth->h_proto, &proto, sizeof(proto));
-        return bpf_redirect(tus->ifindex,0);
     }
     if(tun_diag->verbose){
         event.error_code = NO_REDIRECT_STATE_FOUND;

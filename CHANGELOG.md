@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.8.2] - 2024-07-01
+
+###
+
+- Added support for ipv6 inbound filtering rules. Currently only destination filtering is allowed.
+  Rules are entered exactly the same as IPv4 rules and zfw will detect whether the address is ipv4 
+  or ipv6 based on the addresses. This now allows for trusted filtered IPv6 traffic to be forwarded 
+  to an External Interface with outbound tracking.
+  e.g. sudo zfw -I -c 2001:db9:: -m 64 -l 443 -h 443 -t 0 -p tcp
+
 # [0.8.1] - 2024-06-23
 
 ###
