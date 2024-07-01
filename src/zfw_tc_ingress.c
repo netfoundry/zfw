@@ -1807,7 +1807,7 @@ int bpf_sk_splice1(struct __sk_buff *skb){
             exponent1++;
         }
         __u32 exponent0 = 24;  // unsigned integer used to calculate prefix matches
-        for (__u16 dcount0 = 0; dcount0 < maxlen; dcount0++){ 
+        for (__u16 dcount0 = 0; dcount0 <= maxlen; dcount0++){ 
             unsigned int daddr[4] = {tuple->ipv6.daddr[0] & mask0, tuple->ipv6.daddr[1] & mask1, tuple->ipv6.daddr[2] & mask2, tuple->ipv6.daddr[3] & mask3};
             memcpy(key.dst_ip ,daddr, sizeof(daddr));
             memcpy(key.src_ip, saddr, sizeof(saddr));
