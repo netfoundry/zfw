@@ -9,7 +9,7 @@ edge-routers.
 
 ## New features - Initial support for ipv6
 - *Enabled via sudo zfw -6 <ifname | all> 
-   Note: Router discovery is always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
+   Note: Router discovery / DHCPv6 are always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
 - *Supports inbound ipv6 echo (disabled by default can be enabled via zfw -e)/ echo reply 
 - *Supports inbound ssh (Can be disabled via zfw -x <ifname | all>) (Care should be taken as this affects IPv4 as well)

@@ -1184,6 +1184,21 @@ int bpf_sk_splice(struct __sk_buff *skb){
         }   
     }
 
+    /*Allow IPv6 DHCP*/
+    if(ipv6){
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            if(local_diag->verbose){
+                event.error_code = IPV6_TUPLE_TOO_BIG;
+                send_event(&event);
+            }
+            return TC_ACT_SHOT;
+        }
+        if((bpf_ntohs(tuple->ipv6.sport) == 547) && (bpf_ntohs(tuple->ipv6.dport) == 546)){
+            return TC_ACT_OK;
+        }
+    }
+
     /* determine length of tuple */
     if(ipv4){
         tuple_len = sizeof(tuple->ipv4);
@@ -2190,8 +2205,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     return TC_ACT_SHOT;
                                 }
                                 if(!(key.protocol == IPPROTO_UDP) || local_diag->verbose){
-                                    uint32_t loop_addr[4] = {sockcheck.ipv4.daddr,0,0,0};
-                                    memcpy(event.daddr, loop_addr, sizeof(event.daddr));
                                     send_event(&event);
                                 }
                                 goto assign;
@@ -2377,7 +2390,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     return TC_ACT_SHOT;
                                 }
                                 if(!(key->protocol == IPPROTO_UDP) || local_diag->verbose){
-                                    memcpy(event.daddr, sockcheck.ipv6.daddr, sizeof(event.daddr));
+                                    bpf_printk("sent event");
                                     send_event(&event);
                                 }
                                 goto assign;

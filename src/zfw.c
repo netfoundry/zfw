@@ -2756,9 +2756,9 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 else if (evt->tport && ifname)
                 {
-                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> %s:%d\n",
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> 127.0.0.1:%d\n",
                             ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, ntohs(evt->sport),
-                            daddr, ntohs(evt->dport), daddr,ntohs(evt->tport));
+                            daddr, ntohs(evt->dport), ntohs(evt->tport));
                     if (logging)
                     {
                         res = write_log(log_file_name, message);
@@ -3023,9 +3023,9 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 else if (evt->tport && ifname)
                 {
-                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> %s:%d\n",
+                    sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d | tproxy ---> ::1:%d\n",
                             ts, ifname, (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport),
-                            daddr6, ntohs(evt->dport), daddr6,ntohs(evt->tport));
+                            daddr6, ntohs(evt->dport), ntohs(evt->tport));
                     if (logging)
                     {
                         res = write_log(log_file_name, message);
