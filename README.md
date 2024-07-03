@@ -12,12 +12,12 @@ edge-routers.
    Note: Router discovery / DHCPv6 are always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
 - *Supports inbound ipv6 echo (disabled by default can be enabled via zfw -e)/ echo reply 
-- *Supports inbound ssh (Can be disabled via zfw -x <ifname | all>) (Care should be taken as this affects IPv4 as well)
+- *Supports inbound ssh (Can be disabled via ```sudo zfw -x <ifname | all>```) (Care should be taken as this affects IPv4 as well)
 - Supports outbound stateful host connections (Inbound only if outbound initiated)
 - Supports outbound passthrough tracking.  Sessions initiated from non-ebpf enabled and ebpf enabled  internal interfaces out 
   through interface(s) defined as ExternalInterface or with "OutboundPassThroughTrack": true in /opt/openziti/etc/ebpf_config.json
-  or manually applied with sudo zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o 
-   -z egress with allow stateful udp and tcp session traffic back in.
+  or manually applied with sudo ```zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o -z egress``` 
+  will allow stateful udp and tcp session traffic back in.
 - Support for inbound IPv6 filter destination rules. Currently only destination filtering is allowed.
   e.g. 
   ```
@@ -42,7 +42,7 @@ OpenZiti routers do support IPv6 fabric connections using DNS names in the confi
 AAAA records defined.  ziti-edge-tunnel supports ipv6 interception but the IPC events channel does
 not include the intercept IPv6 addresses, so currently IPv6 services would require manual zfw rule
 entry. Similarly to IPv4, IPv6 rules can be used to forward packets to the host OS by setting 
--t, --tproxy-port to 0 in the insert command.  
+```-t, --tproxy-port 0``` in the insert command.  
 
 
 
