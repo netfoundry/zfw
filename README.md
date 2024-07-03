@@ -8,7 +8,7 @@ the zfw_outbound_track.o is activated in the egress direction. It can also be us
 edge-routers.
 
 ## New features - Initial support for ipv6
-- *Enabled via sudo zfw -6 <ifname | all> 
+- *Enabled via ```sudo zfw -6 <ifname | all>``` 
    Note: Router discovery / DHCPv6 are always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
 - *Supports inbound ipv6 echo (disabled by default can be enabled via zfw -e)/ echo reply 
