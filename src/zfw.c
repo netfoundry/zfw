@@ -259,8 +259,6 @@ void open_if_list_ext_map();
 void map_insert6();
 void map_delete6();
 void map_insert();
-void print_rule();
-void print_rule6();
 int flush4();
 int flush6();
 void open_range_map();
