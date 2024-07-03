@@ -34,7 +34,14 @@ edge-routers.
     sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
   ```
 - Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
-*These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots
+*These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots.
+Note: Some of the above IPv6 features are not fully supported with OpenZiti yet. Features like
+tproxy and ziti0 forwarding will not work completely till updates are released in OpenZiti.  
+OpenZiti routers do support IPv6 fabric connections using DNS names in the config with corresponding
+AAAA records defined.  ziti-edge-tunnel supports ipv6 interception but the IPC events channel does
+not include the intercept IPv6 addresses, so currently IPv6 services would require manual zfw rule
+entry. Similarly to IPv4, IPv6 rules can be used to forward packets to the host OS by setting 
+-t, --tproxy-port to 0 in the insert command.  
 
 
 

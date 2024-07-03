@@ -1031,7 +1031,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     /* check if incoming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, &vrrp, &event, local_diag);
 
-    //get ipv6 interface addr mappings
+    //get ipv4 interface addr mappings
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
 
     //get ipv6 interface addr mappings
