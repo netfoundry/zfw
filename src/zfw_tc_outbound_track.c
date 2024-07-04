@@ -31,6 +31,12 @@
 #include <linux/ipv6.h>
 #include <linux/icmpv6.h>
 
+#ifndef BPF_MAX_ENTRIES
+#define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
+#endif
+#define MAX_INDEX_ENTRIES             100
+#define BPF_MAX_RANGES                250000
+#define MAX_IF_LIST_ENTRIES           3
 #define MAX_IF_ENTRIES                256
 #define BPF_MAX_SESSIONS              10000
 #define IP_HEADER_TOO_BIG             1
@@ -113,6 +119,7 @@ struct diag_ip4 {
     bool eapol;
     bool ddos_filtering;
     bool ipv6_enable;
+    bool outbound_filter;
 };
 
 /*value to ifindex_tun_map*/
@@ -124,6 +131,132 @@ struct ifindex_tun {
     char mask[3];
     bool verbose;
 };
+
+struct tproxy_tuple {
+    __u16 index_len; /*tracks the number of entries in the index_table*/
+    __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table to associate 
+                                          *port ranges and tproxy ports with prefix tuples/protocol
+                                          */    
+};
+
+/*key to zt_tproxy_map*/
+struct tproxy_key {
+    __u32 dst_ip;
+    __u32 src_ip;
+    __u8 dprefix_len;
+    __u8 sprefix_len;
+    __u8 protocol;
+    __u8 pad;
+};
+
+/*key to zt_tproxy_map6*/
+struct tproxy6_key {
+    __u32 dst_ip[4];
+    __u32 src_ip[4];
+    __u8 dprefix_len;
+    __u8 sprefix_len;
+    __u8 protocol;
+    __u8 pad;
+};
+
+struct range_mapping {
+    __u16 high_port;
+    __u16 tproxy_port;
+};
+
+struct tproxy_extension_key {
+    __u16 tproxy_port;
+    __u8 protocol;
+    __u8 pad;
+};
+
+struct port_extension_key {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
+    __u16 low_port;
+    __u8 dprefix_len;
+    __u8 sprefix_len;
+    __u8 protocol;
+    __u8 pad;
+};
+
+struct tproxy_extension_mapping {
+    char service_id[23];
+};
+
+struct if_list_extension_mapping {
+    __u32 if_list[MAX_IF_LIST_ENTRIES];
+};
+
+/*Map for filtering outbound IPv4 traffic*/
+struct {
+     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(key_size, sizeof(struct tproxy_key));
+     __uint(value_size,sizeof(struct tproxy_tuple));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     __uint(map_flags, BPF_F_NO_PREALLOC);
+} zt_egress_map SEC(".maps");
+
+/*Map for filtering outbound IPv6 traffic*/
+struct {
+     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(key_size, sizeof(struct tproxy6_key));
+     __uint(value_size,sizeof(struct tproxy_tuple));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     __uint(map_flags, BPF_F_NO_PREALLOC);
+} zt_egress6_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct tproxy_extension_key));
+    __uint(value_size, sizeof(struct tproxy_extension_mapping));
+    __uint(max_entries, BPF_MAX_RANGES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} egress_extension_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct port_extension_key));
+    __uint(value_size, sizeof(struct if_list_extension_mapping));
+    __uint(max_entries, BPF_MAX_RANGES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} egress_if_list_extension_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(struct port_extension_key));
+    __uint(value_size, sizeof(struct range_mapping));
+    __uint(max_entries, BPF_MAX_RANGES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} egress_range_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, 1);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} egress_count_map SEC(".maps");
+
+//map to keep track of total entries in zt_tproxy6_map
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, 1);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} egress6_count_map SEC(".maps");
 
 /*tun ifindex map*/
 struct {

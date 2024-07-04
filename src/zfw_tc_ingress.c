@@ -272,6 +272,7 @@ struct diag_ip4 {
     bool eapol;
     bool ddos_filtering;
     bool ipv6_enable;
+    bool outbound_filter;
 };
 
 /*Value to tun_map*/
@@ -1449,7 +1450,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, event.proto};
         clear_match_tracker(mkey);
         return TC_ACT_PIPE;
-    }else if(ipv6 && local_diag->ipv6_enable)
+    }else if((ipv6 && local_diag->ipv6_enable) || (ipv6 && skb->ifindex ==1))
     {
         tuple_len = sizeof(tuple->ipv6);
         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
