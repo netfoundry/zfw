@@ -510,6 +510,8 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
 
+/*Hashmap to track ingress passthrough TCP connections i.e. to LAN or host
+VMs/Containers*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(struct tuple_key));
@@ -2667,7 +2669,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             }
             return TC_ACT_OK;
         }
-        if(event.proto == IPPROTO_TCP){
+        if(event.proto == IPPROTO_TCP)
+        {
             struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
             if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;

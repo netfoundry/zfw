@@ -53,6 +53,10 @@
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define INGRESS_UDP_MATCHED_EXPIRED_STATE 15
 #define INGRESS_UDP_MATCHED_ACTIVE_STATE 16
+#define INGRESS_SERVER_SYN_ACK_RCVD 22
+#define INGRESS_SERVER_FIN_RCVD 23
+#define INGRESS_SERVER_RST_RCVD 24
+#define INGRESS_SERVER_FINAL_ACK_RCVD 25
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
@@ -349,6 +353,16 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
 
+/*Hashmap to track ingress passthrough TCP connections i.e. to LAN or host
+VMs/Containers*/
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct tuple_key));
+     __uint(value_size,sizeof(struct tcp_state));
+     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} tcp_ingress_map SEC(".maps");
+
 /*Hashmap to track outbound passthrough UDP connections*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -427,6 +441,18 @@ static inline void del_tcp(struct tuple_key key){
 static inline struct tcp_state *get_tcp(struct tuple_key key){
     struct tcp_state *ts;
     ts = bpf_map_lookup_elem(&tcp_map, &key);
+	return ts;
+}
+
+/*Remove entry into ingress tcp state table*/
+static inline void del_ingress_tcp(struct tuple_key key){
+     bpf_map_delete_elem(&tcp_ingress_map, &key);
+}
+
+/*get entry from ingress tcp state table*/
+static inline struct tcp_state *get_ingress_tcp(struct tuple_key key){
+    struct tcp_state *ts;
+    ts = bpf_map_lookup_elem(&tcp_ingress_map, &key);
 	return ts;
 }
 
@@ -742,12 +768,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
         if(tcp)
         {
             event.proto =  IPPROTO_TCP;
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
             reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
             reverse_tuple.ipv4.dport = tuple->ipv4.sport;
             reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
             reverse_tuple.ipv4.sport = tuple->ipv4.dport;
             sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
-            if(sk){
+            if(sk && sk->dst_ip4){
                 if ((sk->state != BPF_TCP_LISTEN) && (sk->state != BPF_TCP_SYN_SENT)){
                     bpf_sk_release(sk);
                     if(local_diag->verbose){
@@ -756,6 +786,77 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     return TC_ACT_OK;
                 }
                 bpf_sk_release(sk);
+            }else{
+                if(sk){
+                    bpf_sk_release(sk);
+                }
+                tcp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
+                tcp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
+                tcp_state_key.sport = tuple->ipv4.dport;
+                tcp_state_key.dport = tuple->ipv4.sport;
+                unsigned long long tstamp = bpf_ktime_get_ns();
+                struct tcp_state *tstate = get_ingress_tcp(tcp_state_key);
+                /*check tcp state and timeout if greater than 60 minutes without traffic*/
+                if(tstate && (tstamp < (tstate->tstamp + 3600000000000))){    
+                    if(tcph->syn  && tcph->ack){
+                        tstate->ack =1;
+                        tstate->tstamp = tstamp;
+                        if(local_diag->verbose){
+                            event.tracking_code = INGRESS_SERVER_SYN_ACK_RCVD;
+                            send_event(&event);
+                        }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->fin){
+                        if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            tstate->sfin = 1;
+                            tstate->sfseq = tcph->seq;
+                            if(local_diag->verbose){
+                                event.tracking_code = INGRESS_SERVER_FIN_RCVD;
+                                send_event(&event);
+                            }
+                            return TC_ACT_OK;
+                        }
+                    }
+                    else if(tcph->rst){
+                        del_tcp(tcp_state_key);
+                        tstate = get_ingress_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = INGRESS_SERVER_RST_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->ack){
+                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            del_ingress_tcp(tcp_state_key);
+                            tstate = get_ingress_tcp(tcp_state_key);
+                            if(!tstate){
+                                if(local_diag->verbose){
+                                    event.tracking_code = INGRESS_SERVER_FINAL_ACK_RCVD;
+                                    send_event(&event);
+                                }
+                            }
+
+                        }
+                        else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            tstate->sfack = 1;
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                        else if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                    }
+                    return TC_ACT_OK;
+                }
+                else if(tstate){
+                    del_ingress_tcp(tcp_state_key);
+                }
             }
         }
         else
@@ -859,7 +960,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             memcpy(reverse_tuple.ipv6.saddr, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             reverse_tuple.ipv6.sport = tuple->ipv6.dport;
             sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv6),BPF_F_CURRENT_NETNS, 0);
-            if(sk){
+            if(sk && sk->dst_ip6[0]){
                 if ((sk->state != BPF_TCP_LISTEN) && (sk->state != BPF_TCP_SYN_SENT)){
                     bpf_sk_release(sk);
                     if(local_diag->verbose){
@@ -868,6 +969,78 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     return TC_ACT_OK;
                 }
                 bpf_sk_release(sk);
+            }else{
+                if(sk){
+                    bpf_sk_release(sk);
+                }
+                memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                tcp_state_key.sport = tuple->ipv6.dport;
+                tcp_state_key.dport = tuple->ipv6.sport;
+                unsigned long long tstamp = bpf_ktime_get_ns();
+                struct tcp_state *tstate = get_ingress_tcp(tcp_state_key);
+                /*check tcp state and timeout if greater than 60 minutes without traffic*/
+                if(tstate && (tstamp < (tstate->tstamp + 3600000000000)))
+                {    
+                    if(tcph->syn  && tcph->ack){
+                        tstate->ack =1;
+                        tstate->tstamp = tstamp;
+                        if(local_diag->verbose){
+                            event.tracking_code = INGRESS_SERVER_SYN_ACK_RCVD;
+                            send_event(&event);
+                        }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->fin){
+                        if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            tstate->sfin = 1;
+                            tstate->sfseq = tcph->seq;
+                            if(local_diag->verbose){
+                                event.tracking_code = INGRESS_SERVER_FIN_RCVD;
+                                send_event(&event);
+                            }
+                            return TC_ACT_OK;
+                        }
+                    }
+                    else if(tcph->rst){
+                        del_ingress_tcp(tcp_state_key);
+                        tstate = get_ingress_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = INGRESS_SERVER_RST_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                        return TC_ACT_OK;
+                    }
+                    else if(tcph->ack){
+                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            del_ingress_tcp(tcp_state_key);
+                            tstate = get_ingress_tcp(tcp_state_key);
+                            if(!tstate){
+                                if(local_diag->verbose){
+                                    event.tracking_code = INGRESS_SERVER_FINAL_ACK_RCVD;
+                                    send_event(&event);
+                                }
+                            }
+
+                        }
+                        else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            tstate->sfack = 1;
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                        else if(tstate->est){
+                            tstate->tstamp = tstamp;
+                            return TC_ACT_OK;
+                        }
+                    }
+                    return TC_ACT_OK;
+                }
+                else if(tstate){
+                    del_ingress_tcp(tcp_state_key);
+                }
             }
         }else
         {

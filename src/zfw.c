@@ -78,6 +78,15 @@
 #define INGRESS_INITIATED_UDP_SESSION 14
 #define INGRESS_UDP_MATCHED_EXPIRED_STATE 15
 #define INGRESS_UDP_MATCHED_ACTIVE_STATE 16
+#define INGRESS_CLIENT_SYN_RCVD 17
+#define INGRESS_CLIENT_FIN_RCVD 18
+#define INGRESS_CLIENT_RST_RCVD 19
+#define INGRESS_TCP_CONNECTION_ESTABLISHED 20
+#define INGRESS_CLIENT_FINAL_ACK_RCVD 21
+#define INGRESS_SERVER_SYN_ACK_RCVD 22
+#define INGRESS_SERVER_FIN_RCVD 23
+#define INGRESS_SERVER_RST_RCVD 24
+#define INGRESS_SERVER_FINAL_ACK_RCVD 25
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 
@@ -2954,6 +2963,35 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "INGRESS_UDP_MATCHED_ACTIVE_STATE";
                     }
+                    else if (code == INGRESS_CLIENT_SYN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_SYN_RCVD";
+                    }else if (code == INGRESS_CLIENT_FIN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FIN_RCVD";
+                    }else if (code == INGRESS_CLIENT_RST_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_RST_RCVD";
+                    }else if (code == INGRESS_SERVER_RST_RCVD)
+                    {
+                        state = "INGRESS_SERVER_RST_RCVD";
+                    }else if (code == INGRESS_TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "INGRESS_TCP_CONNECTION_ESTABLISHED";
+                    }else if (code == INGRESS_CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FINAL_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_SYN_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_FIN_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FIN_RCVD";
+                    }
+                    else if (code == INGRESS_SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FINAL_ACK_RCVD";
+                    }
 
                     if (state)
                     {
@@ -3233,6 +3271,37 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "INGRESS_UDP_MATCHED_ACTIVE_STATE";
                     }
+                    else if (code == INGRESS_CLIENT_SYN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_SYN_RCVD";
+                    }else if (code == INGRESS_CLIENT_FIN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FIN_RCVD";
+                    }else if (code == INGRESS_CLIENT_RST_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_RST_RCVD";
+                    }else if (code == INGRESS_SERVER_RST_RCVD)
+                    {
+                        state = "INGRESS_SERVER_RST_RCVD";
+                    }else if (code == INGRESS_TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "INGRESS_TCP_CONNECTION_ESTABLISHED";
+                    }else if (code == INGRESS_CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FINAL_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_SYN_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_FIN_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FIN_RCVD";
+                    }
+                    else if (code == INGRESS_SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FINAL_ACK_RCVD";
+                    }
+
+
                     if (state)
                     {
                         sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
