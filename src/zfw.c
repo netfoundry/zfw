@@ -75,6 +75,9 @@
 #define CLIENT_FINAL_ACK_RCVD 11
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
+#define INGRESS_INITIATED_UDP_SESSION 14
+#define INGRESS_UDP_MATCHED_EXPIRED_STATE 15
+#define INGRESS_UDP_MATCHED_ACTIVE_STATE 16
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 
@@ -175,8 +178,11 @@ const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
 const char *if6_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip6_map";
 const char *matched6_map_path ="/sys/fs/bpf/tc/globals/matched6_map";
 const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
+const char *egress_matched6_map_path ="/sys/fs/bpf/tc/globals/egress_matched6_map";
+const char *egress_matched_map_path = "/sys/fs/bpf/tc//globals/egress_matched_map";
 const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
 const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
+const char *udp_ingress_map_path = "/sys/fs/bpf/tc/globals/udp_ingress_map";
 const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
 const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
@@ -530,7 +536,7 @@ void set_tc_filter(char *action)
             }
             else
             {
-                if (!strcmp(direction_string, "egress"))
+                if (!strcmp(direction_string, "egress") && (x == 2))
                 {
                     break;
                 }
@@ -586,13 +592,14 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[29] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[32] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
-                             egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path};
-    for (int map_count = 0; map_count < 29; map_count++)
+                             egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
+                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path};
+    for (int map_count = 0; map_count < 32; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -850,7 +857,7 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
     sprintf(scidr_block, "%s/%d", saddr6, key->sprefix_len);
     char dpts[17];
     int x = 0;
-    
+
     port_range_map->key = (uint64_t)&port_ext_key;
     struct range_mapping range_value;
     port_range_map->value = (uint64_t)&range_value;
@@ -2936,6 +2943,19 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "CLIENT_INITIATED_UDP_SESSION";
                     }
+                    else if (code == INGRESS_INITIATED_UDP_SESSION)
+                    {
+                        state = "INGRESS_INITIATED_UDP_SESSION";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_ACTIVE_STATE";
+                    }
+
                     if (state)
                     {
                         sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
@@ -3201,6 +3221,18 @@ static int process_events(void *ctx, void *data, size_t len)
                     else if (code == CLIENT_INITIATED_UDP_SESSION)
                     {
                         state = "CLIENT_INITIATED_UDP_SESSION";
+                    }
+                    else if (code == INGRESS_INITIATED_UDP_SESSION)
+                    {
+                        state = "INGRESS_INITIATED_UDP_SESSION";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_ACTIVE_STATE";
                     }
                     if (state)
                     {
