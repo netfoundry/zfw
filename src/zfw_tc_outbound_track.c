@@ -45,6 +45,7 @@
 #define NO_IP_OPTIONS_ALLOWED 2
 #define IP_TUPLE_TOO_BIG 8
 #define EGRESS 1
+#define ICMP_HEADER_TOO_BIG 7
 #define CLIENT_SYN_RCVD 7
 #define CLIENT_FIN_RCVD 8
 #define CLIENT_RST_RCVD 9
@@ -678,7 +679,63 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* if not tuple forward */
     if (!tuple){
-        return TC_ACT_OK;
+        if(ipv4){
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            event.proto = iph->protocol;
+            if(event.proto == IPPROTO_ICMP)
+            {       
+                struct icmphdr *icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                    event.error_code = ICMP_HEADER_TOO_BIG;
+                    send_event(&event);
+                    return TC_ACT_SHOT;
+                }
+                if((skb->ifindex != 1) && (icmph->type == 0) && (icmph->code == 0)){
+                    if(local_diag->echo){
+                        return TC_ACT_OK;
+                    }else{
+                        return TC_ACT_SHOT;
+                    }
+                }
+                return TC_ACT_OK;   
+            }
+            if(local_diag->vrrp && (event.proto == 112)){
+                return TC_ACT_OK;
+            }
+        }
+        if(ipv6){
+            struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            event.proto = ip6h->nexthdr;
+            if(event.proto == IPPROTO_ICMPV6){
+                struct icmp6hdr *icmp6h = (struct icmp6hdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                if ((unsigned long)(icmp6h + 1) > (unsigned long)skb->data_end){
+                    event.error_code = ICMP_HEADER_TOO_BIG;
+                    send_event(&event);
+                    return TC_ACT_SHOT;
+                }
+                if(skb->ifindex != 1){
+                    if((icmp6h->icmp6_type == 129) && (icmp6h->icmp6_code == 0)){ //echo-reply
+                        if(local_diag->ipv6_enable && local_diag->echo){
+                            return TC_ACT_OK;
+                        }
+                        else{
+                            return TC_ACT_SHOT;
+                        }
+                    }
+                }
+            }
+            if(local_diag->vrrp && (event.proto == 112)){
+                return TC_ACT_OK;
+            }
+
+        }
+        return TC_ACT_SHOT;
     }
 
     /*Allow IPv6 DHCP*/
