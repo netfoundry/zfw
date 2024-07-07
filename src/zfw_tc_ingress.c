@@ -41,7 +41,7 @@
 #define GENEVE_VER 0
 #define AWS_GNV_HDR_OPT_LEN 32 // Bytes
 #define AWS_GNV_HDR_LEN 40 // Bytes
-#define MATCHED_KEY_DEPTH 1
+#define MATCHED_KEY_DEPTH 3
 #define MATCHED_INT_DEPTH 50
 #define MAX_IF_LIST_ENTRIES 3
 #define MAX_IF_ENTRIES 256
@@ -2108,7 +2108,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     int ret; 
     struct bpf_sock_tuple *tuple,sockcheck = {0};
     int tuple_len;
-    struct tuple_key udp_state_key ={0};
 
     /*look up attached interface inbound diag status*/
     struct diag_ip4 *local_diag = get_diag_ip4(skb->ifindex);
@@ -2218,24 +2217,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     send_event(&event);
                                 }
                                 if(local_diag->outbound_filter && (event.proto == IPPROTO_UDP)){
-                                    udp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
-                                    udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
-                                    udp_state_key.sport = tuple->ipv4.sport;
-                                    udp_state_key.dport = tuple->ipv4.dport;
-                                    struct udp_state *ustate = get_udp_ingress(udp_state_key);
-                                    if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
-                                        struct udp_state us = {
-                                            tstamp
-                                        };
-                                        insert_udp_ingress(us, udp_state_key);
-                                        if(local_diag->verbose){
-                                            event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
-                                            send_event(&event);
-                                        }
-                                    }
-                                    else if(ustate){
-                                        ustate->tstamp = tstamp;
-                                    }
+                                    return TC_ACT_PIPE;
                                 }
                                 return TC_ACT_OK;
                             }
@@ -2292,24 +2274,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                             send_event(&event);
                                         }
                                         if(local_diag->outbound_filter && (event.proto == IPPROTO_UDP)){
-                                            udp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
-                                            udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
-                                            udp_state_key.sport = tuple->ipv4.sport;
-                                            udp_state_key.dport = tuple->ipv4.dport;
-                                            struct udp_state *ustate = get_udp_ingress(udp_state_key);
-                                            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
-                                                struct udp_state us = {
-                                                    tstamp
-                                                };
-                                                insert_udp_ingress(us, udp_state_key);
-                                                if(local_diag->verbose){
-                                                    event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
-                                                    send_event(&event);
-                                                }
-                                            }
-                                            else if(ustate){
-                                                ustate->tstamp = tstamp;
-                                            }
+                                            return TC_ACT_PIPE;
                                         }
                                         return TC_ACT_OK;
                                     }
@@ -2444,24 +2409,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     send_event(&event);
                                 }
                                 if(local_diag->outbound_filter && (event.proto == IPPROTO_UDP)){
-                                    memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-                                    memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
-                                    udp_state_key.sport = tuple->ipv6.sport;
-                                    udp_state_key.dport = tuple->ipv6.dport;
-                                    struct udp_state *ustate = get_udp_ingress(udp_state_key);
-                                    if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
-                                        struct udp_state us = {
-                                            tstamp
-                                        };
-                                        insert_udp_ingress(us, udp_state_key);
-                                        if(local_diag->verbose){
-                                            event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
-                                            send_event(&event);
-                                        }
-                                    }
-                                    else if(ustate){
-                                        ustate->tstamp = tstamp;
-                                    }
+                                    return TC_ACT_PIPE;
                                 }
                                 return TC_ACT_OK;
                             }
@@ -2517,24 +2465,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                             send_event(&event);
                                         }
                                          if(local_diag->outbound_filter && (event.proto == IPPROTO_UDP)){
-                                            memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-                                            memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
-                                            udp_state_key.sport = tuple->ipv6.sport;
-                                            udp_state_key.dport = tuple->ipv6.dport;
-                                            struct udp_state *ustate = get_udp_ingress(udp_state_key);
-                                            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
-                                                struct udp_state us = {
-                                                    tstamp
-                                                };
-                                                insert_udp_ingress(us, udp_state_key);
-                                                if(local_diag->verbose){
-                                                    event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
-                                                    send_event(&event);
-                                                }
-                                            }
-                                            else if(ustate){
-                                                ustate->tstamp = tstamp;
-                                            }
+                                            return TC_ACT_PIPE;
                                         }
                                         return TC_ACT_OK;
                                     }
@@ -2613,6 +2544,148 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
     /*else drop packet if not running on loopback*/
+    if(skb->ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
+}
+
+SEC("action/6")
+int bpf_sk_splice6(struct __sk_buff *skb){
+    struct bpf_sock_tuple *tuple;
+    int tuple_len;
+    struct tuple_key udp_state_key ={0};
+    struct tuple_key tcp_state_key ={0};
+
+    /*look up attached interface inbound diag status*/
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ifindex);
+    if(!local_diag){
+        if(skb->ifindex == 1){
+            return TC_ACT_OK;
+        }else{
+            return TC_ACT_SHOT;
+        }
+    }
+
+    /* find ethernet header from skb->data pointer */
+    struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
+
+    unsigned long long tstamp = bpf_ktime_get_ns();
+    struct bpf_event event = {
+        0,
+        tstamp,
+        skb->ifindex,
+        0,
+        {0},
+        {0},
+        0,
+        0,
+        0,
+        0,
+        INGRESS,
+        0,
+        0,
+        {},
+        {}
+     };
+
+    if(eth->h_proto == bpf_htons(ETH_P_IP)){
+        /* check if incomming packet is a UDP or TCP tuple */
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        event.proto = iph->protocol;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+        if(!tuple){
+            return TC_ACT_SHOT;
+        }
+        /* determine length of tuple */
+        tuple_len = sizeof(tuple->ipv4);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        event.version = iph->version;
+        uint32_t daddr[4] = {tuple->ipv4.daddr,0,0,0};
+        uint32_t saddr[4] = {tuple->ipv4.saddr,0,0,0};
+        memcpy(event.daddr, daddr, sizeof(event.daddr));
+        memcpy(event.saddr, saddr, sizeof(event.saddr));  
+        event.dport = tuple->ipv4.dport;
+        event.sport = tuple->ipv4.sport;    
+        if(event.proto == IPPROTO_UDP){
+            udp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+            udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+            udp_state_key.sport = tuple->ipv4.sport;
+            udp_state_key.dport = tuple->ipv4.dport;
+            struct udp_state *ustate = get_udp_ingress(udp_state_key);
+            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                struct udp_state us = {
+                    tstamp
+                };
+                insert_udp_ingress(us, udp_state_key);
+                if(local_diag->verbose){
+                    event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
+                    send_event(&event);
+                }
+            }
+            else if(ustate){
+                ustate->tstamp = tstamp;
+            }
+            return TC_ACT_OK;
+        }
+    }else
+    {
+        struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+        // ensure ip header is in packet bounds
+        if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        if(!tuple){
+            return TC_ACT_SHOT;
+        }
+        // determine length of tuple
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        memcpy(event.daddr, tuple->ipv6.daddr, sizeof(event.daddr));
+        memcpy(event.saddr, tuple->ipv6.saddr, sizeof(event.saddr));  
+        event.dport = tuple->ipv6.dport;
+        event.sport = tuple->ipv6.sport;
+        event.version = ip6h->version;
+        event.proto = ip6h->nexthdr;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        if(event.proto == IPPROTO_UDP){
+            memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            udp_state_key.sport = tuple->ipv6.sport;
+            udp_state_key.dport = tuple->ipv6.dport;
+            struct udp_state *ustate = get_udp_ingress(udp_state_key);
+            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                struct udp_state us = {
+                    tstamp
+                };
+                insert_udp_ingress(us, udp_state_key);
+                if(local_diag->verbose){
+                    event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
+                    send_event(&event);
+                }
+            }
+            else if(ustate){
+                ustate->tstamp = tstamp;
+            }
+            return TC_ACT_OK;
+        }
+    }                 
     if(skb->ifindex == 1){
         return TC_ACT_OK;
     }else{

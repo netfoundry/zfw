@@ -221,7 +221,7 @@ char *log_file_name;
 char *object_file;
 char *direction_string;
 
-const char *argp_program_version = "0.8.2";
+const char *argp_program_version = "0.8.3";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -524,7 +524,7 @@ void set_tc_filter(char *action)
     if (!strcmp(action, "add"))
     {
         set_tc(action);
-        for (int x = 0; x < 6; x++)
+        for (int x = 0; x < 7; x++)
         {
             char prio[10];
             sprintf(prio, "%d", x + 1);
@@ -532,7 +532,6 @@ void set_tc_filter(char *action)
             if (x == 0)
             {
                 sprintf(section, "action");
-                ;
             }
             else
             {
