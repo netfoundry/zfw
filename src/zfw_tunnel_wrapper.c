@@ -815,7 +815,7 @@ __u16 len2u16(char *len)
 {
     char *endPtr;
     int32_t tmpint = strtol(len, &endPtr, 10);
-    if ((tmpint < 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
+    if ((tmpint < 0) || (tmpint > 255) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Prefix Length: %s\n", len);
         return 32;
@@ -1094,8 +1094,14 @@ int process_bind(json_object *jobj, char *action)
                                     {           
                                         struct json_object *prefix_obj = json_object_object_get(address_obj, "Prefix");
                                         if(prefix_obj){
-                                            char ip[strlen(json_object_get_string(ip_obj) + 1)];
+                                            if(!strlen(json_object_get_string(ip_obj)) || (strlen(json_object_get_string(ip_obj)) > 15)){
+                                                continue;
+                                            }
+                                            char ip[strlen(json_object_get_string(ip_obj)) + 1];
                                             sprintf(ip,"%s", json_object_get_string(ip_obj));
+                                            if((json_object_get_int(prefix_obj) < 0) || (json_object_get_int(prefix_obj) > 32)){
+                                                continue;
+                                            }
                                             sprintf(mask, "%d", json_object_get_int(prefix_obj));
                                             printf("Service_IP=%s\n", ip);
                                             struct in_addr tuncidr;
@@ -1400,8 +1406,14 @@ int process_dial(json_object *jobj, char *action){
                                                 if(ip_obj)
                                                 {           
                                                     struct json_object *prefix_obj = json_object_object_get(address_obj, "Prefix");
-                                                    char ip[strlen(json_object_get_string(ip_obj) + 1)];
+                                                    if(!strlen(json_object_get_string(ip_obj)) || (strlen(json_object_get_string(ip_obj)) > 15)){
+                                                        continue;
+                                                    }
+                                                    char ip[strlen(json_object_get_string(ip_obj)) + 1];
                                                     sprintf(ip,"%s", json_object_get_string(ip_obj));
+                                                    if((json_object_get_int(prefix_obj) < 0) || (json_object_get_int(prefix_obj) > 32)){
+                                                        continue;
+                                                    }   
                                                     sprintf(mask, "%d", json_object_get_int(prefix_obj));
                                                     printf("Service_IP=%s\n", ip);
                                                     printf("Protocol=%s\n", protocol);

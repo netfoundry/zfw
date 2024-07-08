@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file. The format 
 - Fixed an issue where udp inbound initiated connections were disconnected for some ipv4 sockets 
   when passing through to the local OS.
 
+- Hardened zfw_tunnel_wrapper.c around the currently incorrect ipv6 event channel IP info.
+  Also fixed invalid strlen() calc.  
+
 # [0.8.2] - 2024-07-01
 
 ###
