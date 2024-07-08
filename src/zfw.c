@@ -190,6 +190,7 @@ const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
 const char *egress_matched6_map_path ="/sys/fs/bpf/tc/globals/egress_matched6_map";
 const char *egress_matched_map_path = "/sys/fs/bpf/tc//globals/egress_matched_map";
 const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
+const char *tcp_ingress_map_path = "/sys/fs/bpf/tc/globals/tcp_ingress_map";
 const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
 const char *udp_ingress_map_path = "/sys/fs/bpf/tc/globals/udp_ingress_map";
 const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
@@ -596,14 +597,14 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[32] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[33] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
-                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path};
-    for (int map_count = 0; map_count < 32; map_count++)
+                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path};
+    for (int map_count = 0; map_count < 33; map_count++)
     {
 
         int stat = remove(maps[map_count]);
