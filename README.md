@@ -18,7 +18,7 @@ edge-routers.
 
 ```
 i.e. set /opt/openziti/etc/ebpf_config.json as below changing interface name only
-    {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33"}]}
+    {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}
 ```
 Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
 ```
