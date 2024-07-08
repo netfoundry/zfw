@@ -10,10 +10,13 @@ edge-routers.
 ## New features - 
 
 ### Outbound filtering 
-- This new feature is currently meant ot be used in stand alone FW mode (No OpenZiti)
-  It allows for both IPv4 and IPv6 ingress/egress filters on a single external interface. i.e.
-  This mode also allows for stateful outbound traffic for traffic allowed by ingress filters so 
-  no need to static random high port numbers for return traffic.  The assumption is
+- This new feature is currently meant ot be used in stand alone FW mode (No OpenZiti).
+  See note in section ```User space manual configuration``` which briefly describes installing
+  zfw without OpenZiti.
+
+  The feature allows for both IPv4 and IPv6 ingress/egress filters on a single external interface. i.e.
+  This mode maintains state for outbound traffic associated with traffic allowed by ingress filters so 
+  there is no need to statically configure high port ranges for return traffic.  The assumption is
   if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
 ```

@@ -5973,6 +5973,13 @@ void open_tun_map()
     }
 }
 
+void egress_usage(){
+    printf("No egress maps exist or not running as sudo!\n");
+    printf("Ensure at least one interface has an egress filter enabled!\n");
+    printf("e.g. sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress\n");
+    close_maps(1);
+}
+
 int main(int argc, char **argv)
 {
     signal(SIGINT, INThandler);
@@ -6146,6 +6153,9 @@ int main(int argc, char **argv)
 
     if (add)
     {
+        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+            egress_usage();
+        }
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0))
         {
             ebpf_usage();
@@ -6228,6 +6238,9 @@ int main(int argc, char **argv)
     }
     else if (delete)
     {
+        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+            egress_usage();
+        }
         if (access(tproxy_map_path, F_OK) != 0)
         {
             ebpf_usage();
@@ -6296,6 +6309,9 @@ int main(int argc, char **argv)
     }
     else if (flush)
     {
+        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+            egress_usage();
+        }
         if (access(tproxy_map_path, F_OK) != 0)
         {
             ebpf_usage();
@@ -6304,6 +6320,9 @@ int main(int argc, char **argv)
     }
     else if (list)
     {
+        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+            egress_usage();
+        }
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0) || (access(diag_map_path, F_OK) != 0))
         {
             ebpf_usage();
