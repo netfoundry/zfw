@@ -6154,7 +6154,7 @@ int main(int argc, char **argv)
 
     if (add)
     {
-        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
             egress_usage();
         }
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0))
@@ -6239,7 +6239,7 @@ int main(int argc, char **argv)
     }
     else if (delete)
     {
-        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
             egress_usage();
         }
         if (access(tproxy_map_path, F_OK) != 0)
@@ -6310,7 +6310,7 @@ int main(int argc, char **argv)
     }
     else if (flush)
     {
-        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
             egress_usage();
         }
         if (access(tproxy_map_path, F_OK) != 0)
@@ -6321,7 +6321,7 @@ int main(int argc, char **argv)
     }
     else if (list)
     {
-        if(egress && (access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0)){
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
             egress_usage();
         }
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0) || (access(diag_map_path, F_OK) != 0))
