@@ -5984,6 +5984,10 @@ int main(int argc, char **argv)
         usage("-s, --service-id requires -I, --insert or -D, --delete");
     }
 
+    if(list && flush){
+        usage("-L, --list and -F, --flush not be used in combination call");
+    }
+
     if (tcfilter && !object && !disable)
     {
         usage("-X, --set-tc-filter requires -O, --object-file for add operation");
