@@ -544,10 +544,6 @@ void set_tc_filter(char *action)
             }
             else
             {
-                if (!strcmp(direction_string, "egress") && (x == 2))
-                {
-                    break;
-                }
                 sprintf(section, "action/%d", x);
             }
             char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", tc_interface, direction_string, "prio", prio, "bpf",
@@ -6181,10 +6177,6 @@ int main(int argc, char **argv)
                 inet_aton("0.0.0.0", &scidr);
                 splen = 0;
             }
-            else if ((cs || cs6) && egress)
-            {
-                usage("Origin prefix -o, --ocidr-block not supported for egress filters");
-            }
             else if ((cs || cs6) && !sl)
             {
                 usage("Missing argument -n, --sprefix-len");
@@ -6262,10 +6254,6 @@ int main(int argc, char **argv)
             {
                 inet_aton("0.0.0.0", &scidr);
                 splen = 0;
-            }
-            else if ((cs || cs6) && egress)
-            {
-                usage("Origin prefix -o, --ocidr-block not supported for egress filters");
             }
             else if ((cs || cs6) && !sl)
             {

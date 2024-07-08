@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file. The format 
 - Fixed issue where if ingress filtering enabled on loopback 
   interface IPv6 was not enabled by default
 
+- Fixed an issue where udp inbound initiated connections were disconnected for some ipv4 sockets 
+  when passing through to the local OS.
+
 # [0.8.2] - 2024-07-01
 
 ###

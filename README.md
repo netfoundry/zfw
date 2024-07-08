@@ -7,7 +7,59 @@ filtering.  It can be used in conjunction with ufw's masquerade feature on a Wan
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
 edge-routers.
 
-## New features - Initial support for ipv6
+## New features - 
+
+### Outbound filtering 
+- This new feature is currently meant ot be used in stand alone FW mode (No OpenZiti)
+  It allows for both IPv4 and IPv6 ingress/egress filters on a single external interface. i.e.
+  This mode also allows for stateful outbound traffic for traffic allowed by ingress filters so 
+  no need to static random high port numbers for return traffic.  The assumption is
+  if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
+
+```
+i.e. set /opt/openziti/etc/ebpf_config.json as below changing interface name only
+    {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33"}]}
+```
+Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
+```
+#!/bin/bash
+#enable outbound filtering
+sudo /opt/openziti/bin/zfw --outbound-filter ens33
+
+#example outbound rules set by adding -z, --direction egress
+#ipv4
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p tcp -z egress
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
+
+#ipv6
+sudo /opt/openziti/bin/zfw -6 ens33 #enables ipv6
+sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p tcp -z egress
+sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
+```
+
+- To view ipv4 egress rules: ```sudo zfw -L -z egress```
+
+```
+EGRESS FILTERS:
+service id            	proto	origin              	destination                     mapping:                				interface list                 
+----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+
+```
+
+- To view ipv6 egress rules: ```sudo zfw -L -6 all -z egress```
+
+```
+EGRESS FILTERS:
+service id             proto origin                                     destination                                  mapping:                    interface list
+---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+0000000000000000000000|tcp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+0000000000000000000000|udp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+
+```
+
+### Initial support for ipv6
 - *Enabled via ```sudo zfw -6 <ifname | all>``` 
    Note: Router discovery / DHCPv6 are always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
