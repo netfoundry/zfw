@@ -1052,7 +1052,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, event.proto};
         clear_match_tracker(mkey);
         return TC_ACT_PIPE;
-    }else if(ipv6 && local_diag->ipv6_enable){
+    }else if(ipv6 && (local_diag->ipv6_enable || skb->ifindex == 1)){
         if(skb->ifindex == 1){
             return TC_ACT_OK;
         }
