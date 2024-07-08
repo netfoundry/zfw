@@ -823,11 +823,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                 }
+                return TC_ACT_OK;
             }
             if(local_diag->vrrp && (event.proto == 112)){
                 return TC_ACT_OK;
             }
-            return TC_ACT_OK;
         }
         return TC_ACT_SHOT;
     }
