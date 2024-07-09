@@ -3982,7 +3982,7 @@ void map_delete_key(struct tproxy_key key)
     dplen = key.dprefix_len;
     free(prefix);
     bool route_delete = false;
-    if (route)
+    if (route && !egress)
     {
         route_delete = interface_map();
     }
@@ -4020,11 +4020,6 @@ void map_delete_key(struct tproxy_key key)
 
 void map_delete6()
 {
-    bool route_delete = false;
-    if (route)
-    {
-        route_delete = interface_map();
-    }
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     struct tproxy6_key *key = (struct tproxy6_key *)malloc(sizeof(struct tproxy6_key));
@@ -4161,10 +4156,6 @@ void map_delete6()
                 }
                 close(count_fd);
                 printf("Last Element: Hash Entry Deleted\n");
-                if (route_delete)
-                {
-                    unbind_prefix(&dcidr, dplen);
-                }
                 close(end_fd);
                 close(fd);
                 free(orule);
