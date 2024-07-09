@@ -21,16 +21,27 @@ edge-routers.
 
 ```
 i.e. set /opt/openziti/etc/ebpf_config.json as below changing interface name only
+
     {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}
+
+    or equivalent InternalInterfaces config:
+
+    {"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],
+     "ExternalInterfaces":[]}
 ```
 Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
 ```
 #!/bin/bash
-#enable outbound filtering
+
+# enable outbound filtering (Can be set before or after egress rule entry)
+# If set before DNS rules some systems command response might be slow till 
+# a DNS egress rule is entered
+
 sudo /opt/openziti/bin/zfw --outbound-filter ens33
 
 #example outbound rules set by adding -z, --direction egress
 #ipv4
+sudo /opt/openziti/bin/zfw -I -c 0.0.0.0 -m 0 -l 53 -h 53 -t 0 -p udp --direction egress
 sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p tcp -z egress
 sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
 
