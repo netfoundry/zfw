@@ -47,7 +47,8 @@
 #define MAX_IF_ENTRIES 256
 #define SERVICE_ID_BYTES 32
 #define MAX_TRANSP_ROUTES 256
-#define BPF_MAX_SESSIONS 10000
+#define BPF_MAX_SESSIONS 65535
+#define BPF_MAX_TUN_SESSIONS 10000
 #define MAX_ADDRESSES 10
 #define IP_HEADER_TOO_BIG 1
 #define NO_IP_OPTIONS_ALLOWED 2
@@ -542,7 +543,7 @@ struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(struct tun_key));
      __uint(value_size,sizeof(struct tun_state));
-     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(max_entries, BPF_MAX_TUN_SESSIONS);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tun_map SEC(".maps");
 

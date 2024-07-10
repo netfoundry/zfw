@@ -49,6 +49,9 @@ sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p ud
 sudo /opt/openziti/bin/zfw -6 ens33 #enables ipv6
 sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p tcp -z egress
 sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
+
+#inbound rules
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp
 ```
 
 - To view ipv4 egress rules: ```sudo zfw -L -z egress```
@@ -414,8 +417,14 @@ with listening ports in the config.yml.
 ### ssh default operation
 By default ssh is enabled to pass through to the ip address of the attached interface from any source.
 If secondary addresses exist on the interface this will only work for the first 10.  After that you would need
-to add manual entries via ```zfw -I```. 
+to add manual entries via ```zfw -I```.  
 
+NOTE: **For environments where the IP will change it is highly recommended that a manual ssh rule is entered in /opt/openziti/bin/user_rules.sh with an entry for the entire subnet. e.g if subnet is 192.168.1.0/24 or you will lose ssh access to the system till system restart**
+```
+#!/bin/bash
+sudo /opt/openziti/bin/zfw -I -c 192.168.1.0 -m 24 -l 22 -h 22 -t 0 -p tcp
+```
+  
 The following command will disable default ssh action to pass to the IP addresses of the local interface and will
 fall through to rule check instead where a more specific rule could be applied.  This is a per
 interface setting and can be set for all interfaces except loopback.  This would need to be put in
