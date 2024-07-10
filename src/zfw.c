@@ -230,6 +230,7 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
+char check_alt[IF_NAMESIZE];
 
 const char *argp_program_version = "0.8.3";
 struct ring_buffer *ring_buffer;
@@ -5232,7 +5233,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            monitor_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                monitor_interface = check_alt;
+            }else{
+                monitor_interface = arg;
+            }
         }
         break;
     case 'N':
@@ -5297,7 +5302,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            prefix_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                prefix_interface = check_alt;
+            }else{
+                prefix_interface = arg;
+            }
         }
         break;
     case 'Q':
@@ -5323,7 +5332,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            vrrp_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                vrrp_interface = check_alt;
+            }else{
+                vrrp_interface = arg;
+            }
         }
         break;
     case 'T':
@@ -5346,7 +5359,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            tun_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                tun_interface = check_alt;
+            }else{
+                tun_interface = arg;
+            }
         }
         break;
     case 'U':
@@ -5382,7 +5399,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            tc_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                tc_interface = check_alt;
+            }else{
+                tc_interface = arg;
+            }
         }
         break;
     case 'Y':
@@ -5408,7 +5429,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            ddos_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                ddos_interface = check_alt;
+            }else{
+                ddos_interface = arg;
+            }
         }
         break;
     case 'b':
@@ -5431,7 +5456,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            outbound_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                outbound_interface = check_alt;
+            }else{
+                outbound_interface = arg;
+            }
         }
         break;
     case '6':
@@ -5454,7 +5483,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            ipv6_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                ipv6_interface = check_alt;
+            }else{
+                ipv6_interface = arg;
+            }
         }
         break;
     case 'c':
@@ -5493,7 +5526,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            echo_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                echo_interface = check_alt;
+            }else{
+                echo_interface = arg;
+            }
         }
         break;
     case 'd':
@@ -5601,7 +5638,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            verbose_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                verbose_interface = check_alt;
+            }else{
+                verbose_interface = arg;
+            }
         }
         break;
     case 'w':
@@ -5624,7 +5665,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            eapol_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                eapol_interface = check_alt;
+            }else{
+                eapol_interface = arg;
+            }
         }
         break;
     case 'x':
@@ -5647,7 +5692,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            ssh_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                ssh_interface = check_alt;
+            }else{
+                ssh_interface = arg;
+            }
         }
         break;
     case 'y':
