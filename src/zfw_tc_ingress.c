@@ -32,42 +32,49 @@
 #include <string.h>
 
 #ifndef BPF_MAX_ENTRIES
-#define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
+#define BPF_MAX_ENTRIES 100 //MAX # PREFIXES
 #endif
 #define BPF_MAX_RANGES 250000
-#define MAX_INDEX_ENTRIES                   100 //MAX port ranges per prefix need to match in user space apps 
-#define MAX_TABLE_SIZE                      65536 //needs to match in userspace
-#define GENEVE_UDP_PORT                     6081
-#define GENEVE_VER                          0
-#define AWS_GNV_HDR_OPT_LEN                 32 // Bytes
-#define AWS_GNV_HDR_LEN                     40 // Bytes
-#define MATCHED_KEY_DEPTH                   3
-#define MATCHED_INT_DEPTH                   50
-#define MAX_IF_LIST_ENTRIES                 3
-#define MAX_IF_ENTRIES                      256
-#define SERVICE_ID_BYTES                    32
-#define MAX_TRANSP_ROUTES                   256
-#define BPF_MAX_SESSIONS                    10000
-#define MAX_ADDRESSES                       10
-#define IP_HEADER_TOO_BIG                   1
-#define NO_IP_OPTIONS_ALLOWED               2
-#define UDP_HEADER_TOO_BIG                  3
-#define GENEVE_HEADER_TOO_BIG               4
+#define MAX_INDEX_ENTRIES 100 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_TABLE_SIZE 65536 //needs to match in userspace
+#define GENEVE_UDP_PORT 6081
+#define GENEVE_VER 0
+#define AWS_GNV_HDR_OPT_LEN 32 // Bytes
+#define AWS_GNV_HDR_LEN 40 // Bytes
+#define MATCHED_KEY_DEPTH 3
+#define MATCHED_INT_DEPTH 50
+#define MAX_IF_LIST_ENTRIES 3
+#define MAX_IF_ENTRIES 256
+#define SERVICE_ID_BYTES 32
+#define MAX_TRANSP_ROUTES 256
+#define BPF_MAX_SESSIONS 65535
+#define BPF_MAX_TUN_SESSIONS 10000
+#define MAX_ADDRESSES 10
+#define IP_HEADER_TOO_BIG 1
+#define NO_IP_OPTIONS_ALLOWED 2
+#define UDP_HEADER_TOO_BIG 3
+#define GENEVE_HEADER_TOO_BIG 4
 #define GENEVE_HEADER_LENGTH_VERSION_ERROR  5
-#define SKB_ADJUST_ERROR                    6
-#define ICMP_HEADER_TOO_BIG                 7
-#define IP_TUPLE_TOO_BIG                    8
-#define IF_LIST_MATCH_ERROR                 9
-#define INGRESS                             0
-#define SERVER_SYN_ACK_RCVD                 1
-#define SERVER_FIN_RCVD                     2
-#define SERVER_RST_RCVD                     3
-#define SERVER_FINAL_ACK_RCVD               4
-#define UDP_MATCHED_EXPIRED_STATE           5
-#define UDP_MATCHED_ACTIVE_STATE            6
-#define ICMP_INNER_IP_HEADER_TOO_BIG        13
-#define IP6_HEADER_TOO_BIG                  30
-#define IPV6_TUPLE_TOO_BIG                  31
+#define SKB_ADJUST_ERROR 6
+#define ICMP_HEADER_TOO_BIG 7
+#define IP_TUPLE_TOO_BIG 8
+#define IF_LIST_MATCH_ERROR 9
+#define INGRESS 0
+#define SERVER_SYN_ACK_RCVD 1
+#define SERVER_FIN_RCVD 2
+#define SERVER_RST_RCVD 3
+#define SERVER_FINAL_ACK_RCVD 4
+#define UDP_MATCHED_EXPIRED_STATE 5
+#define UDP_MATCHED_ACTIVE_STATE 6
+#define ICMP_INNER_IP_HEADER_TOO_BIG 13
+#define INGRESS_INITIATED_UDP_SESSION 14
+#define INGRESS_CLIENT_SYN_RCVD 17
+#define INGRESS_CLIENT_FIN_RCVD 18
+#define INGRESS_CLIENT_RST_RCVD 19
+#define INGRESS_TCP_CONNECTION_ESTABLISHED 20
+#define INGRESS_CLIENT_FINAL_ACK_RCVD 21
+#define IP6_HEADER_TOO_BIG 30
+#define IPV6_TUPLE_TOO_BIG 31
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -272,6 +279,7 @@ struct diag_ip4 {
     bool eapol;
     bool ddos_filtering;
     bool ipv6_enable;
+    bool outbound_filter;
 };
 
 /*Value to tun_map*/
@@ -332,7 +340,7 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ddos_dport_map SEC(".maps");
 
-/*map to track up to 3 key matches per incoming packet search.  Map is 
+/*map to track up to 3 key matches per incoming IPv4 packet search.  Map is 
 then used to search for port mappings.  This was required when source filtering was 
 added to accommodate the additional instructions per ebpf program.  The search now spans
 5 ebpf programs  */
@@ -503,6 +511,16 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
 
+/*Hashmap to track ingress passthrough TCP connections i.e. to LAN or host
+VMs/Containers*/
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct tuple_key));
+     __uint(value_size,sizeof(struct tcp_state));
+     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} tcp_ingress_map SEC(".maps");
+
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(struct tuple_key));
@@ -511,12 +529,21 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } udp_map SEC(".maps");
 
+/*tracks inbound allowed sessions*/
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct tuple_key));
+     __uint(value_size,sizeof(struct udp_state));
+     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} udp_ingress_map SEC(".maps");
+
 /*Hashmap to track tun interface inbound passthrough connections*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(struct tun_key));
      __uint(value_size,sizeof(struct tun_state));
-     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(max_entries, BPF_MAX_TUN_SESSIONS);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tun_map SEC(".maps");
 
@@ -584,6 +611,23 @@ static inline struct tcp_state *get_tcp(struct tuple_key key){
 	return ts;
 }
 
+/*Insert entry into ingress tcp state table*/
+static inline void insert_ingress_tcp(struct tcp_state tstate, struct tuple_key key){
+     bpf_map_update_elem(&tcp_ingress_map, &key, &tstate,0);
+}
+
+/*Remove entry into ingress tcp state table*/
+static inline void del_ingress_tcp(struct tuple_key key){
+     bpf_map_delete_elem(&tcp_ingress_map, &key);
+}
+
+/*get entry from ingress tcp state table*/
+static inline struct tcp_state *get_ingress_tcp(struct tuple_key key){
+    struct tcp_state *ts;
+    ts = bpf_map_lookup_elem(&tcp_ingress_map, &key);
+	return ts;
+}
+
 static inline void del_udp(struct tuple_key key){
      bpf_map_delete_elem(&udp_map, &key);
 }
@@ -592,6 +636,17 @@ static inline struct udp_state *get_udp(struct tuple_key key){
     struct udp_state *us;
     us = bpf_map_lookup_elem(&udp_map, &key);
 	return us;
+}
+
+static inline struct udp_state *get_udp_ingress(struct tuple_key key){
+    struct udp_state *us;
+    us = bpf_map_lookup_elem(&udp_ingress_map, &key);
+	return us;
+}
+
+/*Insert entry into udp state table*/
+static inline void insert_udp_ingress(struct udp_state ustate, struct tuple_key key){
+     bpf_map_update_elem(&udp_ingress_map, &key, &ustate,0);
 }
 
 /*Insert entry into tun state table*/
@@ -777,17 +832,11 @@ static inline void send_event(struct bpf_event *new_event){
 * from the combined IP SA|DA and the TCP/UDP SP|DP. 
 */
 static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
-    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, bool *vrrp,
+    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *icmp, bool *vrrp,
      struct bpf_event *event, struct diag_ip4 *local_diag){
 
     struct bpf_sock_tuple *result = NULL;
     __u8 proto = 0;
-    
-    /* check if ARP */
-    if (eth_proto == bpf_htons(ETH_P_ARP)) {
-        *arp = true;
-        return NULL;
-    }
     
     /* check IP */
     struct iphdr *iph = NULL;
@@ -980,7 +1029,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool ipv6 = false;
     bool udp=false;
     bool tcp=false;
-    bool arp=false;
     bool icmp=false;
     bool vrrp=false;
     int ret;
@@ -1023,29 +1071,31 @@ int bpf_sk_splice(struct __sk_buff *skb){
         return TC_ACT_SHOT;
 	}
     
+    /*check if ARP and pass if true*/
+    if((bpf_ntohs(eth->h_proto) == ETH_P_ARP)){
+        return TC_ACT_OK;
+    }
+
     /*check if 802.1X and passthrough is enabled*/
     if((bpf_ntohs(eth->h_proto) == 0x888e) && local_diag->eapol){
         return TC_ACT_OK;
     }
 
     /* check if incoming packet is a UDP or TCP tuple */
-    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, &vrrp, &event, local_diag);
+    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &icmp, &vrrp, &event, local_diag);
 
     //get ipv4 interface addr mappings
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
 
     //get ipv6 interface addr mappings
     struct ifindex_ip6 *local_ip6 = get_local_ip6(skb->ifindex);
-   
+    
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
         if(skb->ifindex == 1){
             return TC_ACT_OK;
         }
-        else if(arp){
-            return TC_ACT_OK;
-	    }
         else if(icmp){
             if(ipv4){
                 struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
@@ -1408,13 +1458,13 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 * check if there is a dest ip associated with the local socket. if yes jump to assign if not
                 * disregard and release the sk and continue on to check for tproxy mapping.
                 */
-            if(sk->dst_ip4){
+                if(sk->dst_ip4){
                     if(local_diag->verbose){
                         send_event(&event);
                     }
                     goto assign;
-            }
-            bpf_sk_release(sk);
+                }
+                bpf_sk_release(sk);
             /*reply to outbound passthrough check*/
             }else{
                 udp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
@@ -1449,7 +1499,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, event.proto};
         clear_match_tracker(mkey);
         return TC_ACT_PIPE;
-    }else if(ipv6 && local_diag->ipv6_enable)
+    }else if(ipv6 && (local_diag->ipv6_enable || skb->ifindex == 1))
     {
         tuple_len = sizeof(tuple->ipv6);
         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
@@ -1593,19 +1643,21 @@ int bpf_sk_splice(struct __sk_buff *skb){
             * defined for the flow*/
             event.proto = IPPROTO_UDP;
             sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
-            if(sk){
-            /*
+            if(sk)
+            {
+
+               /*
                 * check if there is a dest ip associated with the local socket. if yes jump to assign if not
                 * disregard and release the sk and continue on to check for tproxy mapping.
                 */
-            if(sk->dst_ip4){
+                if(sk->dst_ip6[0]){
                     if(local_diag->verbose){
                         send_event(&event);
                     }
                     goto assign;
-            }
-            bpf_sk_release(sk);
-            /*reply to outbound passthrough check*/
+                }
+                bpf_sk_release(sk);
+               /*reply to outbound passthrough check*/
             }else{
                 memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
                 memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
@@ -1659,11 +1711,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
         //if succeeded forward to the stack
         return TC_ACT_OK;
     }
-    /*else drop packet if not running on loopback*/
+    /*else forward packet to next filter for processing if not running on loopback*/
     if(skb->ifindex == 1){
         return TC_ACT_OK;
     }else{
-        return TC_ACT_SHOT;
+        return TC_ACT_PIPE;
     }
 }
 
@@ -2154,7 +2206,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex, protocol};
         __u16 match_count = get_matched_count(mkey);
         if (match_count > MATCHED_KEY_DEPTH){
-        match_count = MATCHED_KEY_DEPTH;
+            match_count = MATCHED_KEY_DEPTH;
         }
         for(__u16 count =0; count < match_count; count++)
         {
@@ -2196,6 +2248,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                             if(range->tproxy_port == 0){
                                 if(local_diag->verbose){
                                     send_event(&event);
+                                }
+                                if(local_diag->outbound_filter){
+                                    return TC_ACT_PIPE;
                                 }
                                 return TC_ACT_OK;
                             }
@@ -2246,9 +2301,13 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                         if(ext_mapping){
                             for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
                                 if(ext_mapping->if_list[x] == skb->ifindex){
-                                    if(range->tproxy_port == 0){
+                                    if(range->tproxy_port == 0)
+                                    {
                                         if(local_diag->verbose){
                                             send_event(&event);
+                                        }
+                                        if(local_diag->outbound_filter){
+                                            return TC_ACT_PIPE;
                                         }
                                         return TC_ACT_OK;
                                     }
@@ -2382,6 +2441,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 if(local_diag->verbose){
                                     send_event(&event);
                                 }
+                                if(local_diag->outbound_filter){
+                                    return TC_ACT_PIPE;
+                                }
                                 return TC_ACT_OK;
                             }
                             if(!local_diag->tun_mode){
@@ -2390,7 +2452,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     return TC_ACT_SHOT;
                                 }
                                 if(!(key->protocol == IPPROTO_UDP) || local_diag->verbose){
-                                    bpf_printk("sent event");
                                     send_event(&event);
                                 }
                                 goto assign;
@@ -2435,6 +2496,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                     if(range->tproxy_port == 0){
                                         if(local_diag->verbose){
                                             send_event(&event);
+                                        }
+                                         if(local_diag->outbound_filter){
+                                            return TC_ACT_PIPE;
                                         }
                                         return TC_ACT_OK;
                                     }
@@ -2513,6 +2577,327 @@ int bpf_sk_splice5(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
     /*else drop packet if not running on loopback*/
+    if(skb->ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
+}
+
+SEC("action/6")
+int bpf_sk_splice6(struct __sk_buff *skb){
+    struct bpf_sock_tuple *tuple;
+    int tuple_len;
+    struct tuple_key udp_state_key ={0};
+    struct tuple_key tcp_state_key ={0};
+
+    /*look up attached interface inbound diag status*/
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ifindex);
+    if(!local_diag){
+        if(skb->ifindex == 1){
+            return TC_ACT_OK;
+        }else{
+            return TC_ACT_SHOT;
+        }
+    }
+
+    /* find ethernet header from skb->data pointer */
+    struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
+    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+        return TC_ACT_SHOT;
+    }
+
+    unsigned long long tstamp = bpf_ktime_get_ns();
+    struct bpf_event event = {
+        0,
+        tstamp,
+        skb->ifindex,
+        0,
+        {0},
+        {0},
+        0,
+        0,
+        0,
+        0,
+        INGRESS,
+        0,
+        0,
+        {},
+        {}
+     };
+
+    if(eth->h_proto == bpf_htons(ETH_P_IP)){
+        /* check if incomming packet is a UDP or TCP tuple */
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        event.proto = iph->protocol;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+        if(!tuple){
+            return TC_ACT_SHOT;
+        }
+        /* determine length of tuple */
+        tuple_len = sizeof(tuple->ipv4);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        event.version = iph->version;
+        uint32_t daddr[4] = {tuple->ipv4.daddr,0,0,0};
+        uint32_t saddr[4] = {tuple->ipv4.saddr,0,0,0};
+        memcpy(event.daddr, daddr, sizeof(event.daddr));
+        memcpy(event.saddr, saddr, sizeof(event.saddr));  
+        event.dport = tuple->ipv4.dport;
+        event.sport = tuple->ipv4.sport;    
+        if(event.proto == IPPROTO_UDP){
+            udp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+            udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+            udp_state_key.sport = tuple->ipv4.sport;
+            udp_state_key.dport = tuple->ipv4.dport;
+            struct udp_state *ustate = get_udp_ingress(udp_state_key);
+            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                struct udp_state us = {
+                    tstamp
+                };
+                insert_udp_ingress(us, udp_state_key);
+                if(local_diag->verbose){
+                    event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
+                    send_event(&event);
+                }
+            }
+            else if(ustate){
+                ustate->tstamp = tstamp;
+            }
+            return TC_ACT_OK;
+        }
+        if(event.proto == IPPROTO_TCP)
+        {
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            tcp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+            tcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+            tcp_state_key.sport = tuple->ipv4.sport;
+            tcp_state_key.dport = tuple->ipv4.dport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            struct tcp_state *tstate;
+            if(tcph->syn && !tcph->ack){
+                struct tcp_state ts = {
+                tstamp,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            };
+                insert_ingress_tcp(ts, tcp_state_key);
+                if(local_diag->verbose){
+                    event.tracking_code = INGRESS_CLIENT_SYN_RCVD;
+                    send_event(&event);
+                }
+            }
+            else if(tcph->fin){
+                tstate = get_ingress_tcp(tcp_state_key);
+                if(tstate){
+                    tstate->tstamp = tstamp;
+                    tstate->cfin = 1;
+                    tstate->cfseq = tcph->seq;
+                    if(local_diag->verbose){
+                        event.tracking_code = INGRESS_CLIENT_FIN_RCVD;
+                        send_event(&event);
+                    }
+                }
+            }
+            else if(tcph->rst){
+                tstate = get_ingress_tcp(tcp_state_key);
+                if(tstate){
+                    del_ingress_tcp(tcp_state_key);
+                    tstate = get_ingress_tcp(tcp_state_key);
+                    if(!tstate){
+                        if(local_diag->verbose){
+                            event.tracking_code = INGRESS_CLIENT_RST_RCVD;
+                            send_event(&event);
+                        }
+                    }
+                }
+            }
+            else if(tcph->ack){
+                tstate = get_ingress_tcp(tcp_state_key);
+                if(tstate){
+                    if(tstate->ack && tstate->syn){
+                        if(local_diag->verbose){
+                            event.tracking_code = INGRESS_TCP_CONNECTION_ESTABLISHED;
+                            send_event(&event);
+                        }
+                        tstate->tstamp = tstamp;
+                        tstate->syn = 0;
+                        tstate->est = 1;
+                    }
+                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        del_ingress_tcp(tcp_state_key);
+                        tstate = get_ingress_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = INGRESS_CLIENT_FINAL_ACK_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                    }
+                    else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        tstate->cfack = 1;
+                        tstate->tstamp = tstamp;
+                    }
+                    else{
+                        tstate->tstamp = tstamp;
+                    }
+                }
+            }
+            return TC_ACT_OK;
+        }
+    }else
+    {
+        struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+        // ensure ip header is in packet bounds
+        if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        if(!tuple){
+            return TC_ACT_SHOT;
+        }
+        // determine length of tuple
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        memcpy(event.daddr, tuple->ipv6.daddr, sizeof(event.daddr));
+        memcpy(event.saddr, tuple->ipv6.saddr, sizeof(event.saddr));  
+        event.dport = tuple->ipv6.dport;
+        event.sport = tuple->ipv6.sport;
+        event.version = ip6h->version;
+        event.proto = ip6h->nexthdr;
+        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+        tuple_len = sizeof(tuple->ipv6);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        if(event.proto == IPPROTO_UDP){
+            memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            udp_state_key.sport = tuple->ipv6.sport;
+            udp_state_key.dport = tuple->ipv6.dport;
+            struct udp_state *ustate = get_udp_ingress(udp_state_key);
+            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                struct udp_state us = {
+                    tstamp
+                };
+                insert_udp_ingress(us, udp_state_key);
+                if(local_diag->verbose){
+                    event.tracking_code = INGRESS_INITIATED_UDP_SESSION;
+                    send_event(&event);
+                }
+            }
+            else if(ustate){
+                ustate->tstamp = tstamp;
+            }
+            return TC_ACT_OK;
+        }
+        if(event.proto == IPPROTO_TCP){
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+            memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+            tcp_state_key.sport = tuple->ipv6.sport;
+            tcp_state_key.dport = tuple->ipv6.dport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            struct tcp_state *tstate;
+            if(tcph->syn && !tcph->ack){
+                struct tcp_state ts = {
+                tstamp,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+                };
+                insert_ingress_tcp(ts, tcp_state_key);
+                if(local_diag->verbose){
+                    event.tracking_code = INGRESS_CLIENT_SYN_RCVD;
+                    send_event(&event);
+                }
+            }
+            else if(tcph->fin){
+                tstate = get_ingress_tcp(tcp_state_key);
+                if(tstate){
+                    tstate->tstamp = tstamp;
+                    tstate->cfin = 1;
+                    tstate->cfseq = tcph->seq;
+                    if(local_diag->verbose){
+                        event.tracking_code = INGRESS_CLIENT_FIN_RCVD;
+                        send_event(&event);
+                    }
+                }
+            }
+            else if(tcph->rst){
+                tstate = get_ingress_tcp(tcp_state_key);
+                if(tstate){
+                    del_ingress_tcp(tcp_state_key);
+                    tstate = get_ingress_tcp(tcp_state_key);
+                    if(!tstate){
+                        if(local_diag->verbose){
+                            event.tracking_code = INGRESS_CLIENT_RST_RCVD;
+                            send_event(&event);
+                        }
+                    }
+                }
+            }
+            else if(tcph->ack){
+                tstate = get_ingress_tcp(tcp_state_key);
+                if(tstate){
+                    if(tstate->ack && tstate->syn){
+                        if(local_diag->verbose){
+                            event.tracking_code = INGRESS_TCP_CONNECTION_ESTABLISHED;
+                            send_event(&event);
+                        }
+                        tstate->tstamp = tstamp;
+                        tstate->syn = 0;
+                        tstate->est = 1;
+                    }
+                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        del_ingress_tcp(tcp_state_key);
+                        tstate = get_ingress_tcp(tcp_state_key);
+                        if(!tstate){
+                            if(local_diag->verbose){
+                                event.tracking_code = INGRESS_CLIENT_FINAL_ACK_RCVD;
+                                send_event(&event);
+                            }
+                        }
+                    }
+                    else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                        tstate->cfack = 1;
+                        tstate->tstamp = tstamp;
+                    }
+                    else{
+                        tstate->tstamp = tstamp;
+                    }
+                }
+            }
+            return TC_ACT_OK;
+        }
+    }                 
     if(skb->ifindex == 1){
         return TC_ACT_OK;
     }else{

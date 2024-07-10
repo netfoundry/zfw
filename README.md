@@ -7,7 +7,76 @@ filtering.  It can be used in conjunction with ufw's masquerade feature on a Wan
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
 edge-routers.
 
-## New features - Initial support for ipv6
+## New features - 
+
+### Outbound filtering 
+- This new feature is currently meant ot be used in stand alone FW mode (No OpenZiti).
+  See note in section ```User space manual configuration``` which briefly describes installing
+  zfw without OpenZiti.
+
+  The feature allows for both IPv4 and IPv6 ingress/egress filters on a single external interface. i.e.
+  This mode maintains state for outbound traffic associated with traffic allowed by ingress filters so 
+  there is no need to statically configure high port ranges for return traffic.  The assumption is
+  if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
+
+```
+i.e. set /opt/openziti/etc/ebpf_config.json as below changing interface name only
+
+    {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}
+
+    or equivalent InternalInterfaces config:
+
+    {"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],
+     "ExternalInterfaces":[]}
+```
+Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
+```
+#!/bin/bash
+
+# enable outbound filtering (Can be set before or after egress rule entry)
+# If set before DNS rules some systems command response might be slow till 
+# a DNS egress rule is entered
+
+sudo /opt/openziti/bin/zfw --outbound-filter ens33
+
+#example outbound rules set by adding -z, --direction egress
+#ipv4
+sudo /opt/openziti/bin/zfw -I -c 0.0.0.0 -m 0 -l 53 -h 53 -t 0 -p udp --direction egress
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p tcp -z egress
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.139 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
+
+#ipv6
+sudo /opt/openziti/bin/zfw -6 ens33 #enables ipv6
+sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p tcp -z egress
+sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
+
+#inbound rules
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp
+```
+
+- To view ipv4 egress rules: ```sudo zfw -L -z egress```
+
+```
+EGRESS FILTERS:
+service id            	proto	origin              	destination                     mapping:                				interface list                 
+----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+
+```
+
+- To view ipv6 egress rules: ```sudo zfw -L -6 all -z egress```
+
+```
+EGRESS FILTERS:
+service id             proto origin                                     destination                                  mapping:                    interface list
+---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+0000000000000000000000|tcp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+0000000000000000000000|udp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+
+```
+
+### Initial support for ipv6
 - *Enabled via ```sudo zfw -6 <ifname | all>``` 
    Note: Router discovery / DHCPv6 are always enabled even if ipv6 is disabled in order to ensure the ifindex_ip6_map gets populated.
 - Supports ipv6 neighbor discovery (redirects not supported)
@@ -348,8 +417,14 @@ with listening ports in the config.yml.
 ### ssh default operation
 By default ssh is enabled to pass through to the ip address of the attached interface from any source.
 If secondary addresses exist on the interface this will only work for the first 10.  After that you would need
-to add manual entries via ```zfw -I```. 
+to add manual entries via ```zfw -I```.  
 
+NOTE: **For environments where the IP will change it is highly recommended that a manual ssh rule is entered in /opt/openziti/bin/user_rules.sh with an entry for the entire subnet. e.g if subnet is 192.168.1.0/24 or you will lose ssh access to the system till system restart**
+```
+#!/bin/bash
+sudo /opt/openziti/bin/zfw -I -c 192.168.1.0 -m 24 -l 22 -h 22 -t 0 -p tcp
+```
+  
 The following command will disable default ssh action to pass to the IP addresses of the local interface and will
 fall through to rule check instead where a more specific rule could be applied.  This is a per
 interface setting and can be set for all interfaces except loopback.  This would need to be put in

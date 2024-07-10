@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.8.3] - 2024-07-04
+
+###
+
+- Added ability to apply outbound IPv4 and IPv6 filters to an interface.  The default is set to no 
+  filtering but outbound tracking of passthrough client traffic when afw_tc_outbound_track.o is applied.
+  Outbound filtering is enabled by ```sudo zfw -b, --outbound_filter <iface name | all>```
+  
+- Fixed issue where if ingress filtering enabled on loopback 
+  interface IPv6 was not enabled by default
+
+- Fixed an issue where udp inbound initiated connections were disconnected for some ipv4 sockets 
+  when passing through to the local OS.
+
+- Hardened zfw_tunnel_wrapper.c around the currently incorrect ipv6 event channel IP info.
+  Also fixed invalid strlen() calc. 
+
+- Fixed issue where alt interface names could not be used. 
+
 # [0.8.2] - 2024-07-01
 
 ###

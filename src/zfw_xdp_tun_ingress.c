@@ -28,9 +28,9 @@
 #ifndef memcpy
  #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
-#define MAX_IF_ENTRIES          30
-#define BPF_MAX_SESSIONS        10000
-#define INGRESS                 0
+#define MAX_IF_ENTRIES 30
+#define BPF_MAX_TUN_SESSIONS 10000
+#define INGRESS 0
 #define NO_REDIRECT_STATE_FOUND 10
 
 struct bpf_event{
@@ -102,7 +102,7 @@ struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(key_size, sizeof(struct tun_key));
      __uint(value_size,sizeof(struct tun_state));
-     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(max_entries, BPF_MAX_TUN_SESSIONS);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tun_map SEC(".maps");
 

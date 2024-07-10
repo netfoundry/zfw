@@ -75,6 +75,18 @@
 #define CLIENT_FINAL_ACK_RCVD 11
 #define CLIENT_INITIATED_UDP_SESSION 12
 #define ICMP_INNER_IP_HEADER_TOO_BIG 13
+#define INGRESS_INITIATED_UDP_SESSION 14
+#define INGRESS_UDP_MATCHED_EXPIRED_STATE 15
+#define INGRESS_UDP_MATCHED_ACTIVE_STATE 16
+#define INGRESS_CLIENT_SYN_RCVD 17
+#define INGRESS_CLIENT_FIN_RCVD 18
+#define INGRESS_CLIENT_RST_RCVD 19
+#define INGRESS_TCP_CONNECTION_ESTABLISHED 20
+#define INGRESS_CLIENT_FINAL_ACK_RCVD 21
+#define INGRESS_SERVER_SYN_ACK_RCVD 22
+#define INGRESS_SERVER_FIN_RCVD 23
+#define INGRESS_SERVER_RST_RCVD 24
+#define INGRESS_SERVER_FINAL_ACK_RCVD 25
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 
@@ -101,8 +113,10 @@ bool eapol = false;
 bool verbose = false;
 bool vrrp = false;
 bool per_interface = false;
+bool outbound = false;
 bool interface = false;
 bool disable = false;
+bool egress = false;
 bool all_interface = false;
 bool ssh_disable = false;
 bool tc = false;
@@ -153,10 +167,16 @@ union bpf_attr rb_map;
 int rb_fd = -1;
 union bpf_attr tp_ext_map;
 int tp_ext_fd = -1;
+union bpf_attr egress_ext_map;
+int egress_ext_fd = -1;
 union bpf_attr if_list_ext_map;
 int if_list_ext_fd = -1;
+union bpf_attr egress_if_list_ext_map;
+int egress_if_list_ext_fd = -1;
 union bpf_attr range_map;
 int range_fd = -1;
+union bpf_attr egress_range_map;
+int egress_range_fd = -1;
 
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 const char *tproxy6_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy6_map";
@@ -167,8 +187,12 @@ const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
 const char *if6_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip6_map";
 const char *matched6_map_path ="/sys/fs/bpf/tc/globals/matched6_map";
 const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
+const char *egress_matched6_map_path ="/sys/fs/bpf/tc/globals/egress_matched6_map";
+const char *egress_matched_map_path = "/sys/fs/bpf/tc//globals/egress_matched_map";
 const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
+const char *tcp_ingress_map_path = "/sys/fs/bpf/tc/globals/tcp_ingress_map";
 const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
+const char *udp_ingress_map_path = "/sys/fs/bpf/tc/globals/udp_ingress_map";
 const char *tun_map_path = "/sys/fs/bpf/tc/globals/tun_map";
 const char *if_tun_map_path = "/sys/fs/bpf/tc/globals/ifindex_tun_map";
 const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
@@ -180,6 +204,14 @@ const char *tp_ext_map_path = "/sys/fs/bpf/tc/globals/tproxy_extension_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
 const char *wildcard_port_map_path = "/sys/fs/bpf/tc/globals/wildcard_port_map";
 const char *range_map_path = "/sys/fs/bpf/tc/globals/range_map";
+const char *egress_range_map_path = "/sys/fs/bpf/tc/globals/egress_range_map";
+const char *egress_if_list_ext_map_path = "/sys/fs/bpf/tc/globals/egress_if_list_extension_map";
+const char *egress_ext_map_path = "/sys/fs/bpf/tc/globals/egress_extension_map";
+const char *egress_map_path = "/sys/fs/bpf/tc/globals/zt_egress_map";
+const char *egress6_map_path = "/sys/fs/bpf/tc/globals/zt_egress6_map";
+const char *egress_count_map_path = "/sys/fs/bpf/tc/globals/egress_count_map";
+const char *egress_count6_map_path = "/sys/fs/bpf/tc/globals/egress6_count_map";
+
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -191,14 +223,16 @@ char *prefix_interface;
 char *tun_interface;
 char *vrrp_interface;
 char *ddos_interface;
+char *outbound_interface;
 char *monitor_interface;
 char *ipv6_interface;
 char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
+char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.2";
+const char *argp_program_version = "0.8.3";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -252,10 +286,13 @@ void open_if_map();
 void open_if6_map();
 void open_rb_map();
 void open_tun_map();
+void open_egress_range_map();
 void open_ddos_saddr_map();
 void open_ddos_dport_map();
 void open_tproxy_ext_map();
+void open_egress_ext_map();
 void open_if_list_ext_map();
+void open_egress_if_list_ext_map();
 void map_insert6();
 void map_delete6();
 void map_insert();
@@ -341,6 +378,7 @@ struct diag_ip4
     bool eapol;
     bool ddos_filtering;
     bool ipv6_enable;
+    bool outbound_filter;
 };
 
 struct tproxy_tuple
@@ -497,7 +535,7 @@ void set_tc_filter(char *action)
     if (!strcmp(action, "add"))
     {
         set_tc(action);
-        for (int x = 0; x < 6; x++)
+        for (int x = 0; x < 7; x++)
         {
             char prio[10];
             sprintf(prio, "%d", x + 1);
@@ -505,14 +543,9 @@ void set_tc_filter(char *action)
             if (x == 0)
             {
                 sprintf(section, "action");
-                ;
             }
             else
             {
-                if (!strcmp(direction_string, "egress"))
-                {
-                    break;
-                }
                 sprintf(section, "action/%d", x);
             }
             char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", tc_interface, direction_string, "prio", prio, "bpf",
@@ -565,11 +598,14 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[22] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[33] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
-                            tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path, if6_map_path, count6_map_path, matched6_map_path};
-    for (int map_count = 0; map_count < 22; map_count++)
+                            tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
+                             if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
+                             egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
+                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path};
+    for (int map_count = 0; map_count < 33; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -724,13 +760,25 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
     {
         open_tproxy_ext_map();
     }
+    if (egress_ext_fd == -1)
+    {
+        open_egress_ext_map();
+    }
     if (if_list_ext_fd == -1)
     {
         open_if_list_ext_map();
     }
+    if (egress_if_list_ext_fd == -1)
+    {
+        open_egress_if_list_ext_map();
+    }
     if (range_fd == -1)
     {
         open_range_map();
+    }
+    if (egress_range_fd == -1)
+    {
+        open_egress_range_map();
     }
     uint32_t tun_key = 0;
     struct ifindex_tun o_tunif;
@@ -762,21 +810,39 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
     {
         proto = "unknown";
     }
+    union bpf_attr *if_list_map = NULL;
+    union bpf_attr *ext_map = NULL;
+    union bpf_attr *port_range_map = NULL;
+    if(!egress){
+        ext_map = &tp_ext_map;
+        ext_map->map_fd = tp_ext_fd;
+        if_list_map = &if_list_ext_map;
+        if_list_map->map_fd = if_list_ext_fd;
+        port_range_map = &range_map;
+        port_range_map->map_fd = range_fd;
+    }else{
+        ext_map = &egress_ext_map;
+        ext_map->map_fd = egress_ext_fd;
+        if_list_map = &egress_if_list_ext_map;
+        if_list_map->map_fd = egress_if_list_ext_fd;
+        port_range_map = &egress_range_map;
+        port_range_map->map_fd = egress_range_fd;
+    }
     struct tproxy_extension_key ext_key = {0};
-    tp_ext_map.key = (uint64_t)&ext_key;
+    ext_map->key = (uint64_t)&ext_key;
     struct tproxy_extension_mapping ext_value;
-    tp_ext_map.value = (uint64_t)&ext_value;
-    tp_ext_map.map_fd = tp_ext_fd;
-    tp_ext_map.flags = BPF_ANY;
+    ext_map->value = (uint64_t)&ext_value;
+    
+    ext_map->flags = BPF_ANY;
     ext_key.protocol = key->protocol;
     ext_key.pad = 0;
 
     struct port_extension_key port_ext_key = {0};
-    if_list_ext_map.key = (uint64_t)&port_ext_key;
+    if_list_map->key = (uint64_t)&port_ext_key;
     struct if_list_extension_mapping if_ext_value;
-    if_list_ext_map.value = (uint64_t)&if_ext_value;
-    if_list_ext_map.map_fd = if_list_ext_fd;
-    if_list_ext_map.flags = BPF_ANY;
+    if_list_map->value = (uint64_t)&if_ext_value;
+    if_list_map->flags = BPF_ANY;
+
     memcpy(port_ext_key.__in46_u_dst.ip6, key->dst_ip, sizeof(key->dst_ip));
     memcpy(port_ext_key.__in46_u_src.ip6, key->src_ip, sizeof(key->src_ip));
     port_ext_key.dprefix_len = key->dprefix_len;
@@ -797,37 +863,37 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
     sprintf(scidr_block, "%s/%d", saddr6, key->sprefix_len);
     char dpts[17];
     int x = 0;
-    range_map.key = (uint64_t)&port_ext_key;
+
+    port_range_map->key = (uint64_t)&port_ext_key;
     struct range_mapping range_value;
-    range_map.value = (uint64_t)&range_value;
-    range_map.map_fd = range_fd;
-    range_map.flags = BPF_ANY;
+    port_range_map->value = (uint64_t)&range_value;
+    port_range_map->flags = BPF_ANY;
 
     for (; x < tuple->index_len; x++)
     {
         __u16 port_key = tuple->index_table[x];
         port_ext_key.low_port = port_key;
-        int range_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+        int range_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, port_range_map, sizeof(*port_range_map));
         ext_key.tproxy_port = range_value.tproxy_port;
-        int tp_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
+        int ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, ext_map, sizeof(*ext_map));
         if (!range_lookup)
         {
             sprintf(dpts, "dpts=%d:%d", ntohs(port_key),
                     ntohs(range_value.high_port));
-            int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
+            int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, if_list_map, sizeof(*if_list_map));
             if (intercept && !passthru)
             {
                 bool entry_exists = false;
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                     entry_exists = true;
                     *rule_count += 1;
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                     entry_exists = true;
                     *rule_count += 1;
@@ -866,7 +932,7 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
             {
                 if (ntohs(range_value.tproxy_port) == 0)
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU");
                     char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                     if (!if_ext_lookup)
@@ -902,17 +968,17 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
             {
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                 }
                 else
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU");
                 }
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
@@ -962,14 +1028,27 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     {
         open_tproxy_ext_map();
     }
+    if (egress_ext_fd == -1)
+    {
+        open_egress_ext_map();
+    }
     if (if_list_ext_fd == -1)
     {
         open_if_list_ext_map();
+    }
+    if (egress_if_list_ext_fd == -1)
+    {
+        open_egress_if_list_ext_map();
     }
     if (range_fd == -1)
     {
         open_range_map();
     }
+    if (egress_range_fd == -1)
+    {
+        open_egress_range_map();
+    }
+
     uint32_t tun_key = 0;
     struct ifindex_tun o_tunif;
     tun_map.map_fd = tun_fd;
@@ -1008,60 +1087,77 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     sprintf(scidr_block, "%s/%d", sprefix, key->sprefix_len);
     char *dpts = malloc(17);
     int x = 0;
-
+    
+    union bpf_attr *if_list_map = NULL;
+    union bpf_attr *ext_map = NULL;
+    union bpf_attr *port_range_map = NULL;
+    if(!egress){
+        ext_map = &tp_ext_map;
+        ext_map->map_fd = tp_ext_fd;
+        if_list_map = &if_list_ext_map;
+        if_list_map->map_fd = if_list_ext_fd;
+        port_range_map = &range_map;
+        port_range_map->map_fd = range_fd;
+    }else{
+        ext_map = &egress_ext_map;
+        ext_map->map_fd = egress_ext_fd;
+        if_list_map = &egress_if_list_ext_map;
+        if_list_map->map_fd = egress_if_list_ext_fd;
+        port_range_map = &egress_range_map;
+        port_range_map->map_fd = egress_range_fd;
+    }
     struct tproxy_extension_key ext_key = {0};
-    tp_ext_map.key = (uint64_t)&ext_key;
+    ext_map->key = (uint64_t)&ext_key;
     struct tproxy_extension_mapping ext_value;
-    tp_ext_map.value = (uint64_t)&ext_value;
-    tp_ext_map.map_fd = tp_ext_fd;
-    tp_ext_map.flags = BPF_ANY;
+    ext_map->value = (uint64_t)&ext_value;
+    ext_map->flags = BPF_ANY;
     ext_key.protocol = key->protocol;
     ext_key.pad = 0;
 
+    
     struct port_extension_key port_ext_key = {0};
-    if_list_ext_map.key = (uint64_t)&port_ext_key;
+    if_list_map->key = (uint64_t)&port_ext_key;
     struct if_list_extension_mapping if_ext_value;
-    if_list_ext_map.value = (uint64_t)&if_ext_value;
-    if_list_ext_map.map_fd = if_list_ext_fd;
-    if_list_ext_map.flags = BPF_ANY;
+    if_list_map->value = (uint64_t)&if_ext_value;
+    if_list_map->flags = BPF_ANY;
+
     port_ext_key.__in46_u_dst.ip = key->dst_ip;
     port_ext_key.__in46_u_src.ip = key->src_ip;
     port_ext_key.dprefix_len = key->dprefix_len;
     port_ext_key.sprefix_len = key->sprefix_len;
     port_ext_key.protocol = key->protocol;
     port_ext_key.pad = 0;
+    port_range_map->key = (uint64_t)&port_ext_key;
 
-    range_map.key = (uint64_t)&port_ext_key;
     struct range_mapping range_value;
-    range_map.value = (uint64_t)&range_value;
-    range_map.map_fd = range_fd;
-    range_map.flags = BPF_ANY;
+    port_range_map->value = (uint64_t)&range_value;
+    port_range_map->flags = BPF_ANY;
 
     for (; x < tuple->index_len; x++)
     {
         __u16 port_key = tuple->index_table[x];
         port_ext_key.low_port = port_key;
-        int range_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &range_map, sizeof(range_map));
+        int range_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, port_range_map, sizeof(*port_range_map));
         ext_key.tproxy_port = range_value.tproxy_port;
-        int tp_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &tp_ext_map, sizeof(tp_ext_map));
+        int ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, ext_map, sizeof(*ext_map));
         if (!range_lookup)
         {
             sprintf(dpts, "dpts=%d:%d", ntohs(port_key),
                     ntohs(range_value.high_port));
-            int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
+            int if_ext_lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, if_list_map, sizeof(*if_list_map));
             if (intercept && !passthru)
             {
                 bool entry_exists = false;
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                     entry_exists = true;
                     *rule_count += 1;
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                     entry_exists = true;
                     *rule_count += 1;
@@ -1098,7 +1194,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             {
                 if (ntohs(range_value.tproxy_port) == 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU", dcidr_block);
                     char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                     if (!if_ext_lookup)
@@ -1134,17 +1230,17 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             {
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", tp_ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                 }
                 else
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", tp_ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU", dcidr_block);
                 }
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
@@ -1459,6 +1555,7 @@ bool set_diag(uint32_t *idx)
                 printf("icmp echo is always set to 1 for lo\n");
             }
         }
+        
         if (v6)
         {
             if (!disable || *idx == 1)
@@ -1531,6 +1628,25 @@ bool set_diag(uint32_t *idx)
             else
             {
                 printf("Set disable_ssh is always set to 0 for lo\n");
+            }
+        }
+        if (outbound)
+        {
+            if (!disable && *idx != 1)
+            {
+                o_diag.outbound_filter = true;
+            }
+            else
+            {
+                o_diag.outbound_filter = false;
+            }
+            if (*idx != 1)
+            {
+                printf("Set outbound_filter to %d for %s\n", !disable, outbound_interface);
+            }
+            else
+            {
+                printf("Set outbound_filter is always set to 0 for lo\n");
             }
         }
         if (tcfilter && !strcmp("ingress", direction_string))
@@ -1615,6 +1731,7 @@ bool set_diag(uint32_t *idx)
         }
         printf("%-24s:%d\n", "verbose", o_diag.verbose);
         printf("%-24s:%d\n", "ssh disable", o_diag.ssh_disable);
+        printf("%-24s:%d\n", "outbound_filter", o_diag.outbound_filter);
         printf("%-24s:%d\n", "per interface", o_diag.per_interface);
         printf("%-24s:%d\n", "tc ingress filter", o_diag.tc_ingress);
         printf("%-24s:%d\n", "tc egress filter", o_diag.tc_egress);
@@ -1786,8 +1903,9 @@ void interface_diag()
                 eapol_interface = address->ifa_name;
                 ddos_interface = address->ifa_name;
                 ipv6_interface = address->ifa_name;
+                outbound_interface = address->ifa_name;
             }
-            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6))
+            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6 || outbound))
             {
                 if (per_interface && !strncmp(prefix_interface, "ziti", 4))
                 {
@@ -1821,12 +1939,24 @@ void interface_diag()
                 {
                     printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
+                if (outbound && !strncmp(outbound_interface, "ziti", 4))
+                {
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
+                }
                 address = address->ifa_next;
                 continue;
             }
             if (echo)
             {
                 if (!strcmp(echo_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (outbound)
+            {
+                if (!strcmp(outbound_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -2819,6 +2949,48 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "CLIENT_INITIATED_UDP_SESSION";
                     }
+                    else if (code == INGRESS_INITIATED_UDP_SESSION)
+                    {
+                        state = "INGRESS_INITIATED_UDP_SESSION";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == INGRESS_CLIENT_SYN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_SYN_RCVD";
+                    }else if (code == INGRESS_CLIENT_FIN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FIN_RCVD";
+                    }else if (code == INGRESS_CLIENT_RST_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_RST_RCVD";
+                    }else if (code == INGRESS_SERVER_RST_RCVD)
+                    {
+                        state = "INGRESS_SERVER_RST_RCVD";
+                    }else if (code == INGRESS_TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "INGRESS_TCP_CONNECTION_ESTABLISHED";
+                    }else if (code == INGRESS_CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FINAL_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_SYN_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_FIN_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FIN_RCVD";
+                    }
+                    else if (code == INGRESS_SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FINAL_ACK_RCVD";
+                    }
+
                     if (state)
                     {
                         sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
@@ -3085,6 +3257,49 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "CLIENT_INITIATED_UDP_SESSION";
                     }
+                    else if (code == INGRESS_INITIATED_UDP_SESSION)
+                    {
+                        state = "INGRESS_INITIATED_UDP_SESSION";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == INGRESS_UDP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "INGRESS_UDP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == INGRESS_CLIENT_SYN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_SYN_RCVD";
+                    }else if (code == INGRESS_CLIENT_FIN_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FIN_RCVD";
+                    }else if (code == INGRESS_CLIENT_RST_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_RST_RCVD";
+                    }else if (code == INGRESS_SERVER_RST_RCVD)
+                    {
+                        state = "INGRESS_SERVER_RST_RCVD";
+                    }else if (code == INGRESS_TCP_CONNECTION_ESTABLISHED)
+                    {
+                        state = "INGRESS_TCP_CONNECTION_ESTABLISHED";
+                    }else if (code == INGRESS_CLIENT_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_CLIENT_FINAL_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_SYN_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_SYN_ACK_RCVD";
+                    }else if (code == INGRESS_SERVER_FIN_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FIN_RCVD";
+                    }
+                    else if (code == INGRESS_SERVER_FINAL_ACK_RCVD)
+                    {
+                        state = "INGRESS_SERVER_FINAL_ACK_RCVD";
+                    }
+
+
                     if (state)
                     {
                         sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
@@ -3133,10 +3348,21 @@ static int process_events(void *ctx, void *data, size_t len)
 
 void set_tp_ext_data(struct tproxy_extension_key key)
 {
-    if (tp_ext_fd == -1)
-    {
-        open_tproxy_ext_map();
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    if(!egress){
+        map.pathname = (uint64_t)tp_ext_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_ext_map_path;
     }
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
     struct tproxy_extension_mapping ext_value = {0};
     char *sid = "0000000000000000000000";
     if (service)
@@ -3147,23 +3373,34 @@ void set_tp_ext_data(struct tproxy_extension_key key)
     {
         memcpy(ext_value.service_id, sid, strlen(sid) + 1);
     }
-    tp_ext_map.key = (uint64_t)&key;
-    tp_ext_map.value = (uint64_t)&ext_value;
-    tp_ext_map.map_fd = tp_ext_fd;
-    tp_ext_map.flags = BPF_ANY;
-    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &tp_ext_map, sizeof(tp_ext_map));
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&ext_value;
+    map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
     if (result)
     {
         printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
     }
+    close(fd);
 }
 
 void set_if_list_ext_data(struct port_extension_key key)
 {
-    if (if_list_ext_fd == -1)
-    {
-        open_if_list_ext_map();
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    if(!egress){
+        map.pathname = (uint64_t)if_list_ext_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_if_list_ext_map_path;
     }
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
     struct if_list_extension_mapping ext_value = {0};
     if (interface)
     {
@@ -3172,36 +3409,46 @@ void set_if_list_ext_data(struct port_extension_key key)
             ext_value.if_list[x] = if_list[x];
         }
     }
-    if_list_ext_map.key = (uint64_t)&key;
-    if_list_ext_map.value = (uint64_t)&ext_value;
-    if_list_ext_map.map_fd = if_list_ext_fd;
-    if_list_ext_map.flags = BPF_ANY;
-    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_list_ext_map, sizeof(if_list_ext_map));
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&ext_value;
+    map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
     if (result)
     {
         printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
     }
+    close(fd);
 }
 
 void set_range(struct port_extension_key key)
 {
-    if (range_fd == -1)
-    {
-        open_range_map();
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    if(!egress){
+        map.pathname = (uint64_t)range_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_range_map_path;
     }
-    printf("Setting range\n");
-    range_map.key = (uint64_t)&key;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
     struct range_mapping range_ports = {
         htons(high_port),
         htons(tproxy_port)};
-    range_map.value = (uint64_t)&range_ports;
-    range_map.map_fd = range_fd;
-    range_map.flags = BPF_ANY;
-    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &range_map, sizeof(range_map));
+    map.value = (uint64_t)&range_ports;
+    map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
     if (result)
     {
         printf("MAP_UPDATE_ELEM_DATA: %s \n", strerror(errno));
     }
+    close(fd);
 }
 
 void map_insert6()
@@ -3231,7 +3478,11 @@ void map_insert6()
     struct tproxy_tuple *orule = (struct tproxy_tuple *)malloc(sizeof(struct tproxy_tuple));
     memset(orule, 0, sizeof(struct tproxy_tuple));
     /* set path name with location of map in filesystem */
-    map.pathname = (uint64_t)tproxy6_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy6_map_path;
+    }else{
+        map.pathname = (uint64_t)egress6_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     /* make system call to get fd for map */
@@ -3287,7 +3538,11 @@ void map_insert6()
         union bpf_attr count_map;
         memset(&count_map, 0, sizeof(count_map));
         /* set path name with location of map in filesystem */
-        count_map.pathname = (uint64_t)count6_map_path;
+        if(!egress){
+            count_map.pathname = (uint64_t)count6_map_path;
+        }else{
+            count_map.pathname = (uint64_t)egress_count6_map_path;
+        }
         count_map.bpf_fd = 0;
         count_map.file_flags = 0;
         /* make system call to get fd for map */
@@ -3370,7 +3625,7 @@ void map_insert()
         close_maps(1);
     }
     bool route_insert = false;
-    if (route)
+    if (route && !egress)
     {
         route_insert = interface_map();
     }
@@ -3389,7 +3644,11 @@ void map_insert()
     struct tproxy_tuple *orule = (struct tproxy_tuple *)malloc(sizeof(struct tproxy_tuple));
     memset(orule, 0, sizeof(struct tproxy_tuple));
     /* set path name with location of map in filesystem */
-    map.pathname = (uint64_t)tproxy_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     /* make system call to get fd for map */
@@ -3445,7 +3704,11 @@ void map_insert()
         union bpf_attr count_map;
         memset(&count_map, 0, sizeof(count_map));
         /* set path name with location of map in filesystem */
-        count_map.pathname = (uint64_t)count_map_path;
+        if(!egress){
+            count_map.pathname = (uint64_t)count_map_path;
+        }else{
+            count_map.pathname = (uint64_t)egress_count_map_path;
+        }
         count_map.bpf_fd = 0;
         count_map.file_flags = 0;
         /* make system call to get fd for map */
@@ -3550,7 +3813,11 @@ void if_list_ext_delete_key(struct port_extension_key key)
 {
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)if_list_ext_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)if_list_ext_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_if_list_ext_map_path;
+    }
     map.bpf_fd = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
@@ -3573,7 +3840,11 @@ void range_delete_key(struct port_extension_key key)
 {
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)range_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)range_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_range_map_path;
+    }
     map.bpf_fd = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
@@ -3628,7 +3899,11 @@ void tp_ext_delete_key(struct tproxy_extension_key key)
 {
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tp_ext_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tp_ext_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_ext_map_path;
+    }
     map.bpf_fd = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
@@ -3678,7 +3953,11 @@ void map_delete6_key(struct tproxy6_key key)
 {
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy6_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy6_map_path;
+    }else{
+        map.pathname = (uint64_t)egress6_map_path;
+    }
     map.bpf_fd = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
@@ -3704,13 +3983,17 @@ void map_delete_key(struct tproxy_key key)
     dplen = key.dprefix_len;
     free(prefix);
     bool route_delete = false;
-    if (route)
+    if (route && !egress)
     {
         route_delete = interface_map();
     }
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_map_path;
+    }
     map.bpf_fd = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
@@ -3738,11 +4021,6 @@ void map_delete_key(struct tproxy_key key)
 
 void map_delete6()
 {
-    bool route_delete = false;
-    if (route)
-    {
-        route_delete = interface_map();
-    }
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     struct tproxy6_key *key = (struct tproxy6_key *)malloc(sizeof(struct tproxy6_key));
@@ -3755,7 +4033,11 @@ void map_delete6()
     key->pad = 0;
     struct tproxy_tuple *orule = (struct tproxy_tuple *)malloc(sizeof(struct tproxy_tuple));
     memset(orule, 0, sizeof(struct tproxy_tuple));
-    map.pathname = (uint64_t)tproxy6_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy6_map_path;
+    }else{
+        map.pathname = (uint64_t)egress6_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     struct port_extension_key port_ext_key = {0};
@@ -3807,7 +4089,11 @@ void map_delete6()
         if (orule->index_len == 0)
         {
             memset(&map, 0, sizeof(map));
-            map.pathname = (uint64_t)tproxy6_map_path;
+            if(!egress){
+                map.pathname = (uint64_t)tproxy6_map_path;
+            }else{
+                map.pathname = (uint64_t)egress6_map_path;
+            }
             map.bpf_fd = 0;
             int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
             if (end_fd == -1)
@@ -3835,7 +4121,11 @@ void map_delete6()
                 union bpf_attr count_map;
                 memset(&count_map, 0, sizeof(count_map));
                 /* set path name with location of map in filesystem */
-                count_map.pathname = (uint64_t)count6_map_path;
+                if(!egress){
+                    count_map.pathname = (uint64_t)count6_map_path;
+                }else{
+                    count_map.pathname = (uint64_t)egress_count6_map_path;
+                }
                 count_map.bpf_fd = 0;
                 count_map.file_flags = 0;
                 /* make system call to get fd for map */
@@ -3867,10 +4157,6 @@ void map_delete6()
                 }
                 close(count_fd);
                 printf("Last Element: Hash Entry Deleted\n");
-                if (route_delete)
-                {
-                    unbind_prefix(&dcidr, dplen);
-                }
                 close(end_fd);
                 close(fd);
                 free(orule);
@@ -3903,7 +4189,7 @@ void map_delete6()
 void map_delete()
 {
     bool route_delete = false;
-    if (route)
+    if (route && !egress)
     {
         route_delete = interface_map();
     }
@@ -3919,7 +4205,12 @@ void map_delete()
     key->pad = 0;
     struct tproxy_tuple *orule = (struct tproxy_tuple *)malloc(sizeof(struct tproxy_tuple));
     memset(orule, 0, sizeof(struct tproxy_tuple));
-    map.pathname = (uint64_t)tproxy_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy_map_path;
+    }
+    else{
+        map.pathname = (uint64_t)egress_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     struct port_extension_key port_ext_key = {0};
@@ -3971,7 +4262,11 @@ void map_delete()
         if (orule->index_len == 0)
         {
             memset(&map, 0, sizeof(map));
-            map.pathname = (uint64_t)tproxy_map_path;
+            if(!egress){
+                map.pathname = (uint64_t)tproxy_map_path;
+            }else{
+                map.pathname = (uint64_t)egress_map_path;
+            }
             map.bpf_fd = 0;
             int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
             if (end_fd == -1)
@@ -3999,7 +4294,11 @@ void map_delete()
                 union bpf_attr count_map;
                 memset(&count_map, 0, sizeof(count_map));
                 /* set path name with location of map in filesystem */
-                count_map.pathname = (uint64_t)count_map_path;
+                if(!egress){
+                    count_map.pathname = (uint64_t)count_map_path;
+                }else{
+                    count_map.pathname = (uint64_t)egress_count_map_path;
+                }
                 count_map.bpf_fd = 0;
                 count_map.file_flags = 0;
                 /* make system call to get fd for map */
@@ -4235,7 +4534,11 @@ int flush6()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy6_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy6_map_path;
+    }else{
+        map.pathname = (uint64_t)egress6_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -4263,7 +4566,11 @@ int flush6()
     union bpf_attr count_map;
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
-    count_map.pathname = (uint64_t)count6_map_path;
+    if(!egress){
+        count_map.pathname = (uint64_t)count6_map_path;
+    }else{
+        count_map.pathname = (uint64_t)egress_count6_map_path;
+    }
     count_map.bpf_fd = 0;
     count_map.file_flags = 0;
     /* make system call to get fd for map */
@@ -4302,7 +4609,11 @@ int flush4()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy_map_path;
+     if(!egress){
+        map.pathname = (uint64_t)tproxy_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -4330,7 +4641,11 @@ int flush4()
     union bpf_attr count_map;
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
-    count_map.pathname = (uint64_t)count_map_path;
+    if(!egress){
+        count_map.pathname = (uint64_t)count_map_path;
+    }else{
+        count_map.pathname = (uint64_t)egress_count_map_path;
+    }
     count_map.bpf_fd = 0;
     count_map.file_flags = 0;
     /* make system call to get fd for map */
@@ -4654,7 +4969,11 @@ int get_key_count6()
     union bpf_attr count_map;
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
-    count_map.pathname = (uint64_t)count6_map_path;
+    if(!egress){
+        count_map.pathname = (uint64_t)count6_map_path;
+    }else{
+        count_map.pathname = (uint64_t)egress_count6_map_path;
+    }
     count_map.bpf_fd = 0;
     count_map.file_flags = 0;
     /* make system call to get fd for map */
@@ -4683,7 +5002,11 @@ int get_key_count()
     union bpf_attr count_map;
     memset(&count_map, 0, sizeof(count_map));
     /* set path name with location of map in filesystem */
-    count_map.pathname = (uint64_t)count_map_path;
+    if(!egress){
+        count_map.pathname = (uint64_t)count_map_path;
+    }else{
+        count_map.pathname = (uint64_t)egress_count_map_path;
+    }
     count_map.bpf_fd = 0;
     count_map.file_flags = 0;
     /* make system call to get fd for map */
@@ -4715,7 +5038,11 @@ void map_list_all6()
     struct tproxy6_key current_key;
     struct tproxy_tuple orule;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy6_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy6_map_path;
+    }else{
+        map.pathname = (uint64_t)egress6_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -4729,6 +5056,11 @@ void map_list_all6()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
+    if(!egress){
+        printf("INGRESS FILTERS:\n");
+    }else{
+        printf("EGRESS FILTERS:\n");
+    }
     printf("%-23s%-6s%-43s%-45s%-28s%s\n", "service id", "proto", "origin", "destination", "mapping:", "interface list");
     printf("---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
     int rule_count = 0;
@@ -4765,7 +5097,11 @@ void map_list_all()
     struct tproxy_key current_key;
     struct tproxy_tuple orule;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -4779,6 +5115,11 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
+    if(!egress){
+        printf("INGRESS FILTERS:\n");
+    }else{
+        printf("EGRESS FILTERS:\n");
+    }
     printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-31s\n", "service id", "proto", "origin", "destination", "mapping:", "interface list");
     printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
@@ -4826,6 +5167,7 @@ static struct argp_option options[] = {
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
     {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
+    {"outbound-filtering", 'b', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
@@ -4891,7 +5233,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            monitor_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                monitor_interface = check_alt;
+            }else{
+                monitor_interface = arg;
+            }
         }
         break;
     case 'N':
@@ -4956,7 +5302,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            prefix_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                prefix_interface = check_alt;
+            }else{
+                prefix_interface = arg;
+            }
         }
         break;
     case 'Q':
@@ -4982,7 +5332,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            vrrp_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                vrrp_interface = check_alt;
+            }else{
+                vrrp_interface = arg;
+            }
         }
         break;
     case 'T':
@@ -5005,7 +5359,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            tun_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                tun_interface = check_alt;
+            }else{
+                tun_interface = arg;
+            }
         }
         break;
     case 'U':
@@ -5041,7 +5399,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            tc_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                tc_interface = check_alt;
+            }else{
+                tc_interface = arg;
+            }
         }
         break;
     case 'Y':
@@ -5067,7 +5429,38 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            ddos_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                ddos_interface = check_alt;
+            }else{
+                ddos_interface = arg;
+            }
+        }
+        break;
+    case 'b':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -b, --outbound-filtering: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        outbound = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            if(if_indextoname(idx, check_alt)){
+                outbound_interface = check_alt;
+            }else{
+                outbound_interface = arg;
+            }
         }
         break;
     case '6':
@@ -5090,7 +5483,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            ipv6_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                ipv6_interface = check_alt;
+            }else{
+                ipv6_interface = arg;
+            }
         }
         break;
     case 'c':
@@ -5129,7 +5526,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            echo_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                echo_interface = check_alt;
+            }else{
+                echo_interface = arg;
+            }
         }
         break;
     case 'd':
@@ -5237,7 +5638,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            verbose_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                verbose_interface = check_alt;
+            }else{
+                verbose_interface = arg;
+            }
         }
         break;
     case 'w':
@@ -5260,7 +5665,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            eapol_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                eapol_interface = check_alt;
+            }else{
+                eapol_interface = arg;
+            }
         }
         break;
     case 'x':
@@ -5283,7 +5692,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         else
         {
-            ssh_interface = arg;
+            if(if_indextoname(idx, check_alt)){
+                ssh_interface = check_alt;
+            }else{
+                ssh_interface = arg;
+            }
         }
         break;
     case 'y':
@@ -5305,6 +5718,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         direction = true;
         direction_string = arg;
+        if(!strcmp("egress", arg)){
+            egress = true;
+        }
         break;
     default:
         return ARGP_ERR_UNKNOWN;
@@ -5355,6 +5771,18 @@ void close_maps(int code)
     if (range_fd != -1)
     {
         close(range_fd);
+    }
+    if (egress_range_fd != -1)
+    {
+        close(egress_range_fd);
+    }
+    if (egress_if_list_ext_fd != -1)
+    {
+        close(egress_if_list_ext_fd);
+    }
+    if (egress_ext_fd != -1)
+    {
+        close(egress_ext_fd);
     }
     exit(code);
 }
@@ -5422,6 +5850,20 @@ void open_range_map()
     }
 }
 
+void open_egress_range_map()
+{
+    memset(&egress_range_map, 0, sizeof(egress_range_map));
+    egress_range_map.pathname = (uint64_t)egress_range_map_path;
+    egress_range_map.bpf_fd = 0;
+    egress_range_map.file_flags = 0;
+    /* make system call to get fd for map */
+    egress_range_fd = syscall(__NR_bpf, BPF_OBJ_GET, &egress_range_map, sizeof(egress_range_map));
+    if (egress_range_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
 void open_ddos_dport_map()
 {
     memset(&ddos_dport_map, 0, sizeof(ddos_dport_map));
@@ -5451,6 +5893,21 @@ void open_tproxy_ext_map()
     }
 }
 
+void open_egress_ext_map()
+{
+    memset(&egress_ext_map, 0, sizeof(egress_ext_map));
+    /* set path name with location of map in filesystem */
+    egress_ext_map.pathname = (uint64_t)egress_ext_map_path;
+    egress_ext_map.bpf_fd = 0;
+    egress_ext_map.file_flags = 0;
+    /* make system call to get fd for map */
+    egress_ext_fd = syscall(__NR_bpf, BPF_OBJ_GET, &egress_ext_map, sizeof(egress_ext_map));
+    if (egress_ext_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
 void open_if_list_ext_map()
 {
     memset(&if_list_ext_map, 0, sizeof(if_list_ext_map));
@@ -5461,6 +5918,21 @@ void open_if_list_ext_map()
     /* make system call to get fd for map */
     if_list_ext_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_list_ext_map, sizeof(if_list_ext_map));
     if (if_list_ext_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_egress_if_list_ext_map()
+{
+    memset(&egress_if_list_ext_map, 0, sizeof(egress_if_list_ext_map));
+    /* set path name with location of map in filesystem */
+    egress_if_list_ext_map.pathname = (uint64_t)egress_if_list_ext_map_path;
+    egress_if_list_ext_map.bpf_fd = 0;
+    egress_if_list_ext_map.file_flags = 0;
+    /* make system call to get fd for map */
+    egress_if_list_ext_fd = syscall(__NR_bpf, BPF_OBJ_GET, &egress_if_list_ext_map, sizeof(egress_if_list_ext_map));
+    if (egress_if_list_ext_fd == -1)
     {
         ebpf_usage();
     }
@@ -5542,6 +6014,13 @@ void open_tun_map()
     }
 }
 
+void egress_usage(){
+    printf("No egress maps exist or not running as sudo!\n");
+    printf("Ensure at least one interface has an egress filter enabled!\n");
+    printf("e.g. sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress\n");
+    close_maps(1);
+}
+
 int main(int argc, char **argv)
 {
     signal(SIGINT, INThandler);
@@ -5551,6 +6030,10 @@ int main(int argc, char **argv)
     if (service && (!add && !delete))
     {
         usage("-s, --service-id requires -I, --insert or -D, --delete");
+    }
+
+    if(list && flush){
+        usage("-L, --list and -F, --flush not be used in combination call");
     }
 
     if (tcfilter && !object && !disable)
@@ -5693,14 +6176,15 @@ int main(int argc, char **argv)
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
     }
 
-    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp && !eapol && !ddos && !dsip && !ddport && !v6))
+    if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp
+     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound))
     {
-        usage("Missing argument at least one of -6,-e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -a,-b,-6,-e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
 
-    if (direction && !tcfilter)
+    if (direction && (!tcfilter && !list && !flush && !delete && !add))
     {
-        usage("missing argument -z, --direction requires -X, --set-tc-filter");
+        usage("missing argument -z, --direction requires -X, --set-tc-filter or -D, --delete or --I, --insert or -L, --list or -F, --flush");
     }
 
     if (object && !tcfilter)
@@ -5710,6 +6194,9 @@ int main(int argc, char **argv)
 
     if (add)
     {
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
+            egress_usage();
+        }
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0))
         {
             ebpf_usage();
@@ -5776,16 +6263,25 @@ int main(int argc, char **argv)
             }
             if (cd6)
             {
+                if(egress && (tproxy_port != 0)){
+                    usage("-t, tproxy-port 0 is currently the only supported value in egress filters");
+                }
                 map_insert6();
             }
             else
             {
+                if(egress && (tproxy_port != 0)){
+                    usage("-t, tproxy-port 0 is currently the only supported value in egress filters");
+                }
                 map_insert();
             }
         }
     }
     else if (delete)
     {
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
+            egress_usage();
+        }
         if (access(tproxy_map_path, F_OK) != 0)
         {
             ebpf_usage();
@@ -5854,6 +6350,9 @@ int main(int argc, char **argv)
     }
     else if (flush)
     {
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
+            egress_usage();
+        }
         if (access(tproxy_map_path, F_OK) != 0)
         {
             ebpf_usage();
@@ -5862,6 +6361,9 @@ int main(int argc, char **argv)
     }
     else if (list)
     {
+        if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
+            egress_usage();
+        }
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0) || (access(diag_map_path, F_OK) != 0))
         {
             ebpf_usage();
@@ -5927,7 +6429,7 @@ int main(int argc, char **argv)
             map_list();
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound)
     {
         interface_diag();
     }

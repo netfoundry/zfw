@@ -7,7 +7,7 @@ if [ $# -lt 1 ]; then
 fi
 if [ $1 == "router" ]
 then
-   if [ ! -d "/opt/openziti/bin" ]
+   if [ ! -d "/opt/openziti/bin/user" ]
    then
        mkdir -p /opt/openziti/bin/user
    fi
