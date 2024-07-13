@@ -3,6 +3,55 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.8.3] - 2024-07-13
+
+###
+
+- Added the ability to lookup individual ipv6 and egress rules by CIDR/LEN or CIDR/LEN/PROTOCOL combination e.g.
+  ```
+  $sudo zfw -L -c 172.16.240.139 -m 32 -z egress
+
+  EGRESS FILTERS:
+  service id            	proto	origin              	destination                     mapping:                				 interface list                 
+  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+  0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+  Rule Count: 1
+  service id            	proto	origin              	destination                     mapping:                				 interface list                 
+  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+  0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+  0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=22:22       	PASSTHRU to 172.16.240.139/32   []
+  Rule Count: 2
+  
+  $sudo zfw -L -c 2001:db8:: -m 64 -z egress -p tcp
+
+  EGRESS FILTERS:
+  service id             proto origin                                     destination                                  mapping:                    interface list
+  ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+  0000000000000000000000|tcp  |::/0                                      |2001:db8::/64                              | dpts=5201:5201   PASSTHRU | []
+  Rule Count: 1
+
+  $sudo zfw -L -c 2001:db9:: -m 64
+
+  INGRESS FILTERS:
+  service id             proto origin                                     destination                                  mapping:                    interface list
+  ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+  0000000000000000000000|udp  |::/0                                      |2001:db9::/64                              | dpts=5000:5000   PASSTHRU | []
+  0000000000000000000000|udp  |::/0                                      |2001:db9::/64                              | dpts=5201:5201   PASSTHRU | []
+  0000000000000000000000|udp  |::/0                                      |2001:db9::/64                              | dpts=400:400     TP:323   | []
+  Rule Count: 3
+  service id            	proto	origin              	destination                     mapping:                				 interface list                 
+  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+  0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=22:22       PASSTHRU | []
+  0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=443:443     PASSTHRU | []
+  0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=8000:8000   PASSTHRU | []
+  0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=5000:5000   PASSTHRU | []
+  0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=5201:5201   PASSTHRU | []
+  0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=400:400     TP:631   | []
+  Rule Count: 6
+  ```
+- Cleaned up README.md syntax errors / clarifications
+- Updated license comments in source code to include SPDIX-License-Identifier.
+  
 # [0.8.3] - 2024-07-04
 
 ###
