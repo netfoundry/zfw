@@ -49,6 +49,8 @@ All notable changes to this project will be documented in this file. The format 
   0000000000000000000000|tcp  |::/0                                      |2001:db9::/64                              | dpts=400:400     TP:631   | []
   Rule Count: 6
   ```
+- zfw.c is now statically compiled with the latest version libbpf available at time of the deb package build, refer to workflow files for details.
+- Added LICENSE, CHANGELOG.md and README.md files to bin directory of deb packages
 - Cleaned up README.md syntax errors / clarifications
 - Updated license comments in source code to include SPDIX-License-Identifier.
   

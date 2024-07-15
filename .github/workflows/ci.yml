@@ -31,10 +31,15 @@ jobs:
           
       - name: Compile Object file from Source
         run: |
+          git clone https://github.com/libbpf/libbpf.git
+          cd libbpf/src
+          mkdir build root
+          BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root make install
+          cd ../../
           clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
-          clang -D BPF_MAX_ENTRIES=100000 -O2 -lbpf -Wall -Wextra -o files/bin/zfw src/zfw.c
+          clang -g -O2 -Wall -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw  -static
           gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
       
       - name: Get version
@@ -59,6 +64,9 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
+          cp -p CHANGELOG.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p README.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p LICENSE ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
@@ -127,10 +135,15 @@ jobs:
     
       - name: Compile Object file from Source
         run: | 
+          git clone https://github.com/libbpf/libbpf.git
+          cd libbpf/src
+          mkdir build root
+          BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root make install
+          cd ../../
           clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
           clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
           clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/-Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
-          clang -D BPF_MAX_ENTRIES=100000 -O2 -lbpf -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -o files/bin/zfw src/zfw.c
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw  -static
           gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
 
       - name: Get version
@@ -155,6 +168,9 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
+          cp -p CHANGELOG.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p README.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p LICENSE ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/

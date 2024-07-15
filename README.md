@@ -155,7 +155,7 @@ have ziti-edge-tunnel installed and an operational OpenZiti network built, follo
 
 
 - Install
-  ubuntu 22.04 only (binary deb package)
+  binary deb package (refer to workflow for detail pkg contents)
 ```
 sudo dpkg -i zfw-tunnel_<ver>_<arch>.deb
 ```
@@ -168,7 +168,7 @@ The program is designed to integrated into an existing Openziti ziti-router inst
  [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeRouter). Running with ziti router is optional and zfw router can be run as a standalone FW as mentioned in the ```User space manual configuration``` section below.
 
 - Install
-  ubuntu 22.04 only (binary deb package)
+  binary deb package (refer to workflow for detail pkg contents)
 ```
 sudo dpkg -i zfw-router_<ver>_<arch>.deb
 ```
