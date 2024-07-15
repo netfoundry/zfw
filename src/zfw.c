@@ -2328,9 +2328,7 @@ void interface_map6()
     struct interface6 ip6_index_array[MAX_IF_ENTRIES] = {0};
     char *cur_name;
     uint32_t cur_idx;
-    uint8_t addr_count = 0;
     uint8_t addr6_count = 0;
-    unsigned short last_af;
     while (address && (ip6_index_count < MAX_IF_ENTRIES))
     {
         idx = if_nametoindex(address->ifa_name);
