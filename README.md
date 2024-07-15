@@ -20,16 +20,15 @@ edge-routers.
   there is no need to statically configure high port ranges for return traffic.  The assumption is
   if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
-```
-i.e. set /opt/openziti/etc/ebpf_config.json as below changing interface name only
 
-    {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}
+i.e. set ```/opt/openziti/etc/ebpf_config.json``` as below changing interface name only
 
-    or equivalent InternalInterfaces config:
+  ```{"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}```
 
-    {"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],
-     "ExternalInterfaces":[]}
-```
+  or equivalent InternalInterfaces config:
+
+```{"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}```
+
 Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
 ```
 #!/bin/bash
@@ -52,9 +51,8 @@ sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p tcp -
 sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
 
 #inbound rules
-sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp```
 ```
-
 - To view all IPv4 egress rules: ```sudo zfw -L -z egress```
 
 ```
@@ -65,7 +63,6 @@ service id            	proto	origin              	destination                   
 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
 
 ```
-
 - To view all IPv6 egress rules: ```sudo zfw -L -6 all -z egress```
 
 ```
@@ -74,7 +71,7 @@ service id             proto origin                                     destinat
 ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
 0000000000000000000000|tcp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
 0000000000000000000000|udp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
-
+```
 - to view egress rules for a single IPv4 CIDR ```sudo zfw -L -c 172.16.240.139 -m 32 -z egress```
 ``` 
 EGRESS FILTERS:
@@ -121,14 +118,14 @@ Rule Count: 1
   ```
 - individual IPv6 ingress rules can be listed with 
   ```
-    sudo zfw -L -c <IPv6 CIDR> -m <CIDR LEN 0 - 128> 
+  sudo zfw -L -c <IPv6 CIDR> -m <CIDR LEN 0 - 128> 
   ```
 - IPv6 rules can be individually deleted or flushed 
   e.g.
-  ```
-    sudo zfw -F
-    sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
-  ```
+```
+sudo zfw -F
+sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
+```
 - Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
 *These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots.
 
@@ -186,7 +183,9 @@ Packages files will be installed in the following directories.
 /opt/openziti/bin/user/: <user configured rules>
 ```
 Configure:
-- Edit interfaces (zfw-tunnel) note: ziti-router will automatically add lanIf: from config.yml
+- Edit interfaces (zfw-tunnel) note: zfw for ziti-router will automatically add lanIf: from config.yml when
+ ```/opt/openziti/bin/start_ebpf_router.py``` is run the first time and OpenZiti router is installed and
+ configured.
 ```
 sudo cp /opt/openziti/etc/ebpf_config.json.sample /opt/openziti/etc/ebpf_config.json
 sudo vi /opt/openziti/etc/ebpf_config.json
