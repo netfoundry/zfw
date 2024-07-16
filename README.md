@@ -3,14 +3,15 @@
 --- 
 This firewall application utilizes both tc-ebpf and xdp to provide stateful firewalling
 for an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel installation and is meant as a replacement for packet
-filtering.  It can be used in conjunction with ufw's masquerade feature on a Wan facing interface if
+filtering.  It can be used in conjunction with ufw's masquerade feature on a WAN facing interface if
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
 edge-routers.
 
 ## New features - 
 
 ### Outbound filtering 
-- This new feature is currently meant ot be used in stand alone FW mode (No OpenZiti).
+- This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
+  on intercepted inbound connections but locally hosted services will require manually entered egress rules. 
   See note in section ```User space manual configuration``` which briefly describes installing
   zfw without OpenZiti.
 
@@ -19,16 +20,15 @@ edge-routers.
   there is no need to statically configure high port ranges for return traffic.  The assumption is
   if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
-```
-i.e. set /opt/openziti/etc/ebpf_config.json as below changing interface name only
 
-    {"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}
+i.e. set ```/opt/openziti/etc/ebpf_config.json``` as below changing interface name only
 
-    or equivalent InternalInterfaces config:
+  ```{"InternalInterfaces":[], "ExternalInterfaces":[{"Name":"ens33", "PerInterfaceRules": false}]}```
 
-    {"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],
-     "ExternalInterfaces":[]}
-```
+  or equivalent InternalInterfaces config:
+
+```{"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}```
+
 Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
 ```
 #!/bin/bash
@@ -51,10 +51,9 @@ sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p tcp -
 sudo /opt/openziti/bin/zfw -I -c 2001:db8::2 -m 32 -l 5201 -h 5201 -t 0 -p udp --direction egress
 
 #inbound rules
-sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp
+sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp```
 ```
-
-- To view ipv4 egress rules: ```sudo zfw -L -z egress```
+- To view all IPv4 egress rules: ```sudo zfw -L -z egress```
 
 ```
 EGRESS FILTERS:
@@ -64,8 +63,7 @@ service id            	proto	origin              	destination                   
 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
 
 ```
-
-- To view ipv6 egress rules: ```sudo zfw -L -6 all -z egress```
+- To view all IPv6 egress rules: ```sudo zfw -L -6 all -z egress```
 
 ```
 EGRESS FILTERS:
@@ -73,7 +71,29 @@ service id             proto origin                                     destinat
 ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
 0000000000000000000000|tcp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
 0000000000000000000000|udp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+```
+- to view egress rules for a single IPv4 CIDR ```sudo zfw -L -c 172.16.240.139 -m 32 -z egress```
+``` 
+EGRESS FILTERS:
+service id            	proto	origin              	destination                     mapping:                				 interface list                 
+----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+Rule Count: 1
+service id            	proto	origin              	destination                     mapping:                				 interface list                 
+----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=22:22       	PASSTHRU to 172.16.240.139/32   []
+Rule Count: 2
+```
+  
+- to view tcp egress rules for a single IPv6 CIDR ```$sudo zfw -L -c 2001:db8:: -m 64 -z egress -p tcp```
 
+```
+EGRESS FILTERS:
+service id             proto origin                                     destination                                  mapping:                    interface list
+---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+0000000000000000000000|tcp  |::/0                                      |2001:db8::/64                              | dpts=5201:5201   PASSTHRU | []
+Rule Count: 1
 ```
 
 ### Initial support for ipv6
@@ -92,16 +112,20 @@ service id             proto origin                                     destinat
   ```
     sudo zfw -I -c 2001:db9:: -m 64 -l 443 -h 443 -t 0 -p tcp
   ```
-- IPv6 Rules can be listed with the following command:
+- All IPv6 ingress Rules can be listed with the following command:
   ```
     sudo zfw -L -6 all
   ```
+- individual IPv6 ingress rules can be listed with 
+  ```
+  sudo zfw -L -c <IPv6 CIDR> -m <CIDR LEN 0 - 128> 
+  ```
 - IPv6 rules can be individually deleted or flushed 
   e.g.
-  ```
-    sudo zfw -F
-    sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
-  ```
+```
+sudo zfw -F
+sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
+```
 - Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
 *These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots.
 
@@ -128,7 +152,7 @@ have ziti-edge-tunnel installed and an operational OpenZiti network built, follo
 
 
 - Install
-  ubuntu 22.04 only (binary deb package)
+  binary deb package (refer to workflow for detail pkg contents)
 ```
 sudo dpkg -i zfw-tunnel_<ver>_<arch>.deb
 ```
@@ -138,10 +162,10 @@ Install from source ubuntu 22.04+ / Debian 12
 ## Ziti-Router Deployment
 
 The program is designed to integrated into an existing Openziti ziti-router installation if ziti router has been deployed via ziti_auto_enroll
- [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeRouter). 
+ [instructions](https://docs.openziti.io/docs/guides/Local_Gateway/EdgeRouter). Running with ziti router is optional and zfw router can be run as a standalone FW as mentioned in the ```User space manual configuration``` section below.
 
 - Install
-  ubuntu 22.04 only (binary deb package)
+  binary deb package (refer to workflow for detail pkg contents)
 ```
 sudo dpkg -i zfw-router_<ver>_<arch>.deb
 ```
@@ -159,7 +183,9 @@ Packages files will be installed in the following directories.
 /opt/openziti/bin/user/: <user configured rules>
 ```
 Configure:
-- Edit interfaces (zfw-tunnel) note: ziti-router will automatically add lanIf: from config.yml
+- Edit interfaces (zfw-tunnel) note: zfw for ziti-router will automatically add lanIf: from config.yml when
+ ```/opt/openziti/bin/start_ebpf_router.py``` is run the first time and OpenZiti router is installed and
+ configured.
 ```
 sudo cp /opt/openziti/etc/ebpf_config.json.sample /opt/openziti/etc/ebpf_config.json
 sudo vi /opt/openziti/etc/ebpf_config.json

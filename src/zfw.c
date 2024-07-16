@@ -1,5 +1,5 @@
-/*    Copyright (C) 2022  Robert Caamano   */
-/*
+/*   Copyright (C) 2022  Robert Caamano   */
+/*   SPDIX-License-Identifier: SPDX-License-Identifier: LGPL-2.1+
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
  *   the Free Software Foundation, either version 3 of the License, or
@@ -232,7 +232,7 @@ char *object_file;
 char *direction_string;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.3";
+const char *argp_program_version = "0.8.4";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -2328,9 +2328,7 @@ void interface_map6()
     struct interface6 ip6_index_array[MAX_IF_ENTRIES] = {0};
     char *cur_name;
     uint32_t cur_idx;
-    uint8_t addr_count = 0;
     uint8_t addr6_count = 0;
-    unsigned short last_af;
     while (address && (ip6_index_count < MAX_IF_ENTRIES))
     {
         idx = if_nametoindex(address->ifa_name);
@@ -4784,7 +4782,11 @@ void map_list()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tproxy_map_path;
+    if(!egress){
+        map.pathname = (uint64_t)tproxy_map_path;
+    }else{
+        map.pathname = (uint64_t)egress_map_path;
+    }
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -4797,6 +4799,11 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
+    if(!egress){
+        printf("INGRESS FILTERS:\n");
+    }else{
+        printf("EGRESS FILTERS:\n");
+    }
     printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
     printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
@@ -4822,6 +4829,85 @@ void map_list()
             if (!lookup)
             {
                 print_rule((struct tproxy_key *)map.key, &orule, &rule_count);
+                printf("Rule Count: %d\n", rule_count);
+                if (x == 0)
+                {
+                    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
+                    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+                }
+            }
+        }
+    }
+
+    close(fd);
+}
+
+void map_list6()
+{
+    union bpf_attr map;
+    struct tproxy6_key key = {0};
+    memcpy(key.dst_ip, dcidr6.__in6_u.__u6_addr32, sizeof(key.dst_ip));
+    memcpy(key.src_ip, scidr6.__in6_u.__u6_addr32, sizeof(key.src_ip));
+    key.dprefix_len = dplen;
+    key.sprefix_len = splen;
+    key.protocol = protocol;
+    key.pad = 0;
+    struct tproxy_tuple orule;
+    // Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    if(!egress){
+        map.pathname = (uint64_t)tproxy6_map_path;
+    }else{
+        map.pathname = (uint64_t)egress6_map_path;
+    }
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    if(!egress){
+        printf("INGRESS FILTERS:\n");
+    }else{
+        printf("EGRESS FILTERS:\n");
+    }
+    printf("%-23s%-6s%-43s%-45s%-28s%s\n", "service id", "proto", "origin", "destination", "mapping:", "interface list");
+    printf("---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
+    int rule_count = 0;
+    if (prot)
+    {
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if (!lookup)
+        {
+            print_rule6((struct tproxy6_key *)map.key, &orule, &rule_count);
+            printf("Rule Count: %d\n", rule_count);
+        }
+    }
+    else
+    {
+        int vprot[] = {IPPROTO_UDP, IPPROTO_TCP};
+        int x = 0;
+        for (; x < 2; x++)
+        {
+            rule_count = 0;
+            struct tproxy6_key vkey = {0};
+            memcpy(vkey.dst_ip, dcidr6.__in6_u.__u6_addr32, sizeof(vkey.dst_ip));
+            memcpy(vkey.src_ip, scidr6.__in6_u.__u6_addr32, sizeof(vkey.src_ip));
+            vkey.dprefix_len = dplen;
+            vkey.sprefix_len = splen;
+            vkey.protocol = vprot[x];
+            vkey.pad = 0;
+            map.key = (uint64_t)&vkey;
+            lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+            if (!lookup)
+            {
+                print_rule6((struct tproxy6_key *)map.key, &orule, &rule_count);
                 printf("Rule Count: %d\n", rule_count);
                 if (x == 0)
                 {
@@ -6404,7 +6490,7 @@ int main(int argc, char **argv)
         {
             map_list_all();
         }
-        else if (!cd)
+        else if (!cd && !cd6)
         {
             usage("Missing argument -c, --cider-block");
         }
@@ -6412,11 +6498,22 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -m, --prefix-len");
         }
+        else if ((cd && (dplen > 32)) || (cs && (splen > 32)))
+        {
+            usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
+        }
+        else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
+        {
+            usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
+        }
         else
         {
-            if (!cs)
+            if (cd && !cs)
             {
                 inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }else if(cd6 && !cs6){
+                inet_pton(AF_INET6, "::", &scidr6);
                 splen = 0;
             }
             else
@@ -6426,7 +6523,11 @@ int main(int argc, char **argv)
                     usage("Missing argument -n, --sprefix-len");
                 }
             }
-            map_list();
+            if(cd6){
+                map_list6();
+            }else{
+                map_list();
+            }
         }
     }
     else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound)
