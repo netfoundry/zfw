@@ -1688,7 +1688,7 @@ bool set_diag(uint32_t *idx)
                 }else{
                     printf("outbound filter not set no egress filter exists for %s\n", outbound_interface);
                     printf("set first with: sudo zfw -X %s -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress\n", outbound_interface);
-                    return true;
+                    close_maps(1);
                 }
             }
             else
