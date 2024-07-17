@@ -4740,9 +4740,11 @@ void map_flush()
     }else if(!ingress && !egress){
         flush4();
         flush6();
-        egress = true;
-        flush4();
-        flush6();
+        if(!(access(egress6_map_path, F_OK) != 0)){
+            egress = true;
+            flush4();
+            flush6();
+        }
     }else{
         flush4();
         flush6();
