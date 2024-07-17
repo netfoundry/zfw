@@ -135,6 +135,7 @@ bool ddos_dport_list = false;
 bool service = false;
 bool v6 = false;
 bool ipv6 = false;
+bool ingress = false;
 char *service_string;
 char *ddos_saddr;
 char *ddos_dport;
@@ -232,7 +233,7 @@ char *object_file;
 char *direction_string;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.4";
+const char *argp_program_version = "0.8.5";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -434,6 +435,52 @@ void ebpf_usage()
     }
 }
 
+int check_qdisc(char *ifname){
+    FILE *fp;
+    char path[2048];
+    char command[300];
+    snprintf(command, 300, "/usr/sbin/tc qdisc show dev %s clsact", ifname);
+    fp = popen(command, "r");
+    if(!fp){
+        return 1;
+    }
+    int count = 0;
+    while(fgets(path, sizeof(path), fp) !=NULL){
+        count++;
+    }
+    if(!count){
+        pclose(fp);
+        return 1;
+    }
+    pclose(fp);
+    return 0;
+}
+
+int check_filter(uint32_t idx, char *direction){
+    char ifname[IF_NAMESIZE];
+    if(!if_indextoname(idx, ifname)){
+        return 1;
+    }
+    FILE *fp;
+    char path[2048];
+    char command[300];
+    snprintf(command, 300, "/usr/sbin/tc filter show dev %s %s", ifname, direction);
+    fp = popen(command, "r");
+    if(!fp){
+        return 1;
+    }
+    int count = 0;
+    while(fgets(path, sizeof(path), fp) !=NULL){
+        count++;
+    }
+    if(!count){
+        pclose(fp);
+        return 1;
+    }
+    pclose(fp);
+    return 0;
+}
+
 /*function to add loopback binding for intercept IP prefixes that do not
  * currently exist as a subset of an external interface
  * */
@@ -532,9 +579,11 @@ void set_tc_filter(char *action)
         close_maps(1);
     }
     pid_t pid;
-    if (!strcmp(action, "add"))
+    if (!strcmp(action, "add") && check_filter(if_nametoindex(tc_interface),direction_string))
     {
-        set_tc(action);
+        if(check_qdisc(tc_interface)){
+            set_tc(action);
+        }
         for (int x = 0; x < 7; x++)
         {
             char prio[10];
@@ -577,7 +626,7 @@ void set_tc_filter(char *action)
             }
         }
     }
-    else
+    else if(!strcmp(action, "del"))
     {
         char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", tc_interface, direction_string, NULL};
         if ((pid = fork()) == -1)
@@ -1634,7 +1683,13 @@ bool set_diag(uint32_t *idx)
         {
             if (!disable && *idx != 1)
             {
-                o_diag.outbound_filter = true;
+                if(!check_filter(*idx,"egress")){
+                    o_diag.outbound_filter = true;
+                }else{
+                    printf("outbound filter not set no egress filter exists for %s\n", outbound_interface);
+                    printf("set first with: sudo zfw -X %s -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress\n", outbound_interface);
+                    return true;
+                }
             }
             else
             {
@@ -1812,11 +1867,15 @@ void interface_tc()
                     {
                         if (!disable)
                         {
-                            set_tc("add");
+                            if(check_qdisc(address->ifa_name)){
+                                set_tc("add");
+                            }
                         }
                         else
                         {
-                            set_tc("del");
+                            if(!check_qdisc(address->ifa_name)){
+                                set_tc("del");
+                            }
                         }
                     }
                     if (tcfilter)
@@ -4675,8 +4734,19 @@ int flush4()
 
 void map_flush()
 {
-    flush4();
-    flush6();
+    if(ingress && !egress){
+        flush4();
+        flush6();
+    }else if(!ingress && !egress){
+        flush4();
+        flush6();
+        egress = true;
+        flush4();
+        flush6();
+    }else{
+        flush4();
+        flush6();
+    }
     union bpf_attr tp_map;
     struct tproxy_extension_key tp_init_key = {0};
     struct tproxy_extension_key *tp_key = &tp_init_key;
@@ -5806,6 +5876,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         direction_string = arg;
         if(!strcmp("egress", arg)){
             egress = true;
+        }else{
+            ingress = true;
         }
         break;
     default:

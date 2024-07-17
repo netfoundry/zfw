@@ -7,7 +7,7 @@ filtering.  It can be used in conjunction with ufw's masquerade feature on a WAN
 the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
 edge-routers.
 
-## New features - 
+## New features in 0.8.x - 
 
 ### Outbound filtering 
 - This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
@@ -20,6 +20,18 @@ edge-routers.
   there is no need to statically configure high port ranges for return traffic.  The assumption is
   if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
+An egress filter must be attached to the interface
+
+From cli:
+
+```
+sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress
+sudo /opt/openziti/bin/zfw --outbound-filter ens33
+```
+
+In order to survive reboot you must have "OutboundPassThroughTrack": true which is default for ExternalInterfaces
+but can also be explicitly set for InternalInterfaces. If per interface rules is not false then the egress rules would
+need explicit -N <interface name added> for each rule in the same manner as ingress rules. 
 
 i.e. set ```/opt/openziti/etc/ebpf_config.json``` as below changing interface name only
 
@@ -478,7 +490,7 @@ sudo zfw --vrrp-enable <ens33 | all> -d
 ```
 
 
-### Inserting / Deleting rules
+### Inserting / Deleting Ingress rules
     
 The -t, --tproxy-port is has a dual purpose one it to signify the tproxy port used by openziti routers in tproxy mode and the other is to identify either local passthrough with value of 0 and the other is tunnel redirect mode with value of 65535.
 
@@ -497,10 +509,22 @@ sudo zfw -I -c 172.16.240.1 -m 32 -o 10.1.1.1 -n 32  -p tcp -l 22 -h 22 -t 0
 sudo zfw -D -c 172.16.240.1 -m 32 -o 10.1.1.1 -n 32  -p tcp -l 22
 ```
 
-- Example: Remove all rule entries from FW
+- Example: Remove all rule entries from FW both ingress and egress
 
 ```
 sudo zfw -F
+```
+
+- Example: Remove all ingress rules from FW
+
+```
+sudo zfw -F -z ingress
+```
+
+- Example: Remove all egress rules from FW
+
+```
+sudo zfw -F -z egress
 ```
 
 ### Debugging
