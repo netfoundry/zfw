@@ -11,9 +11,10 @@ All notable changes to this project will be documented in this file. The format 
   exclusivity errors printed on adding additional filters or re-adding.
 - Added code to block entering -b, --outbound_filter if egress tc filter is not applied to the interface first.
 - Added code to block duplicate tc ingress / egress filters
+- Added code to set outbound filter setting to off for an interface when its tc egress filter is removed.
 - Changed operation of -F --flush.  Now -F with no additional arguments will remove all entries ingress and egress.
   -F -z ingress will remove all ingress filters. -F -z egress will remove all egress filters.
-  
+
 # [0.8.4] - 2024-07-13
 
 ###

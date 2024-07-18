@@ -1894,6 +1894,10 @@ void interface_tc()
                         else
                         {
                             set_tc_filter("del");
+                            if(egress){
+                                outbound = true;
+                                outbound_interface = tc_interface;
+                            }
                             if (diag_fd == -1)
                             {
                                 open_diag_map();
