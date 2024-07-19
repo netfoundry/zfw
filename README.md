@@ -20,14 +20,19 @@ edge-routers.
   there is no need to statically configure high port ranges for return traffic.  The assumption is
   if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
-An egress filter must be attached to the interface
+An egress filter must be attached to the interface , ```-b, --outbound-filter <ifname>``` needs to be set ,and at least one interface needs to have had an ingress filter applied.
 
 From cli:
 
 ```
+sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_ingress.o -z ingress
 sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress
 sudo /opt/openziti/bin/zfw --outbound-filter ens33
 ```
+
+The above should result in all outbound traffic except for arp and icmp to be dropped on ens33 (icmp echo-reply
+will also be dropped unless  ```sudo zfw -e ens33 is set```). ssh return traffic will also be allowed outbound
+unless ```ssh -x ens33 is set```.
 
 In order to survive reboot you must have "OutboundPassThroughTrack": true which is default for ExternalInterfaces
 but can also be explicitly set for InternalInterfaces. If per interface rules is not false then the egress rules would
