@@ -18,7 +18,7 @@ edge-routers.
   The feature allows for both IPv4 and IPv6 ingress/egress filters on a single external interface. i.e.
   This mode maintains state for outbound traffic associated with traffic allowed by ingress filters so 
   there is no need to statically configure high port ranges for return traffic.  The assumption is
-  if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
+  If you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
 An egress filter must be attached to the interface , ```-b, --outbound-filter <ifname>``` needs to be set ,and at least one interface needs to have had an ingress filter applied.
 
@@ -338,6 +338,13 @@ In order to support this per interface rule awareness was added which allows eac
 to match a list of connected interfaces.  On a per interface basis you can decide to honor that list or not via
 a per-prefix-rules setting in the following manner via the zfw utility
 
+In order to enable outbound tracking you need to add an egress tc filter to the interface where traffic will be egressing.
+This is performaed with the following cli command: ```sudo zfw -X <ifname> -O <egress tc object file> -z, --direction egress```.
+e.g.
+```
+sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o --direction egress
+```
+
 
 #### Two Interface config with ens33 facing internet and ens37 facing local lan
 
@@ -607,23 +614,31 @@ lo: 1
 icmp echo               :1
 verbose                 :0
 ssh disable             :0
+outbound_filter         :0
 per interface           :0
 tc ingress filter       :0
 tc egress filter        :0
 tun mode intercept      :0
 vrrp enable             :0
+eapol enable            :0
+ddos filtering          :0
+ipv6 enable             :1
 --------------------------
 
 ens33: 2
 --------------------------
-icmp echo               :0
+icmp echo               :1
 verbose                 :0
 ssh disable             :0
+outbound_filter         :1
 per interface           :0
 tc ingress filter       :1
 tc egress filter        :1
 tun mode intercept      :1
-vrrp enable             :1
+vrrp enable             :0
+eapol enable            :0
+ddos filtering          :0
+ipv6 enable             :1
 --------------------------
 
 ens37: 3
@@ -631,19 +646,17 @@ ens37: 3
 icmp echo               :0
 verbose                 :0
 ssh disable             :0
+outbound_filter         :0
 per interface           :0
 tc ingress filter       :0
 tc egress filter        :0
 tun mode intercept      :0
 vrrp enable             :0
+eapol enable            :0
+ddos filtering          :0
+ipv6 enable             :0
 --------------------------
 
-tun0: 18
---------------------------
-verbose                 :0
-cidr                    :100.64.0.0
-mask                    :10
---------------------------
 ```
 
 - Example Detaching bpf from interface:

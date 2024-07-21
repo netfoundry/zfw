@@ -233,7 +233,7 @@ char *object_file;
 char *direction_string;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.5";
+const char *argp_program_version = "0.8.6";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -6391,6 +6391,14 @@ int main(int argc, char **argv)
         }
         else
         {
+            if ((cd && (dplen > 32)) || (cs && (splen > 32)))
+            {
+                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
+            }
+            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
+            {
+                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
+            }
             if (!cs && cd)
             {
                 inet_aton("0.0.0.0", &scidr);
@@ -6412,14 +6420,6 @@ int main(int argc, char **argv)
             else if (cd && cs6)
             {
                 usage("Invalid combination can't mix IP4 and IP6 prefixes");
-            }
-            else if ((cd && (dplen > 32)) || (cs && (splen > 32)))
-            {
-                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
-            }
-            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
-            {
-                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
             }
             if (cd6 && cs6)
             {
@@ -6472,6 +6472,14 @@ int main(int argc, char **argv)
         }
         else
         {
+            if ((cd && (dplen > 32)) || (cs && (splen > 32)))
+            {
+                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
+            }
+            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
+            {
+                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
+            }
             if (!cs && cd)
             {
                 inet_aton("0.0.0.0", &scidr);
@@ -6494,14 +6502,7 @@ int main(int argc, char **argv)
             {
                 usage("Invalid combination can't mix IP4 and IP6 prefixes");
             }
-            else if ((cd && (dplen > 32)) || (cs && (splen > 32)))
-            {
-                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
-            }
-            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
-            {
-                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
-            }
+            
             if (cd6)
             {
                 map_delete6();
