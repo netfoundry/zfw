@@ -9,6 +9,23 @@ edge-routers.
 
 ## New features in 0.8.x - 
 
+### Explicit Deny Rules
+- This feature Adds support for explicit deny rules.  Appending an ```-I, --insert``` entry with ```-d, --disable``` will now enter an explicit deny
+  rule.  This works for both ```ingress``` and ```egress``` rules. Note the default operation is to deny all so this will only be useful if you want to deny a specific host or subnet of an existing allowed cidr.  e.g if you wanted to deny 172.16.240.139 out of the allowed range of 172.16.240.0/24 you would enter:
+  ```
+  sudo zfw -I -c 172.16.240.139 -m 32 -l 443 -h 443 -t 0 -p tcp -d
+  sudo zfw -I -c 172.16.240.0 -m 24 -l 443 -h 443 -t 0 -p tcp
+  ``` 
+
+  listing will now show type e.g.
+  ```sudo zfw -L```
+  ```  
+  type   service id            	proto	origin              	destination                     mapping:                				    interface list                 
+  ------  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+  Accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.0/24         dpts=443:443   	        PASSTHRU to 172.16.240.0/24     []
+  deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.137/32       dpts=443:443            PASSTHRU to 172.16.240.137/32   []
+  ```
+
 ### Outbound filtering 
 - This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
   on intercepted inbound connections but locally hosted services will require manually entered egress rules. 

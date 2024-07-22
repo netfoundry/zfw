@@ -7,6 +7,22 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
+- Added support for explicit deny rules.  Appending an ```-I, --insert``` entry with ```-d, --disable``` will now enter an explicit deny
+  rule.  This works for both ```ingress``` and ```egress``` ```IPv4``` and ```IPv6``` rules. Note the default operation is to deny all so this will only be useful if you want to deny a specific host or subnet of an existing allowed cidr.  e.g if you wanted to deny 172.16.240.139 out of the allowed range of 172.16.240.0/24 you would enter:
+  ```
+  sudo zfw -I -c 172.16.240.139 -m 32 -l 443 -h 443 -t 0 -p tcp  -z egress -d
+  sudo zfw -I -c 172.16.240.0 -m 24 -l 443 -h 443 -t 0 -p tcp  -z egress
+  ``` 
+
+  listing will now show type e.g.
+  ```sudo zfw -L```
+  ```  
+  type   service id            	proto	origin              	destination                     mapping:                				    interface list                 
+  ------  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+  Accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.0/24         dpts=443:443   	        PASSTHRU to 172.16.240.0/24     []
+  deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.137/32       dpts=443:443            PASSTHRU to 172.16.240.137/32   []
+```
+
 - README syntax cleanup
 - README update sample ```zfw -L -E, --list-diag``` to reflect latest code updates
 - Fixed issue where zfw allowed inserting/deleting a rule with a mask value outside the 

@@ -59,6 +59,7 @@
 #define INGRESS_SERVER_FIN_RCVD 23
 #define INGRESS_SERVER_RST_RCVD 24
 #define INGRESS_SERVER_FINAL_ACK_RCVD 25
+#define MATCHED_DROP_FILTER 26
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
@@ -172,6 +173,7 @@ struct tproxy6_key {
 struct range_mapping {
     __u16 high_port;
     __u16 tproxy_port;
+    bool deny;
 };
 
 struct tproxy_extension_key {
@@ -1781,6 +1783,13 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     {
                         event.proto = key.protocol;
                         event.tport = range->tproxy_port;
+                        if(range->deny){
+                            if(local_diag->verbose){
+                                event.tracking_code = MATCHED_DROP_FILTER;
+                                send_event(&event);
+                            }
+                            return TC_ACT_SHOT;
+                        }
                         /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                         the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
                         sockcheck.ipv4.daddr = 0x0100007f;
@@ -1876,6 +1885,13 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     {
                         event.proto = key->protocol;
                         event.tport = range->tproxy_port;
+                        if(range->deny){
+                            if(local_diag->verbose){
+                                event.tracking_code = MATCHED_DROP_FILTER;
+                                send_event(&event);
+                            }
+                            return TC_ACT_SHOT;
+                        }
                         /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                         the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
                         sockcheck.ipv6.daddr[0]= 0;
