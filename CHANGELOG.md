@@ -27,6 +27,8 @@ All notable changes to this project will be documented in this file. The format 
 - README update sample ```zfw -L -E, --list-diag``` to reflect latest code updates
 - Fixed issue where zfw allowed inserting/deleting a rule with a mask value outside the 
   range for the address type.
+- Fixed the print formatting for listing individual IPv6 cidr in zfw.c
+- Fixed the print formatting for listing individual IPv4 cidr in zfw.c
 
 # [0.8.5] - 2024-07-17
 
@@ -39,6 +41,7 @@ All notable changes to this project will be documented in this file. The format 
 - Added code to set outbound filter setting to off for an interface when its tc egress filter is removed.
 - Changed operation of -F --flush.  Now -F with no additional arguments will remove all entries ingress and egress.
   -F -z ingress will remove all ingress filters. -F -z egress will remove all egress filters.
+
 
 # [0.8.4] - 2024-07-13
 
