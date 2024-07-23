@@ -66,6 +66,7 @@ struct tproxy_tuple
 struct range_mapping {
     __u16 high_port;
     __u16 tproxy_port;
+    bool deny;
 };
 
 struct port_extension_key {

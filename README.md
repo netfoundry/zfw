@@ -9,6 +9,23 @@ edge-routers.
 
 ## New features in 0.8.x - 
 
+### Explicit Deny Rules
+- This feature Adds support for explicit deny rules.  Appending an ```-I, --insert``` entry with ```-d, --disable``` will now enter an explicit deny
+  rule.  This works for both ```ingress``` and ```egress``` rules. Note the default operation is to deny all so this will only be useful if you want to deny a specific host or subnet of an existing allowed cidr.  e.g if you wanted to deny 172.16.240.139 out of the allowed range of 172.16.240.0/24 you would enter:
+  ```
+  sudo zfw -I -c 172.16.240.139 -m 32 -l 443 -h 443 -t 0 -p tcp -d
+  sudo zfw -I -c 172.16.240.0 -m 24 -l 443 -h 443 -t 0 -p tcp
+  ``` 
+
+  listing will now show type e.g.
+  ```sudo zfw -L```
+  ```  
+  type   service id            	proto	origin              	destination                     mapping:                				    interface list                 
+  ------  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+  Accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.0/24         dpts=443:443   	        PASSTHRU to 172.16.240.0/24     []
+  deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.137/32       dpts=443:443            PASSTHRU to 172.16.240.137/32   []
+  ```
+
 ### Outbound filtering 
 - This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
   on intercepted inbound connections but locally hosted services will require manually entered egress rules. 
@@ -18,7 +35,7 @@ edge-routers.
   The feature allows for both IPv4 and IPv6 ingress/egress filters on a single external interface. i.e.
   This mode maintains state for outbound traffic associated with traffic allowed by ingress filters so 
   there is no need to statically configure high port ranges for return traffic.  The assumption is
-  if you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
+  If you enable inbound ports you want to allow the stateful reply packets for udp and tcp.
 
 An egress filter must be attached to the interface , ```-b, --outbound-filter <ifname>``` needs to be set ,and at least one interface needs to have had an ingress filter applied.
 
@@ -74,32 +91,32 @@ sudo /opt/openziti/bin/zfw -I -c 172.16.240.0 -m 24 -l 22 -h 22 -t 0 -p tcp```
 
 ```
 EGRESS FILTERS:
-service id            	proto	origin              	destination                     mapping:                				interface list                 
-----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
-0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
-0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+type   service id            	proto	origin              	destination                     mapping:                				        interface list                 
+------ ----------------------	-----	-----------------	------------------		-------------------------------------------------------	    -----------------
+accept 0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
 
 ```
 - To view all IPv6 egress rules: ```sudo zfw -L -6 all -z egress```
 
 ```
 EGRESS FILTERS:
-service id             proto origin                                     destination                                  mapping:                    interface list
----------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
-0000000000000000000000|tcp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
-0000000000000000000000|udp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+type   service id             proto origin                                     destination                                  mapping:                    interface list
+------ ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+accept 0000000000000000000000|tcp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
+accept 0000000000000000000000|udp  |::/0                                      |2001:db8::2/32                             | dpts=5201:5201   PASSTHRU | []
 ```
 - to view egress rules for a single IPv4 CIDR ```sudo zfw -L -c 172.16.240.139 -m 32 -z egress```
 ``` 
 EGRESS FILTERS:
-service id            	proto	origin              	destination                     mapping:                				 interface list                 
-----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
-0000000000000000000000	udp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
+type   service id            	proto	origin              destination             mapping:                				                    interface list                 
+------ ----------------------	-----	-----------------	------------------		-------------------------------------------------------	    -----------------
+accept 0000000000000000000000	udp	0.0.0.0/0               172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32       []
 Rule Count: 1
-service id            	proto	origin              	destination                     mapping:                				 interface list                 
-----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
-0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32   []
-0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=22:22       	PASSTHRU to 172.16.240.139/32   []
+type   service id            	proto	origin              destination             mapping:                				                    interface list                 
+------ ----------------------	-----	-----------------	------------------		-------------------------------------------------------	    -----------------
+accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=5201:5201   	PASSTHRU to 172.16.240.139/32       []
+accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=22:22       	PASSTHRU to 172.16.240.139/32       []
 Rule Count: 2
 ```
   
@@ -107,9 +124,9 @@ Rule Count: 2
 
 ```
 EGRESS FILTERS:
-service id             proto origin                                     destination                                  mapping:                    interface list
----------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
-0000000000000000000000|tcp  |::/0                                      |2001:db8::/64                              | dpts=5201:5201   PASSTHRU | []
+type   service id             proto origin                                     destination                                  mapping:                    interface list
+------ ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------
+accept|0000000000000000000000|tcp  |::/0                                      |2001:db8::/64                              | dpts=5201:5201   PASSTHRU | []
 Rule Count: 1
 ```
 
@@ -260,8 +277,8 @@ If running:
 ```
 Assuming no services configured yet:
 
-service id              proto    origin              destination               mapping:                                                   interface list
-----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
+type   service id              proto    origin              destination               mapping:                                                   interface list
+------ ----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
 Rule Count: 0 / 250000
 prefix_tuple_count: 0 / 100000
 
@@ -337,6 +354,13 @@ UDP:
 In order to support this per interface rule awareness was added which allows each port range within a prefix
 to match a list of connected interfaces.  On a per interface basis you can decide to honor that list or not via
 a per-prefix-rules setting in the following manner via the zfw utility
+
+In order to enable outbound tracking you need to add an egress tc filter to the interface where traffic will be egressing.
+This is performaed with the following cli command: ```sudo zfw -X <ifname> -O <egress tc object file> -z, --direction egress```.
+e.g.
+```
+sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o --direction egress
+```
 
 
 #### Two Interface config with ens33 facing internet and ens37 facing local lan
@@ -425,23 +449,23 @@ sudo reboot
   Summary rules below will no longer be inserted and will be replaced with explicit host rules:
   ```
   (removed)
-  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
-  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  accept 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
+  accept 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=1:65535     	TUNMODE redirect:ziti0          []
   
   (example new dynamic rule)
   5XzC8mf1RrFO2vmfHGG5GL	tcp	0.0.0.0/0           	100.64.0.5/32                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
   ```
   A rule will also be entered for the ziti resolver ip upon the first configured hostname based service i.e.
   ```
-  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
+  accept 0000000000000000000000	udp	0.0.0.0/0           	100.64.0.2/32                   dpts=53:53       	TUNMODE redirect:ziti0          []
   
   This entry will remain unless ziti-edge-tunnel is stopped and will again be reentered upon reading the first hostname based service entry
   ```
 
   If wild card hostnames are used i.e. *.test.ziti then zfw will enter summary rules for the entire ziti DNS range for the specific ports defined for the service i.e.
   ```
-  0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
-  0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  accept 0000000000000000000000	tcp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
+  accept 0000000000000000000000	udp	0.0.0.0/0           	100.64.0.0/10                   dpts=5201:5201   	TUNMODE redirect:ziti0          []
 
   IMPORTANT: These entries will remain until as long as there is at least one wildcard in a service using the port/port range via cli and will not be removed by ziti service deletion. It is recommended to use single ports with wild card since the low port acts as a key and thus the first service that gets entered will dictate the range for the ports and there is only one prefix. 
   ``` 
@@ -557,20 +581,20 @@ Example: List all rules in Firewall
 sudo zfw -L
 ```
 ```
-service id              proto    origin              destination               mapping:                                                   interface list
-----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
-5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381  [ens33,lo]
-5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
-0000000000000000000000  udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
-5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381  []
-5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
-0000000000000000000000  udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24       []
-0000000000000000000000  udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32   []
-0000000000000000000000  tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
-FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
-0000000000000000000000  tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
-FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.5/10             dpts=5000:10000           TUNMODE redirect:tun0            []
-0000000000000000000000  udp      0.0.0.0/0           100.64.0.2/32             dpts=53:53                TUNMODE redirect:ziti0           []
+type   service id              proto    origin              destination               mapping:                                                   interface list
+------ ----------------------  -----    ---------------     ------------------        --------------------------------------------------------- ----------------
+accept 5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381  [ens33,lo]
+accept 5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
+accept 0000000000000000000000  udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
+accept 5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381  []
+accept 5XzC8mf1RrFO2vmfHGG5GL  tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
+accept 0000000000000000000000  udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24       []
+accept 0000000000000000000000  udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32   []
+accept 0000000000000000000000  tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
+accept FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
+accept 0000000000000000000000  tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
+accept FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.5/10             dpts=5000:10000           TUNMODE redirect:tun0            []
+accept 0000000000000000000000  udp      0.0.0.0/0           100.64.0.2/32             dpts=53:53                TUNMODE redirect:ziti0           []
 ```
     
 - Example: List rules in firewall for a given prefix and protocol.  If source specific you must include the o 
@@ -580,9 +604,9 @@ FO2vmfHGG5GLvmfHGG5GLU  udp      0.0.0.0/0           100.64.0.5/10             d
 sudo zfw -L -c 192.168.100.100 -m 32 -p udp
 ```
 ```  
-service id              proto    origin           destination                  mapping:                                                  interface list
-----------              -----    --------         ------------------           --------------------------------------------------------- ------------------
-0000000000000000000000  udp      0.0.0.0/0        192.168.100.100/32           dpts=50000:60000          PASSTHRU to 192.168.100.100/32  []
+type   service id              proto    origin           destination                  mapping:                                                  interface list
+------ ----------              -----    --------         ------------------           --------------------------------------------------------- ------------------
+accept 0000000000000000000000  udp      0.0.0.0/0        192.168.100.100/32           dpts=50000:60000          PASSTHRU to 192.168.100.100/32  []
 ```
 
 - Example: List rules in firewall for a given prefix
@@ -591,10 +615,10 @@ Usage: zfw -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
 sudo zfw -L -c 192.168.100.100 -m 32
 ```
 ```
-service id              proto    origin           destination                  mapping:                                                  interface list
-----------              -----    --------         ------------------           --------------------------------------------------------- ------------------
-0000000000000000000000  udp      0.0.0.0/0        192.168.100.100/32           dpts=50000:60000          PASSTHRU to 192.168.100.100/32  []
-0000000000000000000000  tcp      0.0.0.0/0        192.168.100.100/32           dpts=60000:65535          PASSTHRU to 192.168.100.100/32  []
+type   service id              proto    origin           destination                  mapping:                                                  interface list
+------ ----------              -----    --------         ------------------           --------------------------------------------------------- ------------------
+accept 0000000000000000000000  udp      0.0.0.0/0        192.168.100.100/32           dpts=50000:60000          PASSTHRU to 192.168.100.100/32  []
+accept 0000000000000000000000  tcp      0.0.0.0/0        192.168.100.100/32           dpts=60000:65535          PASSTHRU to 192.168.100.100/32  []
 ```
 - Example: List all interface settings
 
@@ -607,23 +631,31 @@ lo: 1
 icmp echo               :1
 verbose                 :0
 ssh disable             :0
+outbound_filter         :0
 per interface           :0
 tc ingress filter       :0
 tc egress filter        :0
 tun mode intercept      :0
 vrrp enable             :0
+eapol enable            :0
+ddos filtering          :0
+ipv6 enable             :1
 --------------------------
 
 ens33: 2
 --------------------------
-icmp echo               :0
+icmp echo               :1
 verbose                 :0
 ssh disable             :0
+outbound_filter         :1
 per interface           :0
 tc ingress filter       :1
 tc egress filter        :1
 tun mode intercept      :1
-vrrp enable             :1
+vrrp enable             :0
+eapol enable            :0
+ddos filtering          :0
+ipv6 enable             :1
 --------------------------
 
 ens37: 3
@@ -631,19 +663,17 @@ ens37: 3
 icmp echo               :0
 verbose                 :0
 ssh disable             :0
+outbound_filter         :0
 per interface           :0
 tc ingress filter       :0
 tc egress filter        :0
 tun mode intercept      :0
 vrrp enable             :0
+eapol enable            :0
+ddos filtering          :0
+ipv6 enable             :0
 --------------------------
 
-tun0: 18
---------------------------
-verbose                 :0
-cidr                    :100.64.0.0
-mask                    :10
---------------------------
 ```
 
 - Example Detaching bpf from interface:

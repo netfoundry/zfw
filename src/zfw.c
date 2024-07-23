@@ -87,6 +87,7 @@
 #define INGRESS_SERVER_FIN_RCVD 23
 #define INGRESS_SERVER_RST_RCVD 24
 #define INGRESS_SERVER_FINAL_ACK_RCVD 25
+#define MATCHED_DROP_FILTER 26
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 
@@ -233,7 +234,7 @@ char *object_file;
 char *direction_string;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.5";
+const char *argp_program_version = "0.8.6";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -388,10 +389,10 @@ struct tproxy_tuple
     __u16 index_table[MAX_INDEX_ENTRIES];
 };
 
-struct range_mapping
-{
+struct range_mapping {
     __u16 high_port;
     __u16 tproxy_port;
+    bool deny;
 };
 
 struct tproxy_key
@@ -935,14 +936,14 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
                 bool entry_exists = false;
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s|%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                     entry_exists = true;
                     *rule_count += 1;
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s|%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                     entry_exists = true;
                     *rule_count += 1;
@@ -981,7 +982,7 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
             {
                 if (ntohs(range_value.tproxy_port) == 0)
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s|%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU");
                     char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                     if (!if_ext_lookup)
@@ -1017,17 +1018,17 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
             {
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s|%-22s|%-5s|%-42s|%-42s | %-17sTU:%-5s | ", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s|%-22s|%-5s|%-42s|%-42s | %-17sTP:%-5d | ", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                 }
                 else
                 {
-                    printf("%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s|%-22s|%-5s|%-42s|%-42s | %-17s%-5s | ", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU");
                 }
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
@@ -1199,14 +1200,14 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                 bool entry_exists = false;
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s %-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", range_value.deny ? "deny" : "accept", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                     entry_exists = true;
                     *rule_count += 1;
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s %-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", range_value.deny ? "deny" : "accept", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                     entry_exists = true;
                     *rule_count += 1;
@@ -1243,7 +1244,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             {
                 if (ntohs(range_value.tproxy_port) == 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s %-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", range_value.deny ? "deny" : "accept", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU", dcidr_block);
                     char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
                     if (!if_ext_lookup)
@@ -1279,17 +1280,17 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             {
                 if (tun_mode && (ntohs(range_value.tproxy_port) > 0))
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s %-22s\t%-3s\t%-20s\t%-32s%-17s\tTUNMODE redirect:%-15s", range_value.deny ? "deny" : "accept", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, o_tunif.ifname);
                 }
                 else if (ntohs(range_value.tproxy_port) > 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s %-22s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", range_value.deny ? "deny" : "accept", ext_lookup ? "?" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, ntohs(range_value.tproxy_port));
                 }
                 else
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
+                    printf("%-6s %-22s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", range_value.deny ? "deny" : "accept", ext_lookup ? "" : ext_value.service_id, proto, scidr_block, dcidr_block,
                            dpts, "PASSTHRU", dcidr_block);
                 }
                 char interfaces[IF_NAMESIZE * MAX_IF_LIST_ENTRIES + 8] = "";
@@ -3051,6 +3052,11 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "INGRESS_SERVER_FINAL_ACK_RCVD";
                     }
+                    else if (code == MATCHED_DROP_FILTER)
+                    {
+                        state = "MATCHED_DROP_FILTER";
+                    }
+                    printf("code=%d\n", code);
 
                     if (state)
                     {
@@ -3359,6 +3365,10 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "INGRESS_SERVER_FINAL_ACK_RCVD";
                     }
+                    else if (code == MATCHED_DROP_FILTER)
+                    {
+                        state = "MATCHED_DROP_FILTER";
+                    }
 
 
                     if (state)
@@ -3404,6 +3414,7 @@ static int process_events(void *ctx, void *data, size_t len)
             close_maps(1);
         }
     }
+    fflush(stdout);
     return 0;
 }
 
@@ -3499,9 +3510,14 @@ void set_range(struct port_extension_key key)
     }
     map.map_fd = fd;
     map.key = (uint64_t)&key;
-    struct range_mapping range_ports = {
-        htons(high_port),
-        htons(tproxy_port)};
+    struct range_mapping range_ports = {0};
+    range_ports.high_port = htons(high_port),
+    range_ports.tproxy_port = htons(tproxy_port);
+    if(disable){
+        range_ports.deny = true;
+    }else{
+        range_ports.deny = false;
+    }
     map.value = (uint64_t)&range_ports;
     map.flags = BPF_ANY;
     int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
@@ -4880,8 +4896,8 @@ void map_list()
     }else{
         printf("EGRESS FILTERS:\n");
     }
-    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
-    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+    printf("%-7s%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "type", "service id", "proto", "origin", "destination", "mapping:", "interface list");
+    printf("------ ----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -4908,8 +4924,8 @@ void map_list()
                 printf("Rule Count: %d\n", rule_count);
                 if (x == 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
-                    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+                    printf("%-7s%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "type", "service id", "proto", "origin", "destination", "mapping:", "interface list");
+                    printf("------ ----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
                 }
             }
         }
@@ -4953,8 +4969,8 @@ void map_list6()
     }else{
         printf("EGRESS FILTERS:\n");
     }
-    printf("%-23s%-6s%-43s%-45s%-28s%s\n", "service id", "proto", "origin", "destination", "mapping:", "interface list");
-    printf("---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
+    printf("%-7s%-23s%-6s%-43s%-45s%-28s%s\n", "type","service id", "proto", "origin", "destination", "mapping:", "interface list");
+    printf("------ ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -4987,8 +5003,8 @@ void map_list6()
                 printf("Rule Count: %d\n", rule_count);
                 if (x == 0)
                 {
-                    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "service id", "proto", "origin", "destination", "mapping:", " interface list");
-                    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+                    printf("%-7s%-23s%-6s%-43s%-45s%-28s%s\n", "type","service id", "proto", "origin", "destination", "mapping:", "interface list");
+                    printf("------ ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
                 }
             }
         }
@@ -5223,8 +5239,8 @@ void map_list_all6()
     }else{
         printf("EGRESS FILTERS:\n");
     }
-    printf("%-23s%-6s%-43s%-45s%-28s%s\n", "service id", "proto", "origin", "destination", "mapping:", "interface list");
-    printf("---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
+    printf("%-7s%-23s%-6s%-43s%-45s%-28s%s\n", "type","service id", "proto", "origin", "destination", "mapping:", "interface list");
+    printf("------ ---------------------- ----- ------------------------------------------ ------------------------------------------   -------------------------   --------------\n");
     int rule_count = 0;
     while (true)
     {
@@ -5282,8 +5298,8 @@ void map_list_all()
     }else{
         printf("EGRESS FILTERS:\n");
     }
-    printf("%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-31s\n", "service id", "proto", "origin", "destination", "mapping:", "interface list");
-    printf("----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
+    printf("%-7s%-22s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-31s\n", "type","service id", "proto", "origin", "destination", "mapping:", "interface list");
+    printf("------ ----------------------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     while (true)
     {
@@ -5332,7 +5348,7 @@ static struct argp_option options[] = {
     {"outbound-filtering", 'b', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
+    {"disable", 'd', NULL, 0, "Disable associated diag operation or set rule type to deny", 0},
     {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
     {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
     {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
@@ -6341,7 +6357,7 @@ int main(int argc, char **argv)
     }
 
     if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp
-     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound))
+     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete))
     {
         usage("Missing argument at least one of -a,-b,-6,-e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
@@ -6391,6 +6407,14 @@ int main(int argc, char **argv)
         }
         else
         {
+            if ((cd && (dplen > 32)) || (cs && (splen > 32)))
+            {
+                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
+            }
+            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
+            {
+                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
+            }
             if (!cs && cd)
             {
                 inet_aton("0.0.0.0", &scidr);
@@ -6412,14 +6436,6 @@ int main(int argc, char **argv)
             else if (cd && cs6)
             {
                 usage("Invalid combination can't mix IP4 and IP6 prefixes");
-            }
-            else if ((cd && (dplen > 32)) || (cs && (splen > 32)))
-            {
-                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
-            }
-            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
-            {
-                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
             }
             if (cd6 && cs6)
             {
@@ -6472,6 +6488,14 @@ int main(int argc, char **argv)
         }
         else
         {
+            if ((cd && (dplen > 32)) || (cs && (splen > 32)))
+            {
+                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
+            }
+            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
+            {
+                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
+            }
             if (!cs && cd)
             {
                 inet_aton("0.0.0.0", &scidr);
@@ -6494,14 +6518,7 @@ int main(int argc, char **argv)
             {
                 usage("Invalid combination can't mix IP4 and IP6 prefixes");
             }
-            else if ((cd && (dplen > 32)) || (cs && (splen > 32)))
-            {
-                usage("Invalid combination IP4 can't have prefix len greater than 32 bits");
-            }
-            else if ((cd6 && (dplen > 128)) || (cs6 && (splen > 128)))
-            {
-                usage("Invalid combination IP6 can't have prefix len greater than 128 bits");
-            }
+            
             if (cd6)
             {
                 map_delete6();
