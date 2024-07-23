@@ -82,14 +82,14 @@ const char *argp_program_version = "0.8.7";
 union bpf_attr rb_map;
 int rb_fd = -1;
 
-int write_log();
+int write_log(char *dest, char *source);
 void open_rb_map();
 void ebpf_usage();
 void close_maps(int code);
 void usage(char *message);
 void INThandler(int sig);
 char *nitoa(uint32_t address);
-static int process_events();
+static int process_events(void *ctx, void *data, size_t len);
 char *get_ts(unsigned long long tstamp);
 struct ring_buffer *ring_buffer;
 struct bpf_event
