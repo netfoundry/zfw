@@ -40,7 +40,8 @@ jobs:
           clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
-          clang -g -O2 -Wall -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw  -static
+          clang -g -O2 -Wall -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw -static
+          clang -g -O2 -Wall -O1 src/zfw_monitor.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw_monitor -static
           gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
       
       - name: Get version
@@ -71,15 +72,18 @@ jobs:
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
           cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
           cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
           cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_monitor
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
+          ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
 
       - name: Set Deb Predepends
         if: ${{ matrix.ziti_type == 'tunnel' }}
@@ -144,8 +148,9 @@ jobs:
           cd ../../
           clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
           clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
-          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/-Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
-          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw  -static
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw -static
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -O1 src/zfw_monitor.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw_monitor -static
           gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
 
       - name: Get version
@@ -176,15 +181,18 @@ jobs:
           cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
           cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
           cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
           cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_monitor
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
+          ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
 
       - name: Set Deb Predepends
         if: ${{ matrix.ziti_type == 'tunnel' }}
