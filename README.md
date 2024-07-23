@@ -199,7 +199,8 @@ Rule Count: 1
 sudo zfw -F
 sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
 ```
-- Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
+- Monitor connection state via ```sudo zfw -M, --monitor <ifname | all>```  optionally ```sudo zfw -v verbose <ifname | all> ```
+  alternatively you can use the dedicated monitor binary ```sudo zfw_monitor -i <ifname | all> ``` 
 *These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots.
 
 Note: Some of the above IPv6 features are not fully supported with OpenZiti yet. Features like
