@@ -5348,7 +5348,7 @@ static struct argp_option options[] = {
     {"outbound-filtering", 'b', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"disable", 'd', NULL, 0, "Disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
+    {"disable", 'd', NULL, 0, "Disable associated diag operation or set rule type to deny", 0},
     {"icmp-echo", 'e', "", 0, "Enable inbound icmp echo to interface", 0},
     {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
     {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
