@@ -12,7 +12,7 @@ else
 endif
 zfw_monitor: zfw_monitor.c
 ifeq    ($(uname_m),aarch64)
-	$(CC)  -O1 -lbpf -o zfw  zfw.c $(CFLAGS)
+	$(CC)  -O1 -lbpf -o zfw_monitor  zfw_monitor.c $(CFLAGS)
 else
 	$(CC)  -O1 -lbpf -o zfw_monitor  zfw_monitor.c
 endif
