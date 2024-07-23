@@ -85,7 +85,7 @@ int rb_fd = -1;
 int write_log();
 void open_rb_map();
 void ebpf_usage();
-void close_maps();
+void close_maps(int code);
 void usage(char *message);
 void INThandler(int sig);
 char *nitoa(uint32_t address);
