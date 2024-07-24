@@ -226,11 +226,20 @@ have ziti-edge-tunnel installed and an operational OpenZiti network built, follo
 
 
 - Install
-  binary deb package (refer to workflow for detail pkg contents)
+  binary deb or rpm package (refer to workflow for detail pkg contents)
+
+Debian 12/ Ubuntu 22.04+
 ```
 sudo dpkg -i zfw-tunnel_<ver>_<arch>.deb
 ```
-Install from source ubuntu 22.04+ / Debian 12
+
+RedHat 9.4
+```
+sudo yum install zfw-tunnel-<ver>.<arch>.rpm
+```
+Note if running firewalld you will need to at a minimum set each interface you enable tc ebpf on to the trusted zone or equivalent. e.g. ```firewall-cmd --permanent --zone=trusted --add-interface=ens33``` or firewalld will drop traffic before it reaches the zfw filters.
+
+Install from source ubuntu 22.04+ / Debian 12+ / Redhat 9.4
 [build / install zfw from source](./BUILD.md)
 
 ## Ziti-Router Deployment
@@ -478,7 +487,7 @@ sudo reboot
 
 ### Upgrading zfw-router
 ```
-sudo dpkg -i <zfw-router_<ver>_<arch>.deb
+sudo dpkg -i zfw-router_<ver>_<arch>.deb
 ```
 After updating reboot the system 
 ```
@@ -517,7 +526,7 @@ ziti-edge-tunnel/ziti-router will automatically populate rules for configured zi
 you want to configure additional rules outside of the automated ones. zfw-tunnel will also auto-populate /opt/openziti/bin/user/user_rules.sh
 with listening ports in the config.yml.
 
-**Note the ```zfw-router_<version>_<arch>.deb``` will install an un-enabled service ```fw-init.service```. If you install the zfw-router package without an OpenZiti ziti-router installation and enable this service it will start the ebpf fw after reboot and load the commands from /opt/openziti/bin/user/user_rules.sh.  If you later decide to install ziti-router this service should be disabled and you should run ```/opt/openziti/bin/start_ebpf_router.py``` you will also need to manually copy the /opt/openziti/etc/ebpf_config.json.sample to ebpf_config.json and edit interface name**
+**Note the ```zfw-router_<version>_<arch>.deb / zfw-tunnel-<ver>.<arch>.rpm``` will install an un-enabled service ```fw-init.service```. If you install the zfw-router package without an OpenZiti ziti-router installation and enable this service it will start the ebpf fw after reboot and load the commands from /opt/openziti/bin/user/user_rules.sh. You will also need to manually copy the /opt/openziti/etc/ebpf_config.json.sample to ebpf_config.json and edit interface name**.  If you later decide to install ziti-router this service should be disabled and you should evaluate whether the existing ebpf_config.json include the ziti lanIf ifname. ```/opt/openziti/bin/start_ebpf_router.py``` 
 
 **(All commands listed in this section need to be put in /opt/openziti/bin/user/user_rules.shin order to survive reboot)**
 
