@@ -728,17 +728,40 @@ Example: Remove all tc-ebpf on router
 sudo zfw --disable-ebpf
 ```
 ```
-tc parent del : lo
 tc parent del : ens33
-tc parent del : ens37
 removing /sys/fs/bpf/tc/globals/zt_tproxy_map
 removing /sys/fs/bpf/tc/globals/diag_map
 removing /sys/fs/bpf/tc/globals/ifindex_ip_map
 removing /sys/fs/bpf/tc/globals/tuple_count_map
-removing /sys/fs/bpf/tc/globals/prog_map
 removing /sys/fs/bpf/tc/globals/udp_map
 removing /sys/fs/bpf/tc//globals/matched_map
 removing /sys/fs/bpf/tc/globals/tcp_map
+removing /sys/fs/bpf/tc/globals/tun_map
+removing /sys/fs/bpf/tc/globals/ifindex_tun_map
+removing /sys/fs/bpf/tc/globals/zet_transp_map
+removing /sys/fs/bpf/tc/globals/rb_map
+removing /sys/fs/bpf/tc/globals/ddos_saddr_map
+removing /sys/fs/bpf/tc/globals/ddos_dport_map
+removing /sys/fs/bpf/tc/globals/syn_count_map
+removing /sys/fs/bpf/tc/globals/tproxy_extension_map
+removing /sys/fs/bpf/tc/globals/if_list_extension_map
+removing /sys/fs/bpf/tc/globals/range_map
+removing /sys/fs/bpf/tc/globals/wildcard_port_map
+removing /sys/fs/bpf/tc/globals/zt_tproxy6_map
+removing /sys/fs/bpf/tc/globals/ifindex_ip6_map
+removing /sys/fs/bpf/tc/globals/tuple6_count_map
+removing /sys/fs/bpf/tc/globals/matched6_map
+removing /sys/fs/bpf/tc/globals/egress_range_map
+removing /sys/fs/bpf/tc/globals/egress_if_list_extension_map
+removing /sys/fs/bpf/tc/globals/egress_extension_map
+removing /sys/fs/bpf/tc/globals/zt_egress_map
+removing /sys/fs/bpf/tc/globals/zt_egress6_map
+removing /sys/fs/bpf/tc/globals/egress_count_map
+removing /sys/fs/bpf/tc/globals/egress6_count_map
+removing /sys/fs/bpf/tc/globals/egress_matched6_map
+removing /sys/fs/bpf/tc//globals/egress_matched_map
+removing /sys/fs/bpf/tc/globals/udp_ingress_map
+removing /sys/fs/bpf/tc/globals/tcp_ingress_map
 ```
 
 
