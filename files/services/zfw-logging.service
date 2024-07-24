@@ -5,7 +5,7 @@ After=ziti-router.service
 
 [Service]
 User=root
-ExecStart=/opt/openziti/bin/zfw -M all -W /var/log/zfw.log
+ExecStart=/opt/openziti/bin/zfw_monitor -i all -W /var/log/zfw.log
 Restart=always
 RestartSec=3
 

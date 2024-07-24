@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+# [0.8.7] - 2024-07-23
+
+###
+
+- Added separate zfw_monitor binary as a dedicated logging tool for zfw and to be called on from zfw-logging.service rather 
+  than calling the main zfw binary.  The main zfw binary will retain support for -M, --monitor.
+- Updated github workflows and Make scripts to compile/package/install new zfw_monitor.
+- Updated README with more info and example of explicit deny rules precedence.
+
+
 # [0.8.6] - 2024-07-20
 
 ###

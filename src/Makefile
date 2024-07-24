@@ -3,12 +3,18 @@ IDIR = /usr/include/aarch64-linux-gnu/
 CFLAGS=-I$(IDIR)
 CC=clang
 uname_m := $(shell uname -m)
-all: zfw zfw_tc_ingress.o zfw_tc_ingress.o zfw_xdp_tun_ingress.o zfw_tc_outbound_track.o zfw_tunnwrapper
+all: zfw zfw_monitor zfw_tc_ingress.o zfw_tc_ingress.o zfw_xdp_tun_ingress.o zfw_tc_outbound_track.o zfw_tunnwrapper
 zfw: zfw.c
 ifeq    ($(uname_m),aarch64)
 	$(CC) -D BPF_MAX_ENTRIES=100000 -O1 -lbpf -o zfw  zfw.c $(CFLAGS)
 else
 	$(CC) -D BPF_MAX_ENTRIES=100000 -O1 -lbpf -o zfw  zfw.c
+endif
+zfw_monitor: zfw_monitor.c
+ifeq    ($(uname_m),aarch64)
+	$(CC)  -O1 -lbpf -o zfw_monitor  zfw_monitor.c $(CFLAGS)
+else
+	$(CC)  -O1 -lbpf -o zfw_monitor  zfw_monitor.c
 endif
 zfw_tc_ingress.o: zfw_tc_ingress.c
 ifeq    ($(uname_m),aarch64)
@@ -31,6 +37,6 @@ endif
 zfw_tunnwrapper: zfw_tunnel_wrapper.c
 	$(CC) -o zfw_tunnwrapper zfw_tunnel_wrapper.c -l json-c
 clean:
-	rm -fr zfw zfw_tc_ingress.o zfw_tunnwrapper zfw_tc_ingress.o zfw_xdp_tun_ingress.o zfw_tc_outbound_track.o
+	rm -fr zfw zfw_monitor zfw_tc_ingress.o zfw_tunnwrapper zfw_tc_ingress.o zfw_xdp_tun_ingress.o zfw_tc_outbound_track.o
 install:
 	./install.sh $(ARGS)

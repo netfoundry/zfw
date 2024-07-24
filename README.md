@@ -10,21 +10,60 @@ edge-routers.
 ## New features in 0.8.x - 
 
 ### Explicit Deny Rules
-- This feature Adds support for explicit deny rules.  Appending an ```-I, --insert``` entry with ```-d, --disable``` will now enter an explicit deny
-  rule.  This works for both ```ingress``` and ```egress``` rules. Note the default operation is to deny all so this will only be useful if you want to deny a specific host or subnet of an existing allowed cidr.  e.g if you wanted to deny 172.16.240.139 out of the allowed range of 172.16.240.0/24 you would enter:
-  ```
-  sudo zfw -I -c 172.16.240.139 -m 32 -l 443 -h 443 -t 0 -p tcp -d
-  sudo zfw -I -c 172.16.240.0 -m 24 -l 443 -h 443 -t 0 -p tcp
-  ``` 
+This feature adds the ability to enter explicit deny rules by appending ```-d, --disable to the -I, --insert rule`` to both ingress and egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
 
-  listing will now show type e.g.
-  ```sudo zfw -L```
-  ```  
-  type   service id            	proto	origin              	destination                     mapping:                				    interface list                 
-  ------  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
-  Accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.0/24         dpts=443:443   	        PASSTHRU to 172.16.240.0/24     []
-  deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.137/32       dpts=443:443            PASSTHRU to 172.16.240.137/32   []
-  ```
+If you wanted to allow all tcp 443 traffic outbound except to 10.1.0.0/16 you would enter the following egress rules:
+
+```
+sudo zfw -I -c 10.1.0.0 -m 16 -l 443 -h 443 -t 0 -p tcp -z egress -d
+sudo zfw -I -c 0.0.0.0 -m 0 -l 443 -h 443 -t 0 -p tcp -z egress
+``` 
+Listing the above with ```sudo zfw -L -z egress``` you would see:
+```
+EGRESS FILTERS:
+type   service id            	proto	origin              	destination                     mapping:                				interface list                 
+------ ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+accept 0000000000000000000000	tcp	0.0.0.0/0           	0.0.0.0/0                       dpts=443:443     	PASSTHRU to 0.0.0.0/0           []
+deny   0000000000000000000000	tcp	0.0.0.0/0           	10.1.0.0/16                     dpts=443:443     	PASSTHRU to 10.1.0.0/16         []
+Rule Count: 2 / 250000
+prefix_tuple_count: 2 / 100000
+```
+
+The following illustrates the precedence with rules matching the same prefix:
+
+Assume you want to block port 22 to address 172.16.240.137 and enter rules the following rules:
+```
+sudo zfw -I -c 172.16.240.139 -m 32 -l 1 -h 65535 -t 0 -p tcp -z egress
+sudo zfw -I -c 172.16.240.139 -m 32 -l 22 -h 22 -t 0 -p tcp -z egress -d
+```
+```
+sudo zfw -L -z egress
+EGRESS FILTERS:
+type   service id            	proto	origin              	destination                     mapping:                				interface list                 
+------ ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=1:65535     	PASSTHRU to 172.16.240.139/32   []
+deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=22:22       	PASSTHRU to 172.16.240.139/32   []
+Rule Count: 2 / 250000
+```
+The rule listing shows the accept port range 1-65535 listed first and then the deny port 22 after.  This would result in port 22 being allowed outbound because traffic would match the accept rule and never reach the deny rule.
+
+The correct rule order entry would be:
+```
+sudo zfw -I -c 172.16.240.139 -m 32 -l 22 -h 22 -t 0 -p tcp -z egress -d
+sudo zfw -I -c 172.16.240.139 -m 32 -l 1 -h 65535 -t 0 -p tcp -z egress
+```
+```
+sudo zfw -L -z egress
+EGRESS FILTERS:
+type   service id            	proto	origin              	destination                     mapping:                				interface list                 
+------ ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
+deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=22:22       	PASSTHRU to 172.16.240.139/32   []
+accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.139/32               dpts=1:65535     	PASSTHRU to 172.16.240.139/32   []
+Rule Count: 2 / 250000
+prefix_tuple_count: 1 / 100000
+```
+This will result in traffic to port 22 matching the first rule and correctly being dropped as intended.
+
 
 ### Outbound filtering 
 - This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
@@ -160,7 +199,8 @@ Rule Count: 1
 sudo zfw -F
 sudo zfw -D -c 2001:db9:: -m 64 -l 443 -h 443 -p tcp
 ```
-- Monitor connection state via -M, --monitor <ifname> when -v verbose <ifname> enabled  
+- Monitor connection state via ```sudo zfw -M, --monitor <ifname | all>```  optionally ```sudo zfw -v verbose <ifname | all> ```
+  alternatively you can use the dedicated monitor binary ```sudo zfw_monitor -i <ifname | all> ``` 
 *These setting need to be in /opt/openziti/bin/user_rules.sh to be persistent across reboots.
 
 Note: Some of the above IPv6 features are not fully supported with OpenZiti yet. Features like
@@ -688,17 +728,40 @@ Example: Remove all tc-ebpf on router
 sudo zfw --disable-ebpf
 ```
 ```
-tc parent del : lo
 tc parent del : ens33
-tc parent del : ens37
 removing /sys/fs/bpf/tc/globals/zt_tproxy_map
 removing /sys/fs/bpf/tc/globals/diag_map
 removing /sys/fs/bpf/tc/globals/ifindex_ip_map
 removing /sys/fs/bpf/tc/globals/tuple_count_map
-removing /sys/fs/bpf/tc/globals/prog_map
 removing /sys/fs/bpf/tc/globals/udp_map
 removing /sys/fs/bpf/tc//globals/matched_map
 removing /sys/fs/bpf/tc/globals/tcp_map
+removing /sys/fs/bpf/tc/globals/tun_map
+removing /sys/fs/bpf/tc/globals/ifindex_tun_map
+removing /sys/fs/bpf/tc/globals/zet_transp_map
+removing /sys/fs/bpf/tc/globals/rb_map
+removing /sys/fs/bpf/tc/globals/ddos_saddr_map
+removing /sys/fs/bpf/tc/globals/ddos_dport_map
+removing /sys/fs/bpf/tc/globals/syn_count_map
+removing /sys/fs/bpf/tc/globals/tproxy_extension_map
+removing /sys/fs/bpf/tc/globals/if_list_extension_map
+removing /sys/fs/bpf/tc/globals/range_map
+removing /sys/fs/bpf/tc/globals/wildcard_port_map
+removing /sys/fs/bpf/tc/globals/zt_tproxy6_map
+removing /sys/fs/bpf/tc/globals/ifindex_ip6_map
+removing /sys/fs/bpf/tc/globals/tuple6_count_map
+removing /sys/fs/bpf/tc/globals/matched6_map
+removing /sys/fs/bpf/tc/globals/egress_range_map
+removing /sys/fs/bpf/tc/globals/egress_if_list_extension_map
+removing /sys/fs/bpf/tc/globals/egress_extension_map
+removing /sys/fs/bpf/tc/globals/zt_egress_map
+removing /sys/fs/bpf/tc/globals/zt_egress6_map
+removing /sys/fs/bpf/tc/globals/egress_count_map
+removing /sys/fs/bpf/tc/globals/egress6_count_map
+removing /sys/fs/bpf/tc/globals/egress_matched6_map
+removing /sys/fs/bpf/tc//globals/egress_matched_map
+removing /sys/fs/bpf/tc/globals/udp_ingress_map
+removing /sys/fs/bpf/tc/globals/tcp_ingress_map
 ```
 
 
