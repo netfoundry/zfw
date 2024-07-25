@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+###
+# [0.8.8] - 2024-07-24
+
+- Updated workflows to support rpm packages for ReH 9
+- Updated workflows to remove deprecated actions
+- Updated README to describe RH deployment
+  
+###
 # [0.8.7] - 2024-07-23
 
 ###
@@ -31,7 +39,7 @@ All notable changes to this project will be documented in this file. The format 
   ------  ----------------------	-----	-----------------	------------------		-------------------------------------------------------	-----------------
   Accept 0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.0/24         dpts=443:443   	        PASSTHRU to 172.16.240.0/24     []
   deny   0000000000000000000000	tcp	0.0.0.0/0           	172.16.240.137/32       dpts=443:443            PASSTHRU to 172.16.240.137/32   []
-```
+   ```
 
 - README syntax cleanup
 - README update sample ```zfw -L -E, --list-diag``` to reflect latest code updates

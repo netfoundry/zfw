@@ -22,13 +22,13 @@ jobs:
         goarch: [amd64]
     steps:
       - name: Check out code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
           
       - name: Install EBPF Packages
         run: |
           sudo apt-get update -qq
           sudo apt-get upgrade -yqq
-          sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev libjson-c-dev
+          sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev libjson-c-dev alien
           
       - name: Compile Object file from Source
         run: |
@@ -113,11 +113,22 @@ jobs:
         run: |
           dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
 
-      - uses: actions/upload-artifact@v3
+      - name: Build rpm package    
+        run: |
+          sudo alien -r ${{ steps.deb_dir.outputs.deb_dir }}.deb
+          mv ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}-2.x86_64.rpm ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}.x86_64.rpm
+                      
+      - uses: actions/upload-artifact@v4
         with:
-          name: artifact-${{ matrix.ziti_type }}-amd64-deb
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
           path: |
             ./*.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-rpm
+          path: |
+            ./*.rpm
   
   build_arm64_release:
     runs-on: [self-hosted, linux, ARM64]
@@ -130,13 +141,13 @@ jobs:
         goarch: [arm64]
     steps:
       - name: Check out code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
           
       - name: Install EBPF Packages
         run: |
           sudo apt-get update -qq
           sudo apt-get upgrade -yqq
-          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev
+          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev alien
           sudo apt-get install -y linux-headers-$(uname -r)
    
       - name: Compile Object file from Source
@@ -217,15 +228,26 @@ jobs:
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
 
-      - name: Build Deb package    
+      - name: Build deb package    
         run: |
           dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
 
-      - uses: actions/upload-artifact@v3
+      - name: Build rpm package    
+        run: |
+          sudo alien -r ${{ steps.deb_dir.outputs.deb_dir }}.deb
+          mv ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}-2.${{ matrix.goarch }}.rpm ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
+                      
+      - uses: actions/upload-artifact@v4
         with:
-          name: artifact-${{ matrix.ziti_type }}-arm64-deb
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
           path: |
             ./*.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-rpm
+          path: |
+            ./*.rpm
           
   deploy_release:
     runs-on: ubuntu-22.04
@@ -237,7 +259,7 @@ jobs:
         goos: [linux]
     steps:
       - name: Create release
-        uses: ncipollo/release-action@v1.12.0
+        uses: ncipollo/release-action@v1.14.0
         id: release
         with:
           draft: false
@@ -257,15 +279,35 @@ jobs:
         goos: [linux]
         ziti_type: [tunnel, router]
         goarch: [amd64, arm64]
+        pkg_type: [deb, rpm]
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
-          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-${{ matrix.pkg_type }}
       - name: Upload built deb artifacts
-        uses: svenstaro/upload-release-action@2.5.0
+        if: ${{ matrix.pkg_type == 'deb'}}
+        uses: svenstaro/upload-release-action@2.9.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
-          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}_${{ needs.build_amd64_release.outputs.version }}_${{ matrix.goarch }}.deb
+          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}_${{ needs.build_amd64_release.outputs.version }}_${{ matrix.goarch }}.${{ matrix.pkg_type }}
+          release_name: ${{ needs.build_amd64_release.outputs.version }}
+          tag: v${{ needs.build_amd64_release.outputs.version }}
+      - name: Upload built x86_64 rpm artifacts
+        if: ${{ (matrix.pkg_type == 'rpm') && (matrix.goarch == 'amd64') }}
+        uses: svenstaro/upload-release-action@2.9.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.x86_64.${{ matrix.pkg_type }}
+          release_name: ${{ needs.build_amd64_release.outputs.version }}
+          tag: v${{ needs.build_amd64_release.outputs.version }}
+      - name: Upload built arm64 rpm artifacts
+        if: ${{ (matrix.pkg_type == 'rpm') && (matrix.goarch == 'arm64') }}
+        uses: svenstaro/upload-release-action@2.9.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }}
           release_name: ${{ needs.build_amd64_release.outputs.version }}
           tag: v${{ needs.build_amd64_release.outputs.version }}

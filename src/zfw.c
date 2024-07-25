@@ -234,7 +234,7 @@ char *object_file;
 char *direction_string;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.7";
+const char *argp_program_version = "0.8.8";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
