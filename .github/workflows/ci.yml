@@ -146,7 +146,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get upgrade -yqq
-          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev alien
+          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev
           sudo apt-get install -y linux-headers-$(uname -r)
     
       - name: Compile Object file from Source
@@ -230,20 +230,9 @@ jobs:
       - name: Build deb package    
         run: |
           dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
-
-      - name: Build rpm package    
-        run: |
-          sudo alien -r ${{ steps.deb_dir.outputs.deb_dir }}.deb
-          mv ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}-2.${{ matrix.goarch }}.rpm ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
                       
       - uses: actions/upload-artifact@v4
         with:
           name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
           path: |
             ./*.deb
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-rpm
-          path: |
-            ./*.rpm

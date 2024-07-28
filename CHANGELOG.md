@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.9] - 2024-07-28
+
+- Removed arm64 rpm package build for RH from workflows
+- updated BUILD.md with info on x86_64 RH build prerequisites
+- Fixed issue with -F, --flush introduced when adding flush for all, ingress and egress
+- Updated start_ebpf_router.py and start_ebpf_tunnel.py to only clear ingress filters on restart.
+
+###
 # [0.8.8] - 2024-07-24
 
 - Updated workflows to support rpm packages for ReH 9

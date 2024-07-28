@@ -234,7 +234,7 @@ char *object_file;
 char *direction_string;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.8";
+const char *argp_program_version = "0.8.9";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -4674,6 +4674,114 @@ int flush6()
         }
     }
     close(count_fd);
+    union bpf_attr tp_map;
+    struct tproxy_extension_key tp_init_key = {0};
+    struct tproxy_extension_key *tp_key = &tp_init_key;
+    struct tproxy_extension_key tp_current_key;
+    struct tproxy_extension_mapping tp_orule;
+    // Open BPF zt_tproxy_map map
+    memset(&tp_map, 0, sizeof(tp_map));
+    if(egress){
+        tp_map.pathname = (uint64_t)egress_ext_map_path;
+    }else{
+        tp_map.pathname = (uint64_t)tp_ext_map_path;
+    }
+    tp_map.bpf_fd = 0;
+    tp_map.file_flags = 0;
+    int tp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tp_map, sizeof(tp_map));
+    if (tp_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    tp_map.map_fd = tp_fd;
+    tp_map.key = (uint64_t)tp_key;
+    tp_map.value = (uint64_t)&tp_orule;
+    int tp_ret = 0;
+    while (true)
+    {
+        tp_ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &tp_map, sizeof(tp_map));
+        if (tp_ret == -1)
+        {
+            break;
+        }
+        tp_map.key = tp_map.next_key;
+        tp_current_key = *(struct tproxy_extension_key *)tp_map.key;
+        tp_ext_delete_key(tp_current_key);
+    }
+    close(tp_fd);
+    union bpf_attr ra_map;
+    struct port_extension_key ra_init_key = {0};
+    struct port_extension_key *ra_key = &ra_init_key;
+    struct port_extension_key ra_current_key;
+    struct range_mapping ra_orule;
+    // Open BPF zt_tproxy_map map
+    memset(&ra_map, 0, sizeof(ra_map));
+    if(egress){
+        ra_map.pathname = (uint64_t)egress_range_map_path;
+    }else{
+        ra_map.pathname = (uint64_t)range_map_path;
+    }
+    ra_map.bpf_fd = 0;
+    ra_map.file_flags = 0;
+    int ra_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ra_map, sizeof(ra_map));
+    if (ra_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    ra_map.map_fd = ra_fd;
+    ra_map.key = (uint64_t)ra_key;
+    ra_map.value = (uint64_t)&ra_orule;
+    int ra_ret = 0;
+    while (true)
+    {
+        ra_ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &ra_map, sizeof(ra_map));
+        if (ra_ret == -1)
+        {
+            break;
+        }
+        ra_map.key = ra_map.next_key;
+        ra_current_key = *(struct port_extension_key *)ra_map.key;
+        range_delete_key(ra_current_key);
+    }
+    close(ra_fd);
+    union bpf_attr ix_map;
+    struct port_extension_key ix_init_key = {0};
+    struct port_extension_key *ix_key = &ix_init_key;
+    struct port_extension_key ix_current_key;
+    struct if_list_extension_mapping ix_orule;
+    // Open BPF zt_tproxy_map map
+    memset(&ix_map, 0, sizeof(ix_map));
+    if(egress){
+        ix_map.pathname = (uint64_t)egress_if_list_ext_map_path;
+    }else{
+        ix_map.pathname = (uint64_t)if_list_ext_map_path;
+    }
+    ix_map.bpf_fd = 0;
+    ix_map.file_flags = 0;
+    int ix_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ix_map, sizeof(ix_map));
+    if (ix_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    ix_map.map_fd = ix_fd;
+    ix_map.key = (uint64_t)ix_key;
+    ix_map.value = (uint64_t)&ix_orule;
+    int ix_ret = 0;
+    while (true)
+    {
+        ix_ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &ix_map, sizeof(ix_map));
+        if (ix_ret == -1)
+        {
+            break;
+        }
+        ix_map.key = ix_map.next_key;
+        ix_current_key = *(struct port_extension_key *)ix_map.key;
+        if_list_ext_delete_key(ix_current_key);
+    }
+    close(ix_fd);
     return 0;
 }
 
@@ -4686,7 +4794,7 @@ int flush4()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-     if(!egress){
+    if(!egress){
         map.pathname = (uint64_t)tproxy_map_path;
     }else{
         map.pathname = (uint64_t)egress_map_path;
@@ -4749,26 +4857,6 @@ int flush4()
         }
     }
     close(count_fd);
-    return 0;
-}
-
-void map_flush()
-{
-    if(ingress && !egress){
-        flush4();
-        flush6();
-    }else if(!ingress && !egress){
-        flush4();
-        flush6();
-        if(!(access(egress6_map_path, F_OK) != 0)){
-            egress = true;
-            flush4();
-            flush6();
-        }
-    }else{
-        flush4();
-        flush6();
-    }
     union bpf_attr tp_map;
     struct tproxy_extension_key tp_init_key = {0};
     struct tproxy_extension_key *tp_key = &tp_init_key;
@@ -4776,7 +4864,11 @@ void map_flush()
     struct tproxy_extension_mapping tp_orule;
     // Open BPF zt_tproxy_map map
     memset(&tp_map, 0, sizeof(tp_map));
-    tp_map.pathname = (uint64_t)tp_ext_map_path;
+    if(egress){
+        tp_map.pathname = (uint64_t)egress_ext_map_path;
+    }else{
+        tp_map.pathname = (uint64_t)tp_ext_map_path;
+    }
     tp_map.bpf_fd = 0;
     tp_map.file_flags = 0;
     int tp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tp_map, sizeof(tp_map));
@@ -4808,7 +4900,11 @@ void map_flush()
     struct range_mapping ra_orule;
     // Open BPF zt_tproxy_map map
     memset(&ra_map, 0, sizeof(ra_map));
-    ra_map.pathname = (uint64_t)range_map_path;
+    if(egress){
+        ra_map.pathname = (uint64_t)egress_range_map_path;
+    }else{
+        ra_map.pathname = (uint64_t)range_map_path;
+    }
     ra_map.bpf_fd = 0;
     ra_map.file_flags = 0;
     int ra_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ra_map, sizeof(ra_map));
@@ -4840,7 +4936,11 @@ void map_flush()
     struct if_list_extension_mapping ix_orule;
     // Open BPF zt_tproxy_map map
     memset(&ix_map, 0, sizeof(ix_map));
-    ix_map.pathname = (uint64_t)if_list_ext_map_path;
+    if(egress){
+        ix_map.pathname = (uint64_t)egress_if_list_ext_map_path;
+    }else{
+        ix_map.pathname = (uint64_t)if_list_ext_map_path;
+    }
     ix_map.bpf_fd = 0;
     ix_map.file_flags = 0;
     int ix_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ix_map, sizeof(ix_map));
@@ -4865,6 +4965,26 @@ void map_flush()
         if_list_ext_delete_key(ix_current_key);
     }
     close(ix_fd);
+    return 0;
+}
+
+void map_flush()
+{
+    if(ingress && !egress){
+        flush4();
+        flush6();
+    }else if(!ingress && !egress){
+        flush4();
+        flush6();
+        if(!(access(egress6_map_path, F_OK) != 0)){
+            egress = true;
+            flush4();
+            flush6();
+        }
+    }else{
+        flush4();
+        flush6();
+    }
 }
 
 void map_list()

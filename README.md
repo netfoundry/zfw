@@ -252,7 +252,7 @@ The program is designed to integrated into an existing Openziti ziti-router inst
 ```
 sudo dpkg -i zfw-router_<ver>_<arch>.deb
 ```
-Install from source ubuntu 22.04+ / Debian 12
+Install from source ubuntu 22.04+ / Debian 12 / Redhat 9.4
 [build / install zfw from source](./BUILD.md)
 
 **The following instructions pertain to both zfw-tunnel and zfw-router. Platform specific functions will be noted explicitly**
