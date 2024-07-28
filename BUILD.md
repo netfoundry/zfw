@@ -35,8 +35,8 @@
         sudo yum install -y clang bcc-devel libbpf-devel iproute-devel iproute-tc glibc-devel.i686 git json-c-devel
         ```              
     
-- Compile
-
+- Build
+    1. compile binaries
         ```bash      
         mkdir ~/repos
         cd repos
