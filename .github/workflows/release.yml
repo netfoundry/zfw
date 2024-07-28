@@ -147,7 +147,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get upgrade -yqq
-          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev alien
+          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev
           sudo apt-get install -y linux-headers-$(uname -r)
    
       - name: Compile Object file from Source
@@ -231,23 +231,12 @@ jobs:
       - name: Build deb package    
         run: |
           dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
-
-      - name: Build rpm package    
-        run: |
-          sudo alien -r ${{ steps.deb_dir.outputs.deb_dir }}.deb
-          mv ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}-2.${{ matrix.goarch }}.rpm ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}.${{ matrix.goarch }}.rpm
                       
       - uses: actions/upload-artifact@v4
         with:
           name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
           path: |
             ./*.deb
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-rpm
-          path: |
-            ./*.rpm
           
   deploy_release:
     runs-on: ubuntu-22.04
@@ -281,7 +270,14 @@ jobs:
         goarch: [amd64, arm64]
         pkg_type: [deb, rpm]
     steps:
-      - uses: actions/download-artifact@v4
+      - name: download x86 artifacts
+        if: ${{ (matrix.goarch == 'amd64') && ((matrix.pkg_type != 'deb') || (matrix.pkg_type != 'rpm')) }}
+        uses: actions/download-artifact@v4
+        with:
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-${{ matrix.pkg_type }}
+      - name: download arm64 artifacts
+        if: ${{ (matrix.goarch == 'arm64') && (matrix.pkg_type == 'deb') }}
+        uses: actions/download-artifact@v4
         with:
           name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-${{ matrix.pkg_type }}
       - name: Upload built deb artifacts
@@ -300,14 +296,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.x86_64.${{ matrix.pkg_type }}
-          release_name: ${{ needs.build_amd64_release.outputs.version }}
-          tag: v${{ needs.build_amd64_release.outputs.version }}
-      - name: Upload built arm64 rpm artifacts
-        if: ${{ (matrix.pkg_type == 'rpm') && (matrix.goarch == 'arm64') }}
-        uses: svenstaro/upload-release-action@2.9.0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }}
           release_name: ${{ needs.build_amd64_release.outputs.version }}
           tag: v${{ needs.build_amd64_release.outputs.version }}
