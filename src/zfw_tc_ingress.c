@@ -186,6 +186,10 @@ struct tuple_key {
 /*Key to masquerade_map*/
 struct masq_key {
     uint32_t ifindex;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
     __u8 protocol;
     __u16 sport;
     __u16 dport;
@@ -1407,6 +1411,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] == tuple->ipv4.daddr)){
                     struct masq_key mk = {0};
+                    mk.__in46_u_dest.ip = tuple->ipv4.saddr;
                     mk.dport = tuple->ipv4.sport;
                     mk.sport = tuple->ipv4.dport;
                     mk.ifindex = skb->ifindex;
@@ -1551,6 +1556,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }else{
                 if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] == tuple->ipv4.daddr)){
                     struct masq_key mk = {0};
+                    mk.__in46_u_dest.ip = tuple->ipv4.saddr;
                     mk.dport = tuple->ipv4.sport;
                     mk.sport = tuple->ipv4.dport;
                     mk.ifindex = skb->ifindex;
@@ -1698,6 +1704,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 && (local_ip6->ipaddr[0][1] == tuple->ipv6.daddr[1]) && (local_ip6->ipaddr[0][2] == tuple->ipv6.daddr[2])
                  && (local_ip6->ipaddr[0][3] == tuple->ipv6.daddr[3])){
                     struct masq_key mk = {0};
+                    memcpy(mk.__in46_u_dest.ip6, tuple->ipv6.saddr,  sizeof(tuple->ipv6.saddr));
                     mk.dport = tuple->ipv6.sport;
                     mk.sport = tuple->ipv6.dport;
                     mk.ifindex = skb->ifindex;
@@ -1826,6 +1833,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         return TC_ACT_SHOT;
                     }
                     struct masq_key mk = {0};
+                    memcpy(mk.__in46_u_dest.ip6, tuple->ipv6.saddr,  sizeof(tuple->ipv6.saddr));
                     mk.dport = tuple->ipv6.sport;
                     mk.sport = tuple->ipv6.dport;
                     mk.ifindex = skb->ifindex;

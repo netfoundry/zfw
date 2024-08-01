@@ -119,6 +119,10 @@ struct udp_state {
 /*Key to masquerade_map*/
 struct masq_key {
     uint32_t ifindex;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
     __u8 protocol;
     __u16 sport;
     __u16 dport;
@@ -2098,6 +2102,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 struct masq_value mv = {0};
                 mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
                 struct masq_key mk = {0};
+                mk.__in46_u_dest.ip =  tuple->ipv4.daddr;
                 mk.dport = tuple->ipv4.dport;
                 mk.sport = tuple->ipv4.sport;
                 mk.ifindex = skb->ifindex;
@@ -2250,6 +2255,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     struct masq_value mv = {0};
                     mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
                     struct masq_key mk = {0};
+                    mk.__in46_u_dest.ip =  tuple->ipv4.daddr;
                     mk.dport = tuple->ipv4.dport;
                     mk.sport = tuple->ipv4.sport;
                     mk.ifindex = skb->ifindex;
@@ -2357,6 +2363,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 struct masq_value mv = {0};
                 memcpy(mv.__in46_u_origin.ip6, tuple->ipv6.saddr, sizeof(mv.__in46_u_origin.ip6));
                 struct masq_key mk = {0};
+                memcpy(mk.__in46_u_dest.ip6, tuple->ipv6.daddr,  sizeof(tuple->ipv6.daddr));
                 mk.dport = tuple->ipv6.dport;
                 mk.sport = tuple->ipv6.sport;
                 mk.ifindex = skb->ifindex;
@@ -2489,6 +2496,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     struct masq_value mv = {0};
                     memcpy(mv.__in46_u_origin.ip6, tuple->ipv6.saddr, sizeof(mv.__in46_u_origin.ip6));
                     struct masq_key mk = {0};
+                    memcpy(mk.__in46_u_dest.ip6, tuple->ipv6.daddr,  sizeof(tuple->ipv6.daddr));
                     mk.dport = tuple->ipv6.dport;
                     mk.sport = tuple->ipv6.sport;
                     mk.ifindex = skb->ifindex;
