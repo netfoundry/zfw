@@ -109,6 +109,7 @@ bool prot = false;
 bool route = false;
 bool passthru = false;
 bool intercept = false;
+bool masquerade = false;
 bool echo = false;
 bool eapol = false;
 bool verbose = false;
@@ -213,7 +214,7 @@ const char *egress_map_path = "/sys/fs/bpf/tc/globals/zt_egress_map";
 const char *egress6_map_path = "/sys/fs/bpf/tc/globals/zt_egress6_map";
 const char *egress_count_map_path = "/sys/fs/bpf/tc/globals/egress_count_map";
 const char *egress_count6_map_path = "/sys/fs/bpf/tc/globals/egress6_count_map";
-
+const char *masquerade_map_path = "/sys/fs/bpf/tc/globals/masquerade_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -232,9 +233,10 @@ char *tc_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
+char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.9";
+const char *argp_program_version = "0.8.10";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -367,8 +369,8 @@ struct bpf_event
     unsigned char dest[6];
 };
 
-struct diag_ip4
-{
+/*value to diag_map*/
+struct diag_ip4 {
     bool echo;
     bool verbose;
     bool per_interface;
@@ -381,6 +383,7 @@ struct diag_ip4
     bool ddos_filtering;
     bool ipv6_enable;
     bool outbound_filter;
+    bool masquerade;
 };
 
 struct tproxy_tuple
@@ -648,14 +651,14 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[33] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[34] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
-                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path};
-    for (int map_count = 0; map_count < 33; map_count++)
+                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, masquerade_map_path};
+    for (int map_count = 0; map_count < 34; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -1680,6 +1683,31 @@ bool set_diag(uint32_t *idx)
                 printf("Set disable_ssh is always set to 0 for lo\n");
             }
         }
+        if (masquerade)
+        {
+            if (!disable && *idx != 1)
+            {
+                if(!check_filter(*idx,"egress")){
+                    o_diag.masquerade = true;
+                }else{
+                    printf("masquerade not set, no egress filter exists for %s\n", masq_interface);
+                    printf("set first with: sudo zfw -X %s -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress\n", masq_interface);
+                    close_maps(1);
+                }
+            }
+            else
+            {
+                o_diag.masquerade = false;
+            }
+            if (*idx != 1)
+            {
+                printf("Set masquerade to %d for %s\n", !disable, masq_interface);
+            }
+            else
+            {
+                printf("Masquerade is always set to 0 for lo\n");
+            }
+        }
         if (outbound)
         {
             if (!disable && *idx != 1)
@@ -1687,7 +1715,7 @@ bool set_diag(uint32_t *idx)
                 if(!check_filter(*idx,"egress")){
                     o_diag.outbound_filter = true;
                 }else{
-                    printf("outbound filter not set no egress filter exists for %s\n", outbound_interface);
+                    printf("outbound filter not set, no egress filter exists for %s\n", outbound_interface);
                     printf("set first with: sudo zfw -X %s -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress\n", outbound_interface);
                     close_maps(1);
                 }
@@ -1795,6 +1823,7 @@ bool set_diag(uint32_t *idx)
         printf("%-24s:%d\n", "vrrp enable", o_diag.vrrp);
         printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
         printf("%-24s:%d\n", "ddos filtering", o_diag.ddos_filtering);
+        printf("%-24s:%d\n", "masquerade", o_diag.masquerade);
         if (*idx != 1)
         {
             printf("%-24s:%d\n", "ipv6 enable", o_diag.ipv6_enable);
@@ -1897,7 +1926,9 @@ void interface_tc()
                             set_tc_filter("del");
                             if(egress){
                                 outbound = true;
+                                masquerade = true;
                                 outbound_interface = tc_interface;
+                                masq_interface = tc_interface;
                             }
                             if (diag_fd == -1)
                             {
@@ -1968,8 +1999,9 @@ void interface_diag()
                 ddos_interface = address->ifa_name;
                 ipv6_interface = address->ifa_name;
                 outbound_interface = address->ifa_name;
+                masq_interface = address->ifa_name;
             }
-            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6 || outbound))
+            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6 || outbound || masquerade))
             {
                 if (per_interface && !strncmp(prefix_interface, "ziti", 4))
                 {
@@ -1999,6 +2031,10 @@ void interface_diag()
                 {
                     printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
+                if (masquerade && !strncmp(masq_interface, "ziti", 4))
+                {
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
+                }
                 if (v6 && !strncmp(ipv6_interface, "ziti", 4))
                 {
                     printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
@@ -2017,7 +2053,13 @@ void interface_diag()
                     set_diag(&idx);
                 }
             }
-
+            if (masquerade)
+            {
+                if (!strcmp(masq_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
             if (outbound)
             {
                 if (!strcmp(outbound_interface, address->ifa_name))
@@ -5473,6 +5515,7 @@ static struct argp_option options[] = {
     {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
     {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
     {"intercepts", 'i', NULL, 0, "List intercept rules <optional for list>", 0},
+    {"masquerade", 'k', "", 0, "enable outbound masquerade", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
@@ -5843,6 +5886,33 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'i':
         intercept = true;
+        break;
+    case 'k':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -k, --masquerade: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        masquerade = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            if(if_indextoname(idx, check_alt)){
+                masq_interface = check_alt;
+            }else{
+                masq_interface = arg;
+            }
+        }
         break;
     case 'l':
         low_port = port2s(arg);
@@ -6346,6 +6416,14 @@ int main(int argc, char **argv)
         usage("-X, --set-tc-filter requires -z, --direction for add operation");
     }
 
+    if (masquerade)
+    {
+        if ((dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || flush || eapol) || ddos || vrrp || monitor || logging || ddport)
+        {
+            usage("-k, --masquerade can not be used in combination call");
+        }
+    }
+
     if (v6)
     {
         if ((dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || flush || eapol) || ddos || vrrp || monitor || logging || ddport)
@@ -6477,9 +6555,9 @@ int main(int argc, char **argv)
     }
 
     if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp
-     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete))
+     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete && !masquerade))
     {
-        usage("Missing argument at least one of -a,-b,-6,-e, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -a,-b,-6,-e, -k, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
 
     if (direction && (!tcfilter && !list && !flush && !delete && !add))
@@ -6745,7 +6823,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound || masquerade)
     {
         interface_diag();
     }

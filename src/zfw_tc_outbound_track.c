@@ -64,7 +64,6 @@
 #define IPV6_TUPLE_TOO_BIG 31
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 
-
 struct bpf_event{
     __u8 version;
     unsigned long long tstamp;
@@ -117,6 +116,22 @@ struct udp_state {
     unsigned long long tstamp;
 };
 
+/*Key to masquerade_map*/
+struct masq_key {
+    uint32_t ifindex;
+    __u8 protocol;
+    __u16 sport;
+    __u16 dport;
+};
+
+/*value to masquerade_map*/
+struct masq_value {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_origin;
+};
+
 /*value to diag_map*/
 struct diag_ip4 {
     bool echo;
@@ -131,6 +146,7 @@ struct diag_ip4 {
     bool ddos_filtering;
     bool ipv6_enable;
     bool outbound_filter;
+    bool masquerade;
 };
 
 /*value to ifindex_tun_map*/
@@ -256,6 +272,14 @@ struct {
     __uint(max_entries, 65535);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } egress_matched_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct masq_key));
+     __uint(value_size,sizeof(struct masq_value));
+     __uint(max_entries, BPF_MAX_SESSIONS * 2);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} masquerade_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -435,6 +459,11 @@ static inline struct ifindex_tun *get_tun_index(uint32_t key){
 static inline void insert_tcp(struct tcp_state tstate, struct tuple_key key){
      bpf_map_update_elem(&tcp_map, &key, &tstate,0);
 }
+
+static inline void insert_masquerade(struct masq_value mv, struct masq_key key){
+     bpf_map_update_elem(&masquerade_map, &key, &mv,0);
+}
+
 
 /*Remove entry into tcp state table*/
 static inline void del_tcp(struct tuple_key key){
@@ -1969,6 +1998,12 @@ int bpf_sk_splice6(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
 
+    //get ipv4 interface addr mappings
+    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ifindex);
+
+    //get ipv6 interface addr mappings
+    struct ifindex_ip6 *local_ip6 = get_local_ip6(skb->ifindex);
+
     /*get entry from tun ifindex map*/
     struct ifindex_tun *tun_if = get_tun_index(0);
 
@@ -2232,6 +2267,40 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             tcp_state_key.sport = tuple->ipv6.sport;
             tcp_state_key.dport = tuple->ipv6.dport;
+            if(local_diag->masquerade && local_ip6 && local_ip6->count){
+                struct masq_value mv = {0};
+                memcpy(mv.__in46_u_origin.ip6, tuple->ipv6.saddr, sizeof(mv.__in46_u_origin.ip6));
+                struct masq_key mk = {0};
+                mk.dport = tuple->ipv6.dport;
+                mk.sport = tuple->ipv6.sport;
+                mk.ifindex = skb->ifindex;
+                mk.protocol = IPPROTO_TCP;
+                insert_masquerade(mv, mk);
+                memcpy(ip6h->saddr.in6_u.u6_addr32, local_ip6->ipaddr[0],  sizeof(local_ip6->ipaddr[0]));
+                for(int x = 0; x < 4; x++){
+                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct ipv6hdr) + offsetof(struct tcphdr, check), mv.__in46_u_origin.ip6[x], ip6h->saddr.in6_u.u6_addr32[x], BPF_F_PSEUDO_HDR | 4);
+                    ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+                    if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    protocol = ip6h->nexthdr;
+                    tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+                    if(!tuple){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple_len = sizeof(tuple->ipv6);
+                    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    if(protocol == IPPROTO_TCP){
+                        tcp = true;
+                    }
+                    tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                    if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                }
+            }
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate;
             if(tcph->syn && !tcph->ack){
@@ -2333,6 +2402,40 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 udp_state_key.sport = tuple->ipv6.sport;
                 udp_state_key.dport = tuple->ipv6.dport;
+                if(local_diag->masquerade && local_ip6 && local_ip6->count){
+                    struct masq_value mv = {0};
+                    memcpy(mv.__in46_u_origin.ip6, tuple->ipv6.saddr, sizeof(mv.__in46_u_origin.ip6));
+                    struct masq_key mk = {0};
+                    mk.dport = tuple->ipv6.dport;
+                    mk.sport = tuple->ipv6.sport;
+                    mk.ifindex = skb->ifindex;
+                    mk.protocol = IPPROTO_UDP;
+                    insert_masquerade(mv, mk );
+                    memcpy(ip6h->saddr.in6_u.u6_addr32, local_ip6->ipaddr[0],  sizeof(local_ip6->ipaddr[0]));
+                    for(int x = 0; x < 4; x++){
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct ipv6hdr) + offsetof(struct udphdr, check), mv.__in46_u_origin.ip6[x], ip6h->saddr.in6_u.u6_addr32[x], BPF_F_PSEUDO_HDR | 4);
+                        ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+                        if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        protocol = ip6h->nexthdr;
+                        tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
+                        if(!tuple){
+                            return TC_ACT_SHOT;
+                        }
+                        tuple_len = sizeof(tuple->ipv6);
+                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        if(protocol == IPPROTO_TCP){
+                            tcp = true;
+                        }
+                        udph = (struct udphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                        if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                    }
+                }
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
                     struct udp_state us = {
