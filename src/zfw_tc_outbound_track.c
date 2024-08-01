@@ -949,8 +949,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
         if(tcp)
         {
-            
-            
             event.proto =  IPPROTO_TCP;
             struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
             if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
@@ -2095,6 +2093,54 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             tcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.sport;
             tcp_state_key.dport = tuple->ipv4.dport;
+            if(local_diag->masquerade && local_ip4 && local_ip4->count){
+                __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
+                struct masq_value mv = {0};
+                mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
+                struct masq_key mk = {0};
+                mk.dport = tuple->ipv4.dport;
+                mk.sport = tuple->ipv4.sport;
+                mk.ifindex = skb->ifindex;
+                mk.protocol = IPPROTO_TCP;
+                insert_masquerade(mv, mk);
+                iph->saddr = local_ip4->ipaddr[0];
+                /*Calculate l3 Checksum*/
+                bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                if(!tuple){
+                    return TC_ACT_SHOT;
+                }
+                tuple_len = sizeof(tuple->ipv4);
+                if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                /*Calculate l4 Checksum*/
+                bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), mv.__in46_u_origin.ip, iph->saddr, BPF_F_PSEUDO_HDR | 4);
+                iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                if(!tuple){
+                    return TC_ACT_SHOT;
+                }
+                tuple_len = sizeof(tuple->ipv4);
+                if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+            }
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate;
             if(tcph->syn && !tcph->ack){
@@ -2199,6 +2245,46 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.sport;
                 udp_state_key.dport = tuple->ipv4.dport;
+                if(local_diag->masquerade && local_ip4 && local_ip4->count){
+                    __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
+                    struct masq_value mv = {0};
+                    mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
+                    struct masq_key mk = {0};
+                    mk.dport = tuple->ipv4.dport;
+                    mk.sport = tuple->ipv4.sport;
+                    mk.ifindex = skb->ifindex;
+                    mk.protocol = IPPROTO_UDP;
+                    insert_masquerade(mv, mk);
+                    iph->saddr = local_ip4->ipaddr[0];
+                    /*Calculate l3 Checksum*/
+                    bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                    if(!tuple){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple_len = sizeof(tuple->ipv4);
+                    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    /*Calculate l4 Checksum*/
+                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mv.__in46_u_origin.ip, iph->saddr, BPF_F_PSEUDO_HDR | 4);
+                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                    if(!tuple){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple_len = sizeof(tuple->ipv4);
+                    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                }
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
                     struct udp_state us = {
@@ -2277,13 +2363,13 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 mk.protocol = IPPROTO_TCP;
                 insert_masquerade(mv, mk);
                 memcpy(ip6h->saddr.in6_u.u6_addr32, local_ip6->ipaddr[0],  sizeof(local_ip6->ipaddr[0]));
+                /*Calculate l4 Checksum*/
                 for(int x = 0; x < 4; x++){
                     bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct ipv6hdr) + offsetof(struct tcphdr, check), mv.__in46_u_origin.ip6[x], ip6h->saddr.in6_u.u6_addr32[x], BPF_F_PSEUDO_HDR | 4);
                     ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
                     if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
                         return TC_ACT_SHOT;
                     }
-                    protocol = ip6h->nexthdr;
                     tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
                     if(!tuple){
                         return TC_ACT_SHOT;
@@ -2291,9 +2377,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     tuple_len = sizeof(tuple->ipv6);
                     if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                         return TC_ACT_SHOT;
-                    }
-                    if(protocol == IPPROTO_TCP){
-                        tcp = true;
                     }
                     tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
                     if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
@@ -2412,13 +2495,13 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     mk.protocol = IPPROTO_UDP;
                     insert_masquerade(mv, mk );
                     memcpy(ip6h->saddr.in6_u.u6_addr32, local_ip6->ipaddr[0],  sizeof(local_ip6->ipaddr[0]));
+                    /*Calculate l4 Checksum*/
                     for(int x = 0; x < 4; x++){
                         bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct ipv6hdr) + offsetof(struct udphdr, check), mv.__in46_u_origin.ip6[x], ip6h->saddr.in6_u.u6_addr32[x], BPF_F_PSEUDO_HDR | 4);
                         ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
                         if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
                         }
-                        protocol = ip6h->nexthdr;
                         tuple = (struct bpf_sock_tuple *)(void*)(long)&ip6h->saddr;
                         if(!tuple){
                             return TC_ACT_SHOT;
@@ -2426,9 +2509,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         tuple_len = sizeof(tuple->ipv6);
                         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
-                        }
-                        if(protocol == IPPROTO_TCP){
-                            tcp = true;
                         }
                         udph = (struct udphdr *)((unsigned long)ip6h + sizeof(*ip6h));
                         if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
