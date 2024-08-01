@@ -3,9 +3,8 @@
 --- 
 This firewall application utilizes both tc-ebpf and xdp to provide stateful firewalling
 for an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel installation and is meant as a replacement for packet
-filtering.  It has built in masquerade feature on a WAN facing interface for IPv6 if
-the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
-edge-routers.
+filtering.  It can also be used in conjunction with OpenZiti edge-routers or as a standalone fw. It now has built in
+EBPF based masquerade capability for both IPv4/IPv6. 
 
 ## New features in 0.8.x - 
 
