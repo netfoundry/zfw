@@ -3,11 +3,18 @@
 --- 
 This firewall application utilizes both tc-ebpf and xdp to provide stateful firewalling
 for an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel installation and is meant as a replacement for packet
-filtering.  It can be used in conjunction with ufw's masquerade feature on a WAN facing interface if
-the zfw_outbound_track.o is activated in the egress direction. It can also be used in conjunction with OpenZiti
-edge-routers.
+filtering.  It can also be used in conjunction with OpenZiti edge-routers or as a standalone fw. It now has built in
+EBPF based masquerade capability for both IPv4/IPv6. 
 
 ## New features in 0.8.x - 
+
+### Native EBPF based IPv4 and IPv6 Masquerade support
+
+zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass through connections which can be enabled via:
+
+```sudo zfw -k, --masquerade <ifname>```
+
+This function requires that both ingress and egress TC filters are enabled on outbound interface. 
 
 ### Explicit Deny Rules
 This feature adds the ability to enter explicit deny rules by appending ```-d, --disable to the -I, --insert rule`` to both ingress and egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.10] - 2024-07-29
+
+- Updated start_ebpf_controller.py to only clear ingress filters on restart and also removed ```-r, --route``` from the flush.
+- Added native masquerade for IPv4/IPv6 passthrough connections.
+  
+###
 # [0.8.9] - 2024-07-28
 
 - Removed arm64 rpm package build for RH from workflows
