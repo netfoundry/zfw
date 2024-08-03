@@ -20,6 +20,7 @@ then
    cp zfw_tc_ingress.o /opt/openziti/bin
    cp zfw_tc_outbound_track.o /opt/openziti/bin
    cp ../files/scripts/start_ebpf_router.py /opt/openziti/bin
+   cp ../files/scripts/zfw_refresh /etc/cron.d
    cp ../files/scripts/revert_ebpf_router.py /opt/openziti/bin
    cp ../files/scripts/revert_ebpf_router.py /opt/openziti/bin
    cp ../files/scripts/zfwlogs /etc/logrotate.d
@@ -31,6 +32,7 @@ then
    chmod 744 /opt/openziti/bin/revert_ebpf_router.py
    chmod 744 /opt/openziti/bin/user/user_rules.sh.sample
    chmod 744 /opt/openziti/bin/zfw
+   chmod 644 /etc/cron.d/zfw_refresh
    if [ ! -L "/usr/sbin/zfw" ]
       then
           ln -s /opt/openziti/bin/zfw /usr/sbin/zfw
@@ -55,6 +57,7 @@ then
       cp zfw_xdp_tun_ingress.o /opt/openziti/bin
       cp zfw_tunnwrapper /opt/openziti/bin
       cp ../files/scripts/start_ebpf_tunnel.py /opt/openziti/bin
+      cp ../files/scripts/zfw_refresh /etc/cron.d
       cp ../files/scripts/set_xdp_redirect.py /opt/openziti/bin
       cp ../files/scripts/zfwlogs /etc/logrotate.d
       cp ../files/scripts/user_rules.sh.sample /opt/openziti/bin/user
@@ -67,6 +70,7 @@ then
       chmod 744 /opt/openziti/bin/user/user_rules.sh.sample
       chmod 744 /opt/openziti/bin/zfw_tunnwrapper
       chmod 744 /opt/openziti/bin/zfw
+      chmod 644 /etc/cron.d/zfw_refresh
       if [ ! -L "/usr/sbin/zfw" ]
       then
           ln -s /opt/openziti/bin/zfw /usr/sbin/zfw
@@ -95,6 +99,7 @@ then
    cp  zfw_tc_ingress.o /opt/openziti/bin
    cp  zfw_tc_outbound_track.o /opt/openziti/bin
    cp  ../files/scripts/start_ebpf_controller.py /opt/openziti/bin
+   cp ../files/scripts/zfw_refresh /etc/cron.d
    cp  ../files/scripts/revert_ebpf_controller.py /opt/openziti/bin
    cp  ../files/scripts/zfwlogs /etc/logrotate.d
    cp  ../files/scripts/user_rules.sh.sample /opt/openziti/bin/user
@@ -103,6 +108,7 @@ then
    chmod 744 /opt/openziti/bin/start_ebpf_controller.py
    chmod 744 /opt/openziti/bin/user/user_rules.sh.sample
    chmod 744 /opt/openziti/bin/zfw
+   chmod 644 /etc/cron.d/zfw_refresh
    if [ ! -L "/usr/sbin/zfw" ]
    then
          ln -s /opt/openziti/bin/zfw /usr/sbin/zfw
