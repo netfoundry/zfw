@@ -781,6 +781,7 @@ removing /sys/fs/bpf/tc/globals/egress_matched6_map
 removing /sys/fs/bpf/tc//globals/egress_matched_map
 removing /sys/fs/bpf/tc/globals/udp_ingress_map
 removing /sys/fs/bpf/tc/globals/tcp_ingress_map
+removing /sys/fs/bpf/tc/globals/masquerade_map
 ```
 
 
