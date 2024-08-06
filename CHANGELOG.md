@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.11] - 2024-08-03
+
+- Edit Readme updated ```zfw -L -E ``` outputs
+- Added cron script ```/etc/crond.d/zfw_refresh``` to run ```/opt/openziti/zfw -L -E``` once per minute to refresh the ifindex to ip mappings. This was done
+  to enable detection of new interfaces and to refresh ip for any interface that might have changed dynamically or otherwise. 
+  
+###
 # [0.8.10] - 2024-07-29
 
 - Updated start_ebpf_controller.py to only clear ingress filters on restart and also removed ```-r, --route``` from the flush.

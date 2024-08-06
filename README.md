@@ -542,7 +542,7 @@ By default ssh is enabled to pass through to the ip address of the attached inte
 If secondary addresses exist on the interface this will only work for the first 10.  After that you would need
 to add manual entries via ```zfw -I```.  
 
-NOTE: **For environments where the IP will change it is highly recommended that a manual ssh rule is entered in /opt/openziti/bin/user_rules.sh with an entry for the entire subnet. e.g if subnet is 192.168.1.0/24 or you will lose ssh access to the system till system restart**
+NOTE: **For environments where the IP will change zfw should detect the change with in 1 minute. It is highly recommended that a manual ssh rule is entered in /opt/openziti/bin/user_rules.sh with an entry for the entire subnet as backup unless you have either a manual static address or reserved DHCP address. e.g if subnet is 192.168.1.0/24.** 
 ```
 #!/bin/bash
 sudo /opt/openziti/bin/zfw -I -c 192.168.1.0 -m 24 -l 22 -h 22 -t 0 -p tcp
@@ -695,6 +695,7 @@ tun mode intercept      :0
 vrrp enable             :0
 eapol enable            :0
 ddos filtering          :0
+masquerade              :0
 ipv6 enable             :1
 --------------------------
 
@@ -711,6 +712,7 @@ tun mode intercept      :1
 vrrp enable             :0
 eapol enable            :0
 ddos filtering          :0
+masquerade              :0
 ipv6 enable             :1
 --------------------------
 
@@ -727,6 +729,7 @@ tun mode intercept      :0
 vrrp enable             :0
 eapol enable            :0
 ddos filtering          :0
+masquerade              :0
 ipv6 enable             :0
 --------------------------
 
@@ -778,6 +781,7 @@ removing /sys/fs/bpf/tc/globals/egress_matched6_map
 removing /sys/fs/bpf/tc//globals/egress_matched_map
 removing /sys/fs/bpf/tc/globals/udp_ingress_map
 removing /sys/fs/bpf/tc/globals/tcp_ingress_map
+removing /sys/fs/bpf/tc/globals/masquerade_map
 ```
 
 

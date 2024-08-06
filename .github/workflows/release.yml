@@ -66,6 +66,7 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d
           cp -p CHANGELOG.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p README.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p LICENSE ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
@@ -76,12 +77,14 @@ jobs:
           cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
           cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
+          cp -p files/scripts/zfw_refresh ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/
           cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
           cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_monitor
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
+          chmod 644 ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/zfw_refresh
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
           ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
 
@@ -186,6 +189,7 @@ jobs:
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
           mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d
           cp -p CHANGELOG.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p README.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p LICENSE ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
@@ -196,12 +200,14 @@ jobs:
           cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
           cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
+          cp -p files/scripts/zfw_refresh ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/
           cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
           cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_monitor
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
+          chmod 644 ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/zfw_refresh
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
           ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
 
