@@ -105,6 +105,7 @@ then
    cp  ../files/scripts/user_rules.sh.sample /opt/openziti/bin/user
    cp  ../files/json/ebpf_config.json.sample /opt/openziti/etc
    cp  ../files/services/zfw-logging.service /etc/systemd/system
+   cp ../files/services/fw-init.service /etc/systemd/system
    chmod 744 /opt/openziti/bin/start_ebpf_controller.py
    chmod 744 /opt/openziti/bin/user/user_rules.sh.sample
    chmod 744 /opt/openziti/bin/zfw

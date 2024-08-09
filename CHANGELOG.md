@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. The format 
 ###
 # [0.8.12] - 2024-08-07
 - Change ci workflow display name and to trigger on puch to branches other than main.
+- Refactored install.sh, start_ebpf_controller.py and revert_ebpf_controller.py to work with controller not running as root.
 
 ###
 # [0.8.11] - 2024-08-03

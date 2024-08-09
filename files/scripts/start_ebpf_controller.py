@@ -432,7 +432,7 @@ if(status.returncode):
         os.system("/opt/openziti/bin/user/user_rules.sh")
 else:
     print("ebpf already running!");
-    os.system("/usr/sbin/zfw -F -z ingress")
+    os.system("/usr/sbin/zfw -F -r")
     print("Flushed Table")
     for i in internal_list:
         if(not tc_status(i, "ingress")):
@@ -477,17 +477,20 @@ else:
 lanIp = get_if_ip(lanIf)
 if(len(lanIp)):
     set_local_rules(lanIp)
-if(os.path.exists('/etc/systemd/system/ziti-controller.service') and controller):
-    unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_controller.py' /etc/systemd/system/ziti-controller.service")
+if(os.path.exists('/etc/systemd/system/zfw-logging.service') and controller):
+    unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_controller.py' /etc/systemd/system/zfw-logging.service")
     if(unconfigured):
-        test0 = 1
-        test0 = os.system("sed -i 's/User\=ziti/User\=root/g' /etc/systemd/system/ziti-controller.service")
         test1 = 1
-        test1 = os.system("sed -i '/ExecStart=/i ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_controller.py --lanIf " + lanIf + "' /etc/systemd/system/ziti-controller.service")
-        if((not test0) and (not test1)):
+        test1 = os.system("sed -i '/ExecStart=/i ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_controller.py --lanIf " + lanIf + "' /etc/systemd/system/zfw-logging.service")
+        test1 = os.system("sed -i 's/ziti-router/ziti-controller/g' /etc/systemd/system/zfw-logging.service") 
+        test1 = os.system("sed -i 's/ziti-router/ziti-controller/g' /etc/systemd/system/fw-init.service") 
+
+        if(not test1):
             test1 = os.system("systemctl daemon-reload")
             if(not test1):
-                print("Successfully converted ziti-controller.service. Restarting!")
+                print("Successfully converted zfw-logging.service. Restarting!")
+                os.system('systemctl enable zfw-logging.service')
+                os.system('systemctl enable fw-init.service')
                 os.system('systemctl restart ziti-controller.service')
                 if(not os.system('systemctl is-active --quiet ziti-controller.service')):
                     print("ziti-controller.service successfully restarted!")
@@ -496,7 +499,7 @@ if(os.path.exists('/etc/systemd/system/ziti-controller.service') and controller)
         else:
             print("Failed to convert ziti-controller.service!")
     else:
-        print("ziti-controller.service already converted. Nothing to do!")
+        print("zfw-logging.service already converted. Nothing to do!")
 else:
-    print("Skipping ziti-controller.service conversion. File does not exist or is already converted to run ebpf!")
+    print("Skipping zfw-logging.service conversion. File does not exist or is already converted to run ebpf!")
 sys.exit(0)
