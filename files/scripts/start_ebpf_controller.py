@@ -483,7 +483,7 @@ if(os.path.exists('/etc/systemd/system/zfw-logging.service') and controller):
         test1 = 1
         test1 = os.system("sed -i '/ExecStart=/i ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_controller.py --lanIf " + lanIf + "' /etc/systemd/system/zfw-logging.service")
         test1 = os.system("sed -i 's/ziti-router/ziti-controller/g' /etc/systemd/system/zfw-logging.service") 
-        test1 = os.system("sed -i 's/_router/_controller/g' /etc/systemd/system/fw-init.service") 
+        test1 = os.system("sed -i 's/_router.py/_controller.py --lanIf " + lanIf + "/g' /etc/systemd/system/fw-init.service") 
 
         if(not test1):
             test1 = os.system("systemctl daemon-reload")
