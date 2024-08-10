@@ -1,8 +1,11 @@
 ---
-name: release
+name: ci
 
-on: [push]
-  
+on:
+  push:
+    branches:
+    - '*'
+    - '!main'
 
 env:
   APP_NAME: 'zfw'
