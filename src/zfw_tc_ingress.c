@@ -197,6 +197,18 @@ struct icmp_key {
     }__in46_u_src;
     __u16 id;
     __u16 seq;
+    __u32 ifindex;
+};
+
+/*Key to icmp_masquerade_map*/
+struct icmp_masq_key {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
+    __u16 id;
+    __u16 seq;
+    __u32 ifindex;
 };
 
 /*Key to masquerade_map*/
@@ -601,9 +613,9 @@ struct {
 /*tracks icmp_echo masquerade*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
-     __uint(key_size, sizeof(struct icmp_key));
+     __uint(key_size, sizeof(struct icmp_masq_key));
      __uint(value_size,sizeof(struct masq_value));
-     __uint(max_entries, BPF_MAX_SESSIONS * 2);
+     __uint(max_entries, BPF_MAX_SESSIONS);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } icmp_masquerade_map SEC(".maps");
 
@@ -684,6 +696,16 @@ static inline struct masq_value *get_masquerade(struct masq_key key){
     struct masq_value *mv;
     mv = bpf_map_lookup_elem(&masquerade_map, &key);
 	return mv;
+}
+
+static inline struct masq_value *get_icmp_masquerade(struct icmp_masq_key key){
+    struct masq_value *mv;
+    mv = bpf_map_lookup_elem(&icmp_masquerade_map, &key);
+	return mv;
+}
+
+static inline void del_icmp_masquerade(struct icmp_masq_key key){
+     bpf_map_delete_elem(&icmp_masquerade_map, &key);
 }
 
 
@@ -1205,6 +1227,33 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                 }
                 else if((icmph->type == 0) && (icmph->code == 0)){
+                    if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] == iph->daddr)){
+                        struct icmp_masq_key mk = {0};
+                        mk.__in46_u_dest.ip = iph->saddr;
+                        __u16 *id = (__u16 *)((unsigned long)icmph + 4);
+                        __u16 *seq = (__u16 *)((unsigned long)icmph + 6);
+                        mk.id = *id;
+                        mk.seq = *seq;
+                        mk.ifindex = skb->ifindex;
+                        struct masq_value *mv = get_icmp_masquerade(mk);
+                        if(mv){
+                            __u32 l3_sum = bpf_csum_diff((__u32 *)&iph->daddr, sizeof(iph->daddr),(__u32 *)&mv->__in46_u_origin.ip, sizeof(mv->__in46_u_origin.ip), 0);
+                            iph->daddr = mv->__in46_u_origin.ip;
+                            /*Calculate l3 Checksum*/
+                            bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                            iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                            if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                event.error_code = ICMP_HEADER_TOO_BIG;
+                                send_event(&event);
+                                return TC_ACT_SHOT;
+                            }
+                            del_icmp_masquerade(mk);
+                        }
+                    }
                     struct icmp_key icmp_state_key = {0};
                     icmp_state_key.__in46_u_dst.ip = iph->saddr;
                     icmp_state_key.__in46_u_src.ip = iph->daddr;
@@ -1212,10 +1261,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     __u16 *seq = (__u16 *)((unsigned long)icmph + 6);
                     icmp_state_key.id = *id;
                     icmp_state_key.seq = *seq;
+                    icmp_state_key.ifindex = skb->ifindex;
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct icmp_state *istate = get_icmp(icmp_state_key);
                     if(istate){
-                        /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                        /*if icmp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
                         if(tstamp > (istate->tstamp + 15000000000)){
                             del_icmp(icmp_state_key);
                             istate = get_icmp(icmp_state_key);
@@ -1338,6 +1388,36 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             return TC_ACT_SHOT;
                         }
                     }else if((icmp6h->icmp6_type == 129) && (icmp6h->icmp6_code == 0)){ //echo-reply
+                        if(local_diag->masquerade && local_ip6 && local_ip6->count && (local_ip6->ipaddr[0][0] == ip6h->daddr.in6_u.u6_addr32[0]) 
+                        && (local_ip6->ipaddr[0][1] == ip6h->daddr.in6_u.u6_addr32[1]) && (local_ip6->ipaddr[0][2] == ip6h->daddr.in6_u.u6_addr32[2])
+                        && (local_ip6->ipaddr[0][3] == ip6h->daddr.in6_u.u6_addr32[3])){
+                            struct icmp_masq_key mk = {0};
+                            memcpy(mk.__in46_u_dest.ip6, ip6h->saddr.in6_u.u6_addr32,  sizeof(ip6h->saddr.in6_u.u6_addr32));
+                            __u16 *id = (__u16 *)((unsigned long)icmp6h + 4);
+                            __u16 *seq = (__u16 *)((unsigned long)icmp6h + 6);
+                            mk.id = *id;
+                            mk.seq = *seq;
+                            mk.ifindex = skb->ifindex;
+                            struct masq_value *mv = get_icmp_masquerade(mk);
+                            if(mv){
+                                memcpy(ip6h->daddr.in6_u.u6_addr32, mv->__in46_u_origin.ip6, sizeof(mv->__in46_u_origin.ip6));
+                                /*Calculate l4 Checksum*/
+                                for(int x = 0; x < 4; x++){
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct ipv6hdr) + offsetof(struct icmp6hdr, icmp6_cksum), local_ip6->ipaddr[0][x], ip6h->daddr.in6_u.u6_addr32[x], BPF_F_PSEUDO_HDR | 4);
+                                    ip6h = (struct ipv6hdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmp6h = (struct icmp6hdr *)((unsigned long)ip6h + sizeof(*ip6h));
+                                    if ((unsigned long)(icmp6h + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                }
+                                del_icmp_masquerade(mk);
+                            }
+                        }
                         struct icmp_key icmp_state_key = {0};
                         memcpy(icmp_state_key.__in46_u_dst.ip6, ip6h->saddr.in6_u.u6_addr32, sizeof(ip6h->saddr.in6_u.u6_addr32));
                         memcpy(icmp_state_key.__in46_u_src.ip6, ip6h->daddr.in6_u.u6_addr32, sizeof(ip6h->daddr.in6_u.u6_addr32));
@@ -1345,6 +1425,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         __u16 *seq = (__u16 *)((unsigned long)icmp6h + 6);
                         icmp_state_key.id = *id;
                         icmp_state_key.seq = *seq;
+                        icmp_state_key.ifindex = skb->ifindex;
                         unsigned long long tstamp = bpf_ktime_get_ns();
                         struct icmp_state *istate = get_icmp(icmp_state_key);
                         if(istate){

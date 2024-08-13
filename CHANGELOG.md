@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. The format 
 ###
 # [0.8.13] - 2024-08-12
 - Added Outbound tracking for IPv4 and IPv6 ICMP Echo
+- Added Masquerade for passthrough icmp echos.
   
 ###
 # [0.8.12] - 2024-08-07
