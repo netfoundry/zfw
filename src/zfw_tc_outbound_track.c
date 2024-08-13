@@ -60,6 +60,7 @@
 #define INGRESS_SERVER_RST_RCVD 24
 #define INGRESS_SERVER_FINAL_ACK_RCVD 25
 #define MATCHED_DROP_FILTER 26
+#define CLIENT_INITIATED_ICMP_ECHO 29
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
@@ -96,6 +97,20 @@ struct tuple_key {
     __u16 dport;
 };
 
+/*Key to icmp_echo_map*/
+struct icmp_key {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
+    __u16 id;
+    __u16 seq;
+};
+
 /*Value to tcp_map*/
 struct tcp_state {
     unsigned long long tstamp;
@@ -116,6 +131,11 @@ struct udp_state {
     unsigned long long tstamp;
 };
 
+/*Value to icmp_echo_map*/
+struct icmp_state {
+    unsigned long long tstamp;
+};
+
 /*Key to masquerade_map*/
 struct masq_key {
     uint32_t ifindex;
@@ -128,7 +148,7 @@ struct masq_key {
     __u16 dport;
 };
 
-/*value to masquerade_map*/
+/*value to masquerade_map and icmp_masquerade_map*/
 struct masq_value {
     union {
         __u32 ip;
@@ -278,14 +298,6 @@ struct {
 } egress_matched_map SEC(".maps");
 
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-     __uint(key_size, sizeof(struct masq_key));
-     __uint(value_size,sizeof(struct masq_value));
-     __uint(max_entries, BPF_MAX_SESSIONS * 2);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
-} masquerade_map SEC(".maps");
-
-struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(key_size, sizeof(struct match6_key));
     __uint(value_size, sizeof(struct tproxy6_key));
@@ -413,6 +425,31 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } udp_ingress_map SEC(".maps");
 
+/*tracks icmp echo sessions*/
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct icmp_key));
+     __uint(value_size,sizeof(struct icmp_state));
+     __uint(max_entries, BPF_MAX_SESSIONS);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} icmp_echo_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct masq_key));
+     __uint(value_size,sizeof(struct masq_value));
+     __uint(max_entries, BPF_MAX_SESSIONS * 2);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} masquerade_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct icmp_key));
+     __uint(value_size,sizeof(struct masq_value));
+     __uint(max_entries, BPF_MAX_SESSIONS * 2);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} icmp_masquerade_map SEC(".maps");
+
 /*Ringbuf map*/
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -513,6 +550,11 @@ static inline struct udp_state *get_udp_ingress(struct tuple_key key){
 
 static inline void del_udp_ingress(struct tuple_key key){
      bpf_map_delete_elem(&udp_ingress_map, &key);
+}
+
+/*Insert entry into icmp echo state table*/
+static inline void insert_icmp(struct icmp_state istate, struct icmp_key key){
+     bpf_map_update_elem(&icmp_echo_map, &key, &istate,0);
 }
 
 static inline struct diag_ip4 *get_diag_ip4(__u32 key){
@@ -822,6 +864,29 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     send_event(&event);
                     return TC_ACT_SHOT;
                 }
+                if((skb->ifindex != 1) && (icmph->type == 8) && (icmph->code == 0)){
+                    struct icmp_key ik = {0};
+                    ik.__in46_u_src.ip = iph->saddr;
+                    ik.__in46_u_dst.ip = iph->daddr;
+                    __u16 *id = (__u16 *)((unsigned long)icmph + 4);
+                    __u16 *seq = (__u16 *)((unsigned long)icmph + 6);
+                    ik.id = *id;
+                    ik.seq = *seq;
+                    struct icmp_state is = {
+                        tstamp
+                    };
+                    insert_icmp(is, ik);
+                    if(local_diag->verbose){
+                        __u32 saddr_array[4] = {iph->saddr,0,0,0};
+                        __u32 daddr_array[4] = {iph->daddr,0,0,0};
+                        memcpy(event.saddr, saddr_array, sizeof(saddr_array));
+                        memcpy(event.daddr, daddr_array, sizeof(daddr_array));
+                        event.tracking_code = CLIENT_INITIATED_ICMP_ECHO;
+                        send_event(&event);
+                    }
+                    return TC_ACT_OK;
+                }
+
                 if((skb->ifindex != 1) && (icmph->type == 0) && (icmph->code == 0)){
                     if(local_diag->echo){
                         return TC_ACT_OK;
@@ -847,6 +912,26 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     event.error_code = ICMP_HEADER_TOO_BIG;
                     send_event(&event);
                     return TC_ACT_SHOT;
+                }
+                if((skb->ifindex != 1) && (icmp6h->icmp6_type == 128) && (icmp6h->icmp6_code == 0)){
+                    struct icmp_key ik = {0};
+                    memcpy(ik.__in46_u_src.ip6, ip6h->saddr.in6_u.u6_addr32, sizeof(ip6h->saddr.in6_u.u6_addr32));
+                    memcpy(ik.__in46_u_dst.ip6, ip6h->daddr.in6_u.u6_addr32, sizeof(ip6h->daddr.in6_u.u6_addr32));
+                    __u16 *id = (__u16 *)((unsigned long)icmp6h + 4);
+                    __u16 *seq = (__u16 *)((unsigned long)icmp6h + 6);
+                    ik.id = *id;
+                    ik.seq = *seq;
+                    struct icmp_state is = {
+                        tstamp
+                    };
+                    insert_icmp(is, ik);
+                    if(local_diag->verbose){
+                        memcpy(event.saddr, ip6h->saddr.in6_u.u6_addr32, sizeof(ip6h->saddr.in6_u.u6_addr32));
+                        memcpy(event.daddr, ip6h->daddr.in6_u.u6_addr32, sizeof(ip6h->daddr.in6_u.u6_addr32));
+                        event.tracking_code = CLIENT_INITIATED_ICMP_ECHO;
+                        send_event(&event);
+                    }
+                    return TC_ACT_OK;
                 }
                 if(skb->ifindex != 1){
                     if((icmp6h->icmp6_type == 129) && (icmp6h->icmp6_code == 0)){ //echo-reply

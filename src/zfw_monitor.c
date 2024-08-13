@@ -65,6 +65,9 @@
 #define INGRESS_SERVER_RST_RCVD 24
 #define INGRESS_SERVER_FINAL_ACK_RCVD 25
 #define MATCHED_DROP_FILTER 26
+#define ICMP_MATCHED_EXPIRED_STATE 27
+#define ICMP_MATCHED_ACTIVE_STATE 28
+#define CLIENT_INITIATED_ICMP_ECHO 29
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 
@@ -78,7 +81,7 @@ char check_alt[IF_NAMESIZE];
 char doc[] = "zfw_monitor -- ebpf firewall monitor tool";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *argp_program_version = "0.8.12";
+const char *argp_program_version = "0.8.13";
 union bpf_attr rb_map;
 int rb_fd = -1;
 
@@ -507,7 +510,6 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "MATCHED_DROP_FILTER";
                     }
-                    printf("code=%d\n", code);
 
                     if (state)
                     {
@@ -525,10 +527,36 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 else if (evt->proto == IPPROTO_ICMP && ifname)
                 {
+                    char *state = NULL;
                     __u16 code = evt->tracking_code;
                     __u8 inner_ttl = evt->dest[0];
                     __u8 outer_ttl = evt->source[0];
-                    if (code == 4)
+                    if (code == ICMP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "ICMP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == ICMP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "ICMP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == CLIENT_INITIATED_ICMP_ECHO)
+                    {
+                        state = "CLIENT_INITIATED_ICMP_ECHO";
+                    }
+                    if(state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s : %s > %s outbound_tracking ICMP %s ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, daddr,(evt->direction == INGRESS) ? "ECHO-REPLY" : "ECHO" ,state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                    else if (code == 4)
                     {
                         /*evt->sport is use repurposed store next hop mtu*/
                         sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
@@ -826,6 +854,35 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         sprintf(message, "%s : %s : %s : %s :%s:%d > %s:%d outbound_tracking ---> %s\n", ts, ifname,
                                 (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, ntohs(evt->sport), daddr6, ntohs(evt->dport), state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                }else if (evt->proto == IPPROTO_ICMPV6 && ifname)
+                {
+                    char *state = NULL;
+                    __u16 code = evt->tracking_code;
+                    if (code == ICMP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "ICMP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == ICMP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "ICMP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == CLIENT_INITIATED_ICMP_ECHO)
+                    {
+                        state = "CLIENT_INITIATED_ICMP_ECHO";
+                    }
+                    if(state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s : %s > %s outbound_tracking ICMP %s ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, daddr6,(evt->direction == INGRESS) ? "ECHO-REPLY" : "ECHO" ,state);
                         if (logging)
                         {
                             res = write_log(log_file_name, message);
