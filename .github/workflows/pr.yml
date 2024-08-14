@@ -1,0 +1,343 @@
+---
+name: pr
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+env:
+  APP_NAME: 'zfw'
+  MAINTAINER: 'Robert Caamano'
+  DESC: 'An ebpf based statefull fw for openziti edge-routers and tunnelers'
+  ROUTER_PREFIX: 'zfw-router'
+  TF_VAR_test_iterate_count: ${{ vars.TEST_ITERATE_COUNT }}
+  NF_API_CLIENT_ID: "${{ secrets.NF_API_CLIENT_ID }}"
+  NF_API_CLIENT_SECRET: "${{ secrets.NF_API_CLIENT_SECRET }}"
+
+jobs: 
+  build_amd64_release:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    strategy:
+      matrix:
+        goos: [linux]
+        ziti_type: [tunnel, router]
+        goarch: [amd64]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+          
+      - name: Install EBPF Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get upgrade -yqq
+          sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev libjson-c-dev alien
+          
+      - name: Compile Object file from Source
+        run: |
+          git clone https://github.com/libbpf/libbpf.git
+          cd libbpf/src
+          mkdir build root
+          BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root make install
+          cd ../../
+          clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
+          clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
+          clang -g -O2 -Wall -Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
+          clang -g -O2 -Wall -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw -static
+          clang -g -O2 -Wall -O1 src/zfw_monitor.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw_monitor -static
+          gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
+      
+      - name: Get version
+        run: echo "version=`files/bin/zfw -V`" >> $GITHUB_OUTPUT
+        id: version
+
+      - name: Deb directory
+        run: echo "deb_dir=${{ env.APP_NAME }}-${{ matrix.ziti_type }}_${{ steps.version.outputs.version }}_${{ matrix.goarch }}" >> $GITHUB_OUTPUT
+        id: deb_dir
+        
+      - name: Deb Object File
+        run: |
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN
+          touch ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Package: ${{ env.APP_NAME }}-${{ matrix.ziti_type }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Version: ${{ steps.version.outputs.version }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Architecture: ${{ matrix.goarch }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Maintainer: ${{ env.MAINTAINER }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Description: ${{ env.DESC }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d
+          cp -p CHANGELOG.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p README.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p LICENSE ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
+          cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
+          cp -p files/scripts/zfw_refresh ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/
+          cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
+          cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_monitor
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
+          chmod 644 ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/zfw_refresh
+          ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
+          ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
+
+      - name: Set Deb Predepends
+        if: ${{ matrix.ziti_type == 'tunnel' }}
+        run: |
+          echo 'Pre-Depends: ziti-edge-tunnel (>= 0.22.5)' >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          cp -p files/services/ziti-fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          cp -p files/services/ziti-wrapper.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          cp -p files/bin/zfw_tunnwrapper ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
+      
+      - name: Standalone FW service and router revert
+        if: ${{ matrix.ziti_type == 'router' }}
+        run: |
+          cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          cp -p files/scripts/revert_ebpf_router.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/revert_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
+
+      - name: Build Deb package    
+        run: |
+          dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
+
+      - name: Build rpm package    
+        run: |
+          sudo alien -r ${{ steps.deb_dir.outputs.deb_dir }}.deb
+          mv ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}-2.x86_64.rpm ${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ steps.version.outputs.version }}.x86_64.rpm
+                      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
+          path: |
+            ./*.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-rpm
+          path: |
+            ./*.rpm
+      
+  
+  build_arm64_release:
+    runs-on: [self-hosted, linux, ARM64]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    strategy:
+      matrix: 
+        goos: [linux]
+        ziti_type: [tunnel, router]
+        goarch: [arm64]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+          
+      - name: Install EBPF Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get upgrade -yqq
+          sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev
+          sudo apt-get install -y linux-headers-$(uname -r)
+    
+      - name: Compile Object file from Source
+        run: | 
+          git clone https://github.com/libbpf/libbpf.git
+          cd libbpf/src
+          mkdir build root
+          BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root make install
+          cd ../../
+          clang -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_tc_ingress.o src/zfw_tc_ingress.c
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_xdp_tun_ingress.o src/zfw_xdp_tun_ingress.c
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -Wextra -target bpf -c -o files/bin/zfw_tc_outbound_track.o src/zfw_tc_outbound_track.c
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -D BPF_MAX_ENTRIES=100000 -O1 src/zfw.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw -static
+          clang -g -O2 -Wall -I /usr/include/aarch64-linux-gnu/ -O1 src/zfw_monitor.c -L ../../libbpf/src/root/usr/lib64/ -lbpf -lelf -lz -o files/bin/zfw_monitor -static
+          gcc -o files/bin/zfw_tunnwrapper src/zfw_tunnel_wrapper.c -l json-c
+
+      - name: Get version
+        run: echo "version=`files/bin/zfw -V`" >> $GITHUB_OUTPUT
+        id: version
+
+      - name: Deb directory
+        run: echo "deb_dir=${{ env.APP_NAME }}-${{ matrix.ziti_type }}_${{ steps.version.outputs.version }}_${{ matrix.goarch }}" >> $GITHUB_OUTPUT
+        id: deb_dir
+        
+      - name: Deb artifact directory setup
+        run: |
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN
+          touch ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Package: ${{ env.APP_NAME }}-${{ matrix.ziti_type }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Version: ${{ steps.version.outputs.version }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Architecture: ${{ matrix.goarch }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Maintainer: ${{ env.MAINTAINER }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          echo Description: ${{ env.DESC }} >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d
+          mkdir -p ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d
+          cp -p CHANGELOG.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p README.md ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p LICENSE ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_tc_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_tc_outbound_track.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_${{ matrix.ziti_type }}.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/user_rules.sh.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/
+          cp -p files/scripts/zfwlogs ${{ steps.deb_dir.outputs.deb_dir }}/etc/logrotate.d/
+          cp -p files/scripts/zfw_refresh ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/
+          cp -p files/json/ebpf_config.json.sample ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/etc/
+          cp -p files/services/zfw-logging.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_monitor
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_${{ matrix.ziti_type }}.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/user/user_rules.sh.sample
+          chmod 644 ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/zfw_refresh
+          ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
+          ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
+     
+      - name: Set Deb Predepends
+        if: ${{ matrix.ziti_type == 'tunnel' }}
+        run: |
+          echo 'Pre-Depends: ziti-edge-tunnel (>= 0.22.5)' >> ${{ steps.deb_dir.outputs.deb_dir }}/DEBIAN/control
+          cp -p files/services/ziti-fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          cp -p files/services/ziti-wrapper.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          cp -p files/bin/zfw_tunnwrapper ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/set_xdp_redirect.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
+
+      - name: Standalone FW service and router revert
+        if: ${{ matrix.ziti_type == 'router' }}
+        run: |
+          cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
+          cp -p files/scripts/revert_ebpf_router.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/start_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          cp -p files/scripts/revert_ebpf_controller.py ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
+          chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
+
+      - name: Build deb package    
+        run: |
+          dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
+                      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
+          path: |
+            ./*.deb
+
+
+  regression_test:
+    needs: [build_amd64_release, build_arm64_release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write 
+    steps: 
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: netfoundry/cloud-network-lb-ingress
+      - 
+        name: Authenticate to AWS Cloud
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ secrets.AWS_ROLE_FOR_GITHUB }}
+          role-session-name: GitHubActions
+          audience: sts.amazonaws.com
+          role-duration-seconds: 14400
+      - 
+        name: Install terraform jq
+        run: |
+          sudo apt-get update 
+          sudo apt-get install -y gnupg software-properties-common
+          wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | \
+            sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+            https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+            sudo tee /etc/apt/sources.list.d/hashicorp.list
+        shell: bash
+      - 
+        name: Start test
+        if: success() || failure()
+        run: |
+          cd ${{ github.workspace }}/AWS/tf-provider/
+          ssh-keygen -t rsa -b 4096 -C "cldeng@netfoundry.io" -f ./zfw_rsa -q -N ""
+          export TF_VAR_ssh_public_key=`cat ./zfw_rsa.pub`
+          ./test_cases.sh run
+        shell: bash
+      - 
+        name: CHeck intercept side test result
+        if: success() || failure()
+        run: |
+          set +e
+          cd ${{ github.workspace }}/AWS/tf-provider/
+          while :
+          do
+            sleep 900
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' > ${{ github.workspace }}/AWS/tf-provider/result
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[1]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' >> ${{ github.workspace }}/AWS/tf-provider/result
+            /usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result
+            PASS=`/usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result | grep Passed |wc -l`
+            FAIL=`/usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result | grep Failed |wc -l`
+            echo $PASS
+            echo $FAIL
+            if [ $PASS == 2 ]; then
+              echo -e "\033[32mPASSED\033[m"
+              cat ./result
+              exit 0
+            elif [ $PASS == 1 ]; then
+              echo -e "\033[33mPARTIALLYPASSED\033[m"
+              cat ./result
+              exit 1
+            elif [ $FAIL == 2 ]; then
+              echo -e "\033[31mFAILED\033[m"
+              cat ./result
+              exit 1
+            else
+              cat ./result
+              continue
+            fi
+          done
+        shell: bash
+        timeout-minutes: 45
+      - 
+        name: Clean up test
+        if: success() || failure()
+        run: |
+          cd ${{ github.workspace }}/AWS/tf-provider/
+          export TF_VAR_ssh_public_key=`cat ./zfw_rsa.pub`
+          ./test_cases.sh cleanup
+          rm ./zfw_rsa*
+        shell: bash
+          
+                  
+          
+                    
+          
+                  
+                  
