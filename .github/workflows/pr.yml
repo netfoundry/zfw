@@ -324,7 +324,7 @@ jobs:
             fi
           done
         shell: bash
-        timeout-minutes: 45
+        timeout-minutes: ${{ vars.STEP_TIMEOUT}}
       - 
         name: Clean up test
         if: success() || failure()
