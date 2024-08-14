@@ -291,7 +291,7 @@ jobs:
           ./test_cases.sh run
         shell: bash
       - 
-        name: CHeck intercept side test result
+        name: Check intercept side test result
         if: success() || failure()
         run: |
           set +e
