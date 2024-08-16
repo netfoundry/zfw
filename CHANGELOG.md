@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file. The format 
 - Added Outbound tracking for IPv4 and IPv6 ICMP Echo
 - Added Masquerade for passthrough icmp echos.
 - Fixed an issue where both the packages and Makefile were limiting egress rule entries to 100 instead of 100000.
+- Fixed issue where incorrect count check was being performed on insert for ipv6 rules to verify if they had reached
+  BPF_MAX_ENTRIES.
   
 ###
 # [0.8.12] - 2024-08-07

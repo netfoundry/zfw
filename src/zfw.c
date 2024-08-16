@@ -311,6 +311,7 @@ void open_range_map();
 void if_list_ext_delete_key(struct port_extension_key key);
 bool interface_map();
 void interface_map6();
+int get_key_count6();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
 void if6_delete_key(uint32_t key);
@@ -3641,7 +3642,7 @@ void map_insert6()
         printf("INSERT FAILURE -- INVALID PORT RANGE: low_port(%u) > high_port(%u)\n", low_port, high_port);
         close_maps(1);
     }
-    if (get_key_count() == BPF_MAX_ENTRIES)
+    if (get_key_count6() == BPF_MAX_ENTRIES)
     {
         printf("INSERT FAILURE -- MAX PREFIX TUPLES REACHED\n");
         close_maps(1);
