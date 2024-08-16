@@ -1308,44 +1308,235 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         event.source[0] = iph->ttl;
                         event.dest[0] = inner_iph->ttl; 
                         event.dest[1] = inner_iph->protocol;
-                        struct bpf_sock_tuple *o_session = (struct bpf_sock_tuple *)(void*)(long)&inner_iph->saddr; 
-                        if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
-                            event.error_code = IP_TUPLE_TOO_BIG;
-                            send_event(&event);
-                            return TC_ACT_SHOT;
-                        }
                         if(inner_iph->protocol == IPPROTO_TCP){
-                            sk = bpf_skc_lookup_tcp(skb, o_session, sizeof(o_session->ipv4),BPF_F_CURRENT_NETNS, 0);
-                            if(sk){
-                                if (sk->state == BPF_TCP_LISTEN){
-                                    event.proto = IPPROTO_ICMP;
-                                    __u32 saddr_array[4] = {iph->saddr,0,0,0};
-                                    __u32 daddr_array[4] = {o_session->ipv4.daddr,0,0,0};
-                                    memcpy(event.saddr,saddr_array, sizeof(saddr_array));
-                                    memcpy(event.daddr,daddr_array, sizeof(daddr_array));
-                                    event.tracking_code = icmph->code;
-                                    if(icmph->code == 4){
-                                        event.sport = icmph->un.frag.mtu;
+                            struct bpf_sock_tuple *o_session = (struct bpf_sock_tuple *)(long)(long)&inner_iph->saddr; 
+                            if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
+                                event.error_code = IP_TUPLE_TOO_BIG;
+                                send_event(&event);
+                                return TC_ACT_SHOT;
+                            }
+                            if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] == iph->daddr)){
+                                struct masq_key mk = {0};
+                                mk.__in46_u_dest.ip = o_session->ipv4.daddr;
+                                mk.dport = o_session->ipv4.dport;
+                                mk.sport = o_session->ipv4.sport;
+                                mk.ifindex = event.ifindex;
+                                mk.protocol = IPPROTO_TCP;
+                                struct masq_value *mv = get_masquerade(mk);
+                                if(mv){
+                                    __u32 l3_sum = bpf_csum_diff((__u32 *)&iph->daddr, sizeof(iph->daddr),(__u32 *)&mv->__in46_u_origin.ip, sizeof(mv->__in46_u_origin.ip), 0);
+                                    iph->daddr = mv->__in46_u_origin.ip;
+                                    /*Calculate l3 Checksum*/
+                                    bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
                                     }
-                                    event.dport = o_session->ipv4.dport;
-                                    send_event(&event);
-                                    bpf_sk_release(sk);
-                                    return TC_ACT_OK;
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    l3_sum = bpf_csum_diff((__u32 *)&inner_iph->saddr, sizeof(__u32),(__u32 *)&mv->__in46_u_origin.ip, sizeof(__u32), 0);
+                                    inner_iph->saddr = mv->__in46_u_origin.ip;
+                                    /*Calculate l3 Checksum*/
+                                    bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
+                                     offsetof(struct tcphdr, check),inner_iph->saddr, mv->__in46_u_origin.ip, flags | 4);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    o_session = (struct bpf_sock_tuple *)(void*)(long)&inner_iph->saddr; 
+                                    if ((unsigned long)(o_session + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = IP_TUPLE_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
                                 }
-                                bpf_sk_release(sk);
+                            }
+                            struct tuple_key tk = {0};
+                            tk.__in46_u_dst.ip = o_session->ipv4.daddr;
+                            tk.__in46_u_src.ip = iph->daddr;
+                            tk.dport = o_session->ipv4.dport;
+                            tk.sport = o_session->ipv4.sport;
+                            struct tcp_state *ts = get_tcp(tk);
+                            if(ts){
+                                return TC_ACT_OK;
+                            }else{
+                                struct bpf_sock_tuple reverse ={0};
+                                reverse.ipv4.saddr = o_session->ipv4.daddr;
+                                reverse.ipv4.daddr = o_session->ipv4.saddr;
+                                reverse.ipv4.dport = o_session->ipv4.sport;
+                                reverse.ipv4.sport = o_session->ipv4.dport;
+                                sk = bpf_skc_lookup_tcp(skb, &reverse, sizeof(reverse.ipv4),BPF_F_CURRENT_NETNS, 0);
+                                if(sk){
+                                    if (sk->state != BPF_TCP_LISTEN){
+                                        event.proto = IPPROTO_ICMP;
+                                        __u32 saddr_array[4] = {iph->saddr,0,0,0};
+                                        __u32 daddr_array[4] = {o_session->ipv4.daddr,0,0,0};
+                                        memcpy(event.saddr,saddr_array, sizeof(saddr_array));
+                                        memcpy(event.daddr,daddr_array, sizeof(daddr_array));
+                                        event.tracking_code = icmph->code;
+                                        if(icmph->code == 4){
+                                            event.sport = icmph->un.frag.mtu;
+                                        }
+                                        event.dport = o_session->ipv4.dport;
+                                        send_event(&event);
+                                        bpf_sk_release(sk);
+                                        return TC_ACT_OK;
+                                    }
+                                    bpf_sk_release(sk);
+                                }
                             }
                         }
-                        else{
+                        else
+                        {
+                            struct udp_v4_tuple {
+                                __u32 saddr;
+                                __u32 daddr;
+                                __u16 sport;
+                                __u16 dport;
+                            };
+                            struct udp_v4_tuple *u_session = (struct udp_v4_tuple *)(long)(long)&inner_iph->saddr; 
+                            if ((unsigned long)(u_session + 1) > (unsigned long)skb->data_end){
+                                event.error_code = IP_TUPLE_TOO_BIG;
+                                send_event(&event);
+                                return TC_ACT_SHOT;
+                            }
+                            if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] == iph->daddr)){
+                                struct masq_key mk = {0};
+                                mk.__in46_u_dest.ip = u_session->daddr;
+                                mk.dport = u_session->dport;
+                                mk.sport = u_session->sport;
+                                mk.ifindex = event.ifindex;
+                                mk.protocol = IPPROTO_UDP; 
+                                struct masq_value *mv = get_masquerade(mk);
+                                if(mv){
+                                    __u32 l3_sum = bpf_csum_diff((__u32 *)&iph->daddr, sizeof(iph->daddr),(__u32 *)&mv->__in46_u_origin.ip, sizeof(mv->__in46_u_origin.ip), 0);
+                                    iph->daddr = mv->__in46_u_origin.ip;
+                                    bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    l3_sum = bpf_csum_diff((__u32 *)&inner_iph->saddr, sizeof(__u32),(__u32 *)&mv->__in46_u_origin.ip, sizeof(__u32), 0);
+                                    inner_iph->saddr = mv->__in46_u_origin.ip;
+                                   
+                                    bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
+                                     offsetof(struct udphdr, check),inner_iph->saddr, mv->__in46_u_origin.ip, flags | 4);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 
+                                    if ((unsigned long)(u_session + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = IP_TUPLE_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                }
+                            }
                             struct bpf_sock_tuple oudp_session = {0};
-                            oudp_session.ipv4.daddr = o_session->ipv4.saddr;
-                            oudp_session.ipv4.saddr = o_session->ipv4.daddr;
-                            oudp_session.ipv4.dport = o_session->ipv4.sport;
-                            oudp_session.ipv4.sport = o_session->ipv4.dport;
+                            oudp_session.ipv4.daddr = inner_iph->saddr;
+                            oudp_session.ipv4.saddr = inner_iph->daddr;
+                            oudp_session.ipv4.dport = u_session->sport;
+                            oudp_session.ipv4.sport = u_session->dport;
                             sk = bpf_sk_lookup_udp(skb, &oudp_session, sizeof(oudp_session.ipv4), BPF_F_CURRENT_NETNS, 0);
                             if(sk){
                                 event.proto = IPPROTO_ICMP;
                                 __u32 saddr_array[4] = {iph->saddr,0,0,0};
-                                __u32 daddr_array[4] = {o_session->ipv4.daddr,0,0,0};
+                                __u32 daddr_array[4] = {inner_iph->daddr,0,0,0};
                                 memcpy(event.saddr,saddr_array, sizeof(saddr_array));
                                 memcpy(event.daddr,daddr_array, sizeof(daddr_array));
                                 event.tracking_code = icmph->code;
@@ -1354,10 +1545,20 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 }else{
                                     event.sport = inner_iph->protocol;
                                 }
-                                event.dport = o_session->ipv4.dport;
+                                event.dport = u_session->dport;
                                 send_event(&event);
                                 bpf_sk_release(sk);
                                 return TC_ACT_OK;
+                            }else{
+                                struct tuple_key uk = {0};
+                                uk.__in46_u_dst.ip = inner_iph->daddr;
+                                uk.__in46_u_src.ip = iph->daddr;
+                                uk.dport = u_session->dport;
+                                uk.sport = u_session->sport;
+                                struct udp_state *us = get_udp(uk);
+                                if(us){
+                                    return TC_ACT_OK;
+                                }
                             }
                         }
 

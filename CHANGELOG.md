@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.14] - 2024-08-16
+- Fixed issue where icmp type 3 tcp only accepting inbound for ports associated with local listening ports
+- Added support for stateful IPv4 icmp unreachable support both in the case of masquerade and non masquerade, for udp
+  and tcp outgoing initiated connections only.
+
+###
 # [0.8.13] - 2024-08-12
 - Added Outbound tracking for IPv4 and IPv6 ICMP Echo
 - Added Masquerade for passthrough icmp echos.
