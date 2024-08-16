@@ -17,7 +17,7 @@ zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass thro
 This function requires that both ingress and egress TC filters are enabled on outbound interface. 
 
 ### Explicit Deny Rules
-This feature adds the ability to enter explicit deny rules by appending ```-d, --disable to the -I, --insert rule`` to both ingress and egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
+This feature adds the ability to enter explicit deny rules by appending ```-d, --disable to the -I, --insert rule``` to both ingress and egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
 
 If you wanted to allow all tcp 443 traffic outbound except to 10.1.0.0/16 you would enter the following egress rules:
 
