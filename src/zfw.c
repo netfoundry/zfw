@@ -88,6 +88,9 @@
 #define INGRESS_SERVER_RST_RCVD 24
 #define INGRESS_SERVER_FINAL_ACK_RCVD 25
 #define MATCHED_DROP_FILTER 26
+#define ICMP_MATCHED_EXPIRED_STATE 27
+#define ICMP_MATCHED_ACTIVE_STATE 28
+#define CLIENT_INITIATED_ICMP_ECHO 29
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
 
@@ -215,6 +218,8 @@ const char *egress6_map_path = "/sys/fs/bpf/tc/globals/zt_egress6_map";
 const char *egress_count_map_path = "/sys/fs/bpf/tc/globals/egress_count_map";
 const char *egress_count6_map_path = "/sys/fs/bpf/tc/globals/egress6_count_map";
 const char *masquerade_map_path = "/sys/fs/bpf/tc/globals/masquerade_map";
+const char *icmp_masquerade_map_path = "/sys/fs/bpf/tc/globals/icmp_masquerade_map";
+const char *icmp_echo_map_path = "/sys/fs/bpf/tc/globals/icmp_echo_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -236,7 +241,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.12";
+const char *argp_program_version = "0.8.13";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -306,6 +311,7 @@ void open_range_map();
 void if_list_ext_delete_key(struct port_extension_key key);
 bool interface_map();
 void interface_map6();
+int get_key_count6();
 void close_maps(int code);
 void if_delete_key(uint32_t key);
 void if6_delete_key(uint32_t key);
@@ -651,14 +657,15 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[34] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[36] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
-                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, masquerade_map_path};
-    for (int map_count = 0; map_count < 34; map_count++)
+                             egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, 
+                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path};
+    for (int map_count = 0; map_count < 36; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -3098,7 +3105,10 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "MATCHED_DROP_FILTER";
                     }
-                    printf("code=%d\n", code);
+                    else if (code == MATCHED_DROP_FILTER)
+                    {
+                        state = "MATCHED_DROP_FILTER";
+                    }
 
                     if (state)
                     {
@@ -3116,10 +3126,36 @@ static int process_events(void *ctx, void *data, size_t len)
                 }
                 else if (evt->proto == IPPROTO_ICMP && ifname)
                 {
+                    char *state = NULL;
                     __u16 code = evt->tracking_code;
                     __u8 inner_ttl = evt->dest[0];
                     __u8 outer_ttl = evt->source[0];
-                    if (code == 4)
+                    if (code == ICMP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "ICMP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == ICMP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "ICMP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == CLIENT_INITIATED_ICMP_ECHO)
+                    {
+                        state = "CLIENT_INITIATED_ICMP_ECHO";
+                    }
+                    if(state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s : %s > %s outbound_tracking ICMP %s ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr, daddr,(evt->direction == INGRESS) ? "ECHO-REPLY" : "ECHO" ,state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
+                    else if (code == 4)
                     {
                         /*evt->sport is use repurposed store next hop mtu*/
                         sprintf(message, "%s : %s : %s : %s :%s --> reported next hop mtu:%d > FRAGMENTATION NEEDED IN PATH TO:%s:%d\n", ts, ifname,
@@ -3426,6 +3462,35 @@ static int process_events(void *ctx, void *data, size_t len)
                             printf("%s", message);
                         }
                     }
+                }else if (evt->proto == IPPROTO_ICMPV6 && ifname)
+                {
+                    char *state = NULL;
+                    __u16 code = evt->tracking_code;
+                    if (code == ICMP_MATCHED_ACTIVE_STATE)
+                    {
+                        state = "ICMP_MATCHED_ACTIVE_STATE";
+                    }
+                    else if (code == ICMP_MATCHED_EXPIRED_STATE)
+                    {
+                        state = "ICMP_MATCHED_EXPIRED_STATE";
+                    }
+                    else if (code == CLIENT_INITIATED_ICMP_ECHO)
+                    {
+                        state = "CLIENT_INITIATED_ICMP_ECHO";
+                    }
+                    if(state)
+                    {
+                        sprintf(message, "%s : %s : %s : %s : %s > %s outbound_tracking ICMP %s ---> %s\n", ts, ifname,
+                                (evt->direction == INGRESS) ? "INGRESS" : "EGRESS", protocol, saddr6, daddr6,(evt->direction == INGRESS) ? "ECHO-REPLY" : "ECHO" ,state);
+                        if (logging)
+                        {
+                            res = write_log(log_file_name, message);
+                        }
+                        else
+                        {
+                            printf("%s", message);
+                        }
+                    }
                 }
                 else if (ifname)
                 {
@@ -3577,7 +3642,7 @@ void map_insert6()
         printf("INSERT FAILURE -- INVALID PORT RANGE: low_port(%u) > high_port(%u)\n", low_port, high_port);
         close_maps(1);
     }
-    if (get_key_count() == BPF_MAX_ENTRIES)
+    if (get_key_count6() == BPF_MAX_ENTRIES)
     {
         printf("INSERT FAILURE -- MAX PREFIX TUPLES REACHED\n");
         close_maps(1);

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.13] - 2024-08-12
+- Added Outbound tracking for IPv4 and IPv6 ICMP Echo
+- Added Masquerade for passthrough icmp echos.
+- Fixed an issue where both the packages and Makefile were limiting egress rule entries to 100 instead of 100000.
+- Fixed issue where incorrect count check was being performed on insert for ipv6 rules to verify if they had reached
+  BPF_MAX_ENTRIES.
+  
+###
 # [0.8.12] - 2024-08-07
 - Change ci workflow display name and to trigger on push to branches other than main.
 - Refactored install.sh, start_ebpf_controller.py and revert_ebpf_controller.py to work with controller not running as root.

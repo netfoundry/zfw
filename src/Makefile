@@ -30,9 +30,9 @@ else
 endif
 zfw_tc_outbound_track.o: zfw_tc_outbound_track.c
 ifeq    ($(uname_m),aarch64)
-	$(CC) -g -O2 -Wall -Wextra -target bpf -c -o zfw_tc_outbound_track.o zfw_tc_outbound_track.c $(CFLAGS)
+	$(CC) -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -Wextra -target bpf -c -o zfw_tc_outbound_track.o zfw_tc_outbound_track.c $(CFLAGS)
 else
-	$(CC) -g -O2 -Wall -Wextra -target bpf -c -o zfw_tc_outbound_track.o zfw_tc_outbound_track.c
+	$(CC) -D BPF_MAX_ENTRIES=100000 -g -O2 -Wall -Wextra -target bpf -c -o zfw_tc_outbound_track.o zfw_tc_outbound_track.c
 endif
 zfw_tunnwrapper: zfw_tunnel_wrapper.c
 	$(CC) -o zfw_tunnwrapper zfw_tunnel_wrapper.c -l json-c

@@ -1,14 +1,18 @@
 ---
-name: release
+name: pr
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    types: [opened, synchronize]
+
 env:
   APP_NAME: 'zfw'
   MAINTAINER: 'Robert Caamano'
   DESC: 'An ebpf based statefull fw for openziti edge-routers and tunnelers'
+  ROUTER_PREFIX: 'zfw-er'
+  TF_VAR_test_iterate_count: ${{ vars.TEST_ITERATE_COUNT }}
+  NF_API_CLIENT_ID: "${{ secrets.NF_API_CLIENT_ID }}"
+  NF_API_CLIENT_SECRET: "${{ secrets.NF_API_CLIENT_SECRET }}"
 
 jobs: 
   build_amd64_release:
@@ -99,8 +103,8 @@ jobs:
           cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
-
-      - name: Standalone FW service, controller and router revert
+      
+      - name: Standalone FW service and router revert
         if: ${{ matrix.ziti_type == 'router' }}
         run: |
           cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
@@ -110,8 +114,7 @@ jobs:
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_router.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/start_ebpf_controller.py
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/revert_ebpf_controller.py
-          
-          
+
       - name: Build Deb package    
         run: |
           dpkg-deb --build -Z gzip --root-owner-group ${{ steps.deb_dir.outputs.deb_dir }}
@@ -132,6 +135,7 @@ jobs:
           name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-rpm
           path: |
             ./*.rpm
+      
   
   build_arm64_release:
     runs-on: [self-hosted, linux, ARM64]
@@ -152,7 +156,7 @@ jobs:
           sudo apt-get upgrade -yqq
           sudo apt-get install -y jq gcc clang libbpfcc-dev libbpf-dev libjson-c-dev
           sudo apt-get install -y linux-headers-$(uname -r)
-   
+    
       - name: Compile Object file from Source
         run: | 
           git clone https://github.com/libbpf/libbpf.git
@@ -210,7 +214,7 @@ jobs:
           chmod 644 ${{ steps.deb_dir.outputs.deb_dir }}/etc/cron.d/zfw_refresh
           ln -s /opt/openziti/bin/zfw ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw
           ln -s /opt/openziti/bin/zfw_monitor ${{ steps.deb_dir.outputs.deb_dir }}/usr/sbin/zfw_monitor
-
+     
       - name: Set Deb Predepends
         if: ${{ matrix.ziti_type == 'tunnel' }}
         run: |
@@ -222,8 +226,8 @@ jobs:
           cp -p files/bin/zfw_xdp_tun_ingress.o ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/zfw_tunnwrapper
           chmod 744 ${{ steps.deb_dir.outputs.deb_dir }}/opt/openziti/bin/set_xdp_redirect.py
-      
-      - name: Standalone FW service, controller and router revert
+
+      - name: Standalone FW service and router revert
         if: ${{ matrix.ziti_type == 'router' }}
         run: |
           cp -p files/services/fw-init.service ${{ steps.deb_dir.outputs.deb_dir }}/etc/systemd/system/
@@ -243,64 +247,97 @@ jobs:
           name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-deb
           path: |
             ./*.deb
+
+
+  regression_test:
+    needs: [build_amd64_release, build_arm64_release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write 
+    steps: 
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: netfoundry/cloud-network-lb-ingress
+      - 
+        name: Authenticate to AWS Cloud
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ secrets.AWS_ROLE_FOR_GITHUB }}
+          role-session-name: GitHubActions
+          audience: sts.amazonaws.com
+          role-duration-seconds: 14400
+      - 
+        name: Install terraform jq
+        run: |
+          sudo apt-get update 
+          sudo apt-get install -y gnupg software-properties-common
+          wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | \
+            sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+            https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+            sudo tee /etc/apt/sources.list.d/hashicorp.list
+        shell: bash
+      - 
+        name: Start test
+        if: success() || failure()
+        run: |
+          cd ${{ github.workspace }}/AWS/tf-provider/
+          ssh-keygen -t rsa -b 4096 -C "cldeng@netfoundry.io" -f ./zfw_rsa -q -N ""
+          export TF_VAR_ssh_public_key=`cat ./zfw_rsa.pub`
+          ./test_cases.sh run
+        shell: bash
+      - 
+        name: Check intercept side test result
+        if: success() || failure()
+        run: |
+          set +e
+          cd ${{ github.workspace }}/AWS/tf-provider/
+          while :
+          do
+            sleep 900
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' > ${{ github.workspace }}/AWS/tf-provider/result
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[1]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' >> ${{ github.workspace }}/AWS/tf-provider/result
+            /usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result
+            PASS=`/usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result | grep Passed |wc -l`
+            FAIL=`/usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result | grep Failed |wc -l`
+            echo $PASS
+            echo $FAIL
+            if [ $PASS == 2 ]; then
+              echo -e "\033[32mPASSED\033[m"
+              cat ./result
+              exit 0
+            elif [ $PASS == 1 ]; then
+              echo -e "\033[33mPARTIALLYPASSED\033[m"
+              cat ./result
+              exit 1
+            elif [ $FAIL == 2 ]; then
+              echo -e "\033[31mFAILED\033[m"
+              cat ./result
+              exit 1
+            else
+              cat ./result
+              continue
+            fi
+          done
+        shell: bash
+        timeout-minutes: 180
+      - 
+        name: Clean up test
+        if: success() || failure()
+        run: |
+          cd ${{ github.workspace }}/AWS/tf-provider/
+          export TF_VAR_ssh_public_key=`cat ./zfw_rsa.pub`
+          ./test_cases.sh cleanup
+          rm ./zfw_rsa*
+        shell: bash
           
-  deploy_release:
-    runs-on: ubuntu-22.04
-    needs:
-      - build_amd64_release
-      - build_arm64_release
-    strategy:
-      matrix:
-        goos: [linux]
-    steps:
-      - name: Create release
-        uses: ncipollo/release-action@v1.14.0
-        id: release
-        with:
-          draft: false
-          prerelease: false
-          tag: v${{ needs.build_amd64_release.outputs.version }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+                  
           
-  deploy_packages:
-    runs-on: ubuntu-22.04
-    needs:
-      - build_amd64_release
-      - build_arm64_release
-      - deploy_release
-    strategy:
-      matrix:
-        goos: [linux]
-        ziti_type: [tunnel, router]
-        goarch: [amd64, arm64]
-        pkg_type: [deb, rpm]
-    steps:
-      - name: download x86 artifacts
-        if: ${{ (matrix.goarch == 'amd64') && ((matrix.pkg_type != 'deb') || (matrix.pkg_type != 'rpm')) }}
-        uses: actions/download-artifact@v4
-        with:
-          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-${{ matrix.pkg_type }}
-      - name: download arm64 artifacts
-        if: ${{ (matrix.goarch == 'arm64') && (matrix.pkg_type == 'deb') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: artifact-${{ matrix.ziti_type }}-${{ matrix.goarch }}-${{ matrix.pkg_type }}
-      - name: Upload built deb artifacts
-        if: ${{ matrix.pkg_type == 'deb'}}
-        uses: svenstaro/upload-release-action@2.9.0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}_${{ needs.build_amd64_release.outputs.version }}_${{ matrix.goarch }}.${{ matrix.pkg_type }}
-          release_name: ${{ needs.build_amd64_release.outputs.version }}
-          tag: v${{ needs.build_amd64_release.outputs.version }}
-      - name: Upload built x86_64 rpm artifacts
-        if: ${{ (matrix.pkg_type == 'rpm') && (matrix.goarch == 'amd64') }}
-        uses: svenstaro/upload-release-action@2.9.0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.x86_64.${{ matrix.pkg_type }}
-          release_name: ${{ needs.build_amd64_release.outputs.version }}
-          tag: v${{ needs.build_amd64_release.outputs.version }}
+                    
+          
+                  
+                  
