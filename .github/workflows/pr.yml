@@ -10,7 +10,8 @@ env:
   MAINTAINER: 'Robert Caamano'
   DESC: 'An ebpf based statefull fw for openziti edge-routers and tunnelers'
   ROUTER_PREFIX: 'zfw-er'
-  TF_VAR_test_iterate_count: ${{ vars.TEST_ITERATE_COUNT }}
+  NF_NETWORK_NAME: 'dariuszdev02'
+  TF_VAR_test_iterate_count: ${{ fromJSON(vars.TEST_ITERATE_COUNT) }}
   NF_API_CLIENT_ID: "${{ secrets.NF_API_CLIENT_ID }}"
   NF_API_CLIENT_SECRET: "${{ secrets.NF_API_CLIENT_SECRET }}"
 
@@ -296,11 +297,15 @@ jobs:
         run: |
           set +e
           cd ${{ github.workspace }}/AWS/tf-provider/
+          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'
+          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'
           while :
           do
             sleep 900
             /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' > ${{ github.workspace }}/AWS/tf-provider/result
             /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[1]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' >> ${{ github.workspace }}/AWS/tf-provider/result
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/tail -n 30 /var/log/http.log' > ${{ github.workspace }}/AWS/tf-provider/test.log
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[1]) -tq '/usr/bin/tail -n 30 /var/log/http.log' >> ${{ github.workspace }}/AWS/tf-provider/test.log
             /usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result
             PASS=`/usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result | grep Passed |wc -l`
             FAIL=`/usr/bin/cat ${{ github.workspace }}/AWS/tf-provider/result | grep Failed |wc -l`
@@ -313,10 +318,12 @@ jobs:
             elif [ $PASS == 1 ]; then
               echo -e "\033[33mPARTIALLYPASSED\033[m"
               cat ./result
+              cat ./test.log
               exit 1
             elif [ $FAIL == 2 ]; then
               echo -e "\033[31mFAILED\033[m"
               cat ./result
+              cat ./test.log
               exit 1
             else
               cat ./result
@@ -324,7 +331,7 @@ jobs:
             fi
           done
         shell: bash
-        timeout-minutes: 180
+        timeout-minutes: ${{ fromJSON(vars.TEST_TIMEOUT) }}
       - 
         name: Clean up test
         if: success() || failure()
