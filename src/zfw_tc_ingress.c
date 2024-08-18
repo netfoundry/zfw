@@ -1368,9 +1368,38 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                         }
                                         return TC_ACT_SHOT;
                                     }
+                                    struct tcphdr *itcph = (struct tcphdr *)((unsigned long)inner_iph + (inner_iph->ihl * 4));
+                                    if ((unsigned long)(itcph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    __u16 otcpcheck = itcph->check;
                                     int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
                                     bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
-                                     offsetof(struct tcphdr, check),inner_iph->saddr, mv->__in46_u_origin.ip, flags | 4);
+                                     offsetof(struct tcphdr, check), 0, l3_sum, flags | 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    itcph = (struct tcphdr *)((unsigned long)inner_iph + (inner_iph->ihl * 4));
+                                    if ((unsigned long)(itcph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    __u32 l4_sum = bpf_csum_diff((__u32 *)&otcpcheck, sizeof(__u32),(__u32 *)&itcph->check, sizeof(__u32), 0);
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum, flags | 0);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
@@ -1480,27 +1509,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     inner_iph->saddr = mv->__in46_u_origin.ip;
                                    
                                     bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
-                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                                        return TC_ACT_SHOT;
-                                    }
-                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
-                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
-                                        event.error_code = ICMP_HEADER_TOO_BIG;
-                                        send_event(&event);
-                                        return TC_ACT_SHOT;
-                                    }
-                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
-                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
-                                        if(local_diag->verbose){
-                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
-                                            send_event(&event);
-                                        }
-                                        return TC_ACT_SHOT;
-                                    }
-                                    int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
-                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
-                                     offsetof(struct udphdr, check),inner_iph->saddr, mv->__in46_u_origin.ip, flags | 4);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
