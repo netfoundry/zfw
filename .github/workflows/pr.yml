@@ -12,6 +12,7 @@ env:
   ROUTER_PREFIX: 'zfw-er'
   NF_NETWORK_NAME: 'dariuszdev02'
   TF_VAR_test_iterate_count: ${{ fromJSON(vars.TEST_ITERATE_COUNT) }}
+  TF_VAR_github_pt: ${{ secrets.PAT  }}
   NF_API_CLIENT_ID: "${{ secrets.NF_API_CLIENT_ID }}"
   NF_API_CLIENT_SECRET: "${{ secrets.NF_API_CLIENT_SECRET }}"
 
@@ -331,7 +332,7 @@ jobs:
             fi
           done
         shell: bash
-        timeout-minutes: ${{ fromJSON(vars.TEST_TIMEOUT) }}
+        timeout-minutes: ${{ fromJSON(vars.STEP_TIMEOUT) }}
       - 
         name: Clean up test
         if: success() || failure()
