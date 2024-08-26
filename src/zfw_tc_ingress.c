@@ -1969,6 +1969,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             rk.ifindex = event.ifindex;
                             rk.__in46_u_dest.ip = tcp_state_key.__in46_u_src.ip;
                             rk.__in46_u_src.ip = tcp_state_key.__in46_u_dst.ip;
+                            rk.protocol = IPPROTO_TCP;
                             struct masq_value *rv = get_reverse_masquerade(rk);
                             if(rv){
                                 struct masq_key mk = {0};
@@ -1976,6 +1977,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 mk.sport = rv->o_sport;
                                 mk.__in46_u_dest.ip = iph->saddr;
                                 mk.ifindex = event.ifindex;
+                                mk.protocol = IPPROTO_TCP;
                                 del_masq(mk);
                             }
                             del_reverse_masq(rk);
@@ -1999,6 +2001,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 rk.ifindex = event.ifindex;
                                 rk.__in46_u_dest.ip = tcp_state_key.__in46_u_src.ip;
                                 rk.__in46_u_src.ip = tcp_state_key.__in46_u_dst.ip;
+                                rk.protocol = IPPROTO_TCP;
                                 struct masq_value *rv = get_reverse_masquerade(rk);
                                 if(rv){
                                     struct masq_key mk = {0};
@@ -2006,6 +2009,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     mk.sport = rv->o_sport;
                                     mk.__in46_u_dest.ip = iph->saddr;
                                     mk.ifindex = event.ifindex;
+                                    mk.protocol = IPPROTO_TCP;
                                     del_masq(mk);
                                 }
                                 del_reverse_masq(rk);

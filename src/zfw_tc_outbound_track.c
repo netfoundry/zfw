@@ -2431,12 +2431,14 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         rk.ifindex = event.ifindex;
                         rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
                         rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
+                        rk.protocol = IPPROTO_TCP;
                         del_reverse_masq(rk);
                         struct masq_key mk = {0};
                         mk.dport = tcph->dest;
                         mk.sport = tcph->source;
                         mk.__in46_u_dest.ip = iph->daddr;
                         mk.ifindex = event.ifindex;
+                        mk.protocol = IPPROTO_TCP;
                         del_masq(mk);
                     }
                     del_tcp(tcp_state_key);
@@ -2469,12 +2471,14 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             rk.ifindex = event.ifindex;
                             rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
                             rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
+                            rk.protocol = IPPROTO_TCP;
                             del_reverse_masq(rk);
                             struct masq_key mk = {0};
                             mk.dport = tcph->dest;
                             mk.sport = tcph->source;
                             mk.__in46_u_dest.ip = iph->daddr;
                             mk.ifindex = event.ifindex;
+                            mk.protocol = IPPROTO_TCP;
                             del_masq(mk);
                         }
                         del_tcp(tcp_state_key);
