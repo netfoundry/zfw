@@ -279,7 +279,7 @@ if(os.path.exists('/opt/openziti/etc/ebpf_config.json')):
                                     else:
                                         per_interface_rules[interface["Name"]] = False;
                                 else:
-                                    per_interface_rules[interface["Name"]] = False;
+                                    per_interface_rules[interface["Name"]] = True;
                             else:
                                 print('Mandatory key \"Name\" missing skipping internal interface entry!')
 

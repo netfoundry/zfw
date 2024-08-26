@@ -218,6 +218,7 @@ const char *egress6_map_path = "/sys/fs/bpf/tc/globals/zt_egress6_map";
 const char *egress_count_map_path = "/sys/fs/bpf/tc/globals/egress_count_map";
 const char *egress_count6_map_path = "/sys/fs/bpf/tc/globals/egress6_count_map";
 const char *masquerade_map_path = "/sys/fs/bpf/tc/globals/masquerade_map";
+const char *masquerade_reverse_map_path = "/sys/fs/bpf/tc/globals/masquerade_reverse_map";
 const char *icmp_masquerade_map_path = "/sys/fs/bpf/tc/globals/icmp_masquerade_map";
 const char *icmp_echo_map_path = "/sys/fs/bpf/tc/globals/icmp_echo_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
@@ -241,7 +242,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.14";
+const char *argp_program_version = "0.8.15";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -657,15 +658,15 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[36] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[37] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
                              egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, 
-                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path};
-    for (int map_count = 0; map_count < 36; map_count++)
+                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path};
+    for (int map_count = 0; map_count < 37; map_count++)
     {
 
         int stat = remove(maps[map_count]);

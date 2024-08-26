@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.15] - 2024-08-26
+- Refactored all startup scripts to default InternalInterfaces to have outbound tracking enabled
+- Refactored masquerade to use dynamic PAT vs static PAT
+  
+
+###
 # [0.8.14] - 2024-08-16
 - Fixed issue where icmp type 3 tcp only accepting inbound for ports associated with local listening ports
 - Added support for stateful IPv4 icmp unreachable support both in the case of masquerade and non masquerade, for udp
