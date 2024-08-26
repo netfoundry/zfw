@@ -2526,13 +2526,33 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 udp_state_key.sport = tuple->ipv4.sport;
                 udp_state_key.dport = tuple->ipv4.dport;
                 if(local_diag->masquerade && local_ip4 && local_ip4->count){
+                    struct masq_reverse_key revk = {0};
+                    revk.__in46_u_src.ip =  tuple->ipv4.saddr;
+                    revk.__in46_u_dest.ip = tuple->ipv4.daddr;
+                    revk.dport = tuple->ipv4.dport;
+                    revk.sport = tuple->ipv4.sport;
+                    revk.protocol = IPPROTO_UDP;
+                    revk.ifindex = skb->ifindex;
+                    __u16 rand_source_port = 0;
+                    struct masq_value *revv = get_reverse_masquerade(revk);
+                    if(revv){
+                        rand_source_port = revv->o_sport;
+                    }
+                    else{
+                        rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                        struct masq_value rev_new_val = {0};
+                        rev_new_val.o_sport =  rand_source_port;
+                        rev_new_val.__in46_u_origin.ip = 0;
+                        insert_reverse_masquerade(rev_new_val,revk);
+                    }
                     __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
                     struct masq_value mv = {0};
                     mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
+                    mv.o_sport = tuple->ipv4.sport;
                     struct masq_key mk = {0};
                     mk.__in46_u_dest.ip =  tuple->ipv4.daddr;
                     mk.dport = tuple->ipv4.dport;
-                    mk.sport = tuple->ipv4.sport;
+                    mk.sport = rand_source_port;
                     mk.ifindex = skb->ifindex;
                     mk.protocol = IPPROTO_UDP;
                     insert_masquerade(mv, mk);
@@ -2552,7 +2572,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         return TC_ACT_SHOT;
                     }
                     /*Calculate l4 Checksum*/
-                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mv.__in46_u_origin.ip, iph->saddr, BPF_F_PSEUDO_HDR | 4);
+                     int flags = BPF_F_PSEUDO_HDR;
+                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mv.__in46_u_origin.ip, iph->saddr, flags | 4);
                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                         return TC_ACT_SHOT;
@@ -2565,6 +2586,24 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                         return TC_ACT_SHOT;
                     }
+                    udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                    if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    udph->source = rand_source_port;
+                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mv.o_sport , rand_source_port, flags | 2);
+                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                    if(!tuple){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple_len = sizeof(tuple->ipv4);
+                    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    } 
                 }
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){

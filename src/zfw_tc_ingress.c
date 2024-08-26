@@ -2098,7 +2098,26 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             return TC_ACT_SHOT;
                         }
                         /*Calculate l4 Checksum*/
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check),local_ip4->ipaddr[0], iph->daddr, BPF_F_PSEUDO_HDR | 4);
+                        int flags = BPF_F_PSEUDO_HDR;
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check),local_ip4->ipaddr[0], iph->daddr, flags | 4);
+                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                        if(!tuple){
+                            return TC_ACT_SHOT;
+                        }
+                        tuple_len = sizeof(tuple->ipv4);
+                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                        if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        udph->dest = mv->o_sport;
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mk.sport , mv->o_sport, flags | 2);
                         iph = (struct iphdr *)(skb->data + sizeof(*eth));
                         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
@@ -2122,6 +2141,34 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 if(ustate){
                     /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
                     if(tstamp > (ustate->tstamp + 30000000000)){
+                        if(local_diag->masquerade){
+                                struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                    return TC_ACT_SHOT;
+                                }
+                                struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                                if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                                    return TC_ACT_SHOT;
+                                }
+                                struct masq_reverse_key rk = {0};
+                                rk.dport = udp_state_key.sport;
+                                rk.sport = udp_state_key.dport;
+                                rk.ifindex = event.ifindex;
+                                rk.__in46_u_dest.ip = udp_state_key.__in46_u_src.ip;
+                                rk.__in46_u_src.ip = udp_state_key.__in46_u_dst.ip;
+                                rk.protocol = IPPROTO_UDP;
+                                struct masq_value *rv = get_reverse_masquerade(rk);
+                                if(rv){
+                                    struct masq_key mk = {0};
+                                    mk.dport = udph->source;
+                                    mk.sport = rv->o_sport;
+                                    mk.__in46_u_dest.ip = iph->saddr;
+                                    mk.ifindex = event.ifindex;
+                                    mk.protocol = IPPROTO_UDP;
+                                    del_masq(mk);
+                                }
+                                del_reverse_masq(rk);
+                        }
                         del_udp(udp_state_key);
                         ustate = get_udp(udp_state_key);
                         if(!ustate){
