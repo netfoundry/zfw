@@ -272,14 +272,14 @@ if(os.path.exists('/opt/openziti/etc/ebpf_config.json')):
                                     else:
                                         outbound_passthrough_track[interface["Name"]] = False;
                                 else:
-                                    outbound_passthrough_track[interface["Name"]] = False;
+                                    outbound_passthrough_track[interface["Name"]] = True;
                                 if("PerInterfaceRules") in interface.keys():
                                     if(interface["PerInterfaceRules"]):
                                         per_interface_rules[interface["Name"]] = True;
                                     else:
                                         per_interface_rules[interface["Name"]] = False;
                                 else:
-                                    per_interface_rules[interface["Name"]] = True;
+                                    per_interface_rules[interface["Name"]] = False;
                             else:
                                 print('Mandatory key \"Name\" missing skipping internal interface entry!')
 
