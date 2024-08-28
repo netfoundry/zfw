@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file. The format 
 ###
 # [0.8.15] - 2024-08-26
 - Refactored all startup scripts to default InternalInterfaces to have outbound tracking enabled
-- Refactored masquerade to use dynamic PAT vs static PAT
+- Refactored IPv4 masquerade to use dynamic PAT vs static PAT and added RB logging
+- Fixed issue where if IPv4 udp checksum was 0 masquerade erroneously attempted to recalculate the checksum
+  
   
 
 ###

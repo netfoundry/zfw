@@ -78,6 +78,8 @@
 #define ICMP_MATCHED_ACTIVE_STATE 28
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
+#define REVERSE_MASQUERADE_ENTRY_REMOVED 32
+#define MASQUERADE_ENTRY_REMOVED 33
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -1964,11 +1966,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     else if(tcph->rst){
                         if(local_diag->masquerade){
                             struct masq_reverse_key rk = {0};
-                            rk.dport = tcp_state_key.sport;
-                            rk.sport = tcp_state_key.dport;
+                            rk.dport = tcp_state_key.dport;
+                            rk.sport = tcp_state_key.sport;
                             rk.ifindex = event.ifindex;
-                            rk.__in46_u_dest.ip = tcp_state_key.__in46_u_src.ip;
-                            rk.__in46_u_src.ip = tcp_state_key.__in46_u_dst.ip;
+                            rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
+                            rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
                             rk.protocol = IPPROTO_TCP;
                             struct masq_value *rv = get_reverse_masquerade(rk);
                             if(rv){
@@ -1979,8 +1981,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 mk.ifindex = event.ifindex;
                                 mk.protocol = IPPROTO_TCP;
                                 del_masq(mk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
                             }
                             del_reverse_masq(rk);
+                            if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                            }
                         }
                         del_tcp(tcp_state_key);
                         tstate = get_tcp(tcp_state_key);
@@ -1996,11 +2006,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
                             if(local_diag->masquerade){
                                 struct masq_reverse_key rk = {0};
-                                rk.dport = tcp_state_key.sport;
-                                rk.sport = tcp_state_key.dport;
+                                rk.dport = tcp_state_key.dport;
+                                rk.sport = tcp_state_key.sport;
                                 rk.ifindex = event.ifindex;
-                                rk.__in46_u_dest.ip = tcp_state_key.__in46_u_src.ip;
-                                rk.__in46_u_src.ip = tcp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
                                 rk.protocol = IPPROTO_TCP;
                                 struct masq_value *rv = get_reverse_masquerade(rk);
                                 if(rv){
@@ -2011,8 +2021,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     mk.ifindex = event.ifindex;
                                     mk.protocol = IPPROTO_TCP;
                                     del_masq(mk);
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                        send_event(&event);
+                                    }
                                 }
                                 del_reverse_masq(rk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
                             }
                             del_tcp(tcp_state_key);
                             tstate = get_tcp(tcp_state_key);
@@ -2022,7 +2040,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     send_event(&event);
                                 }
                             }
-
                         }
                         else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
                             tstate->sfack = 1;
@@ -2159,11 +2176,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     return TC_ACT_SHOT;
                                 }
                                 struct masq_reverse_key rk = {0};
-                                rk.dport = udp_state_key.sport;
-                                rk.sport = udp_state_key.dport;
+                                rk.dport = udp_state_key.dport;
+                                rk.sport = udp_state_key.sport;
                                 rk.ifindex = event.ifindex;
-                                rk.__in46_u_dest.ip = udp_state_key.__in46_u_src.ip;
-                                rk.__in46_u_src.ip = udp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_dest.ip = udp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_src.ip = udp_state_key.__in46_u_src.ip;
                                 rk.protocol = IPPROTO_UDP;
                                 struct masq_value *rv = get_reverse_masquerade(rk);
                                 if(rv){
@@ -2174,8 +2191,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     mk.ifindex = event.ifindex;
                                     mk.protocol = IPPROTO_UDP;
                                     del_masq(mk);
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                        send_event(&event);
+                                    }
                                 }
                                 del_reverse_masq(rk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
                         }
                         del_udp(udp_state_key);
                         ustate = get_udp(udp_state_key);

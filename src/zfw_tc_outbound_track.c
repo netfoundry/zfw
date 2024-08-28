@@ -63,6 +63,10 @@
 #define CLIENT_INITIATED_ICMP_ECHO 29
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
+#define REVERSE_MASQUERADE_ENTRY_REMOVED 32
+#define MASQUERADE_ENTRY_REMOVED 33
+#define REVERSE_MASQUERADE_ENTRY_ADDED 34
+#define MASQUERADE_ENTRY_ADDED 35
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 
 struct bpf_event{
@@ -541,6 +545,12 @@ static inline void insert_tcp(struct tcp_state tstate, struct tuple_key key){
 
 static inline void insert_masquerade(struct masq_value mv, struct masq_key key){
      bpf_map_update_elem(&masquerade_map, &key, &mv,0);
+}
+
+static inline struct masq_value *get_masquerade(struct masq_key key){
+    struct masq_value *mv;
+    mv = bpf_map_lookup_elem(&masquerade_map, &key);
+	return mv;
 }
 
 /*Remove entry from  masq state table*/
@@ -2318,18 +2328,31 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     rev_new_val.o_sport =  rand_source_port;
                     rev_new_val.__in46_u_origin.ip = 0;
                     insert_reverse_masquerade(rev_new_val,revk);
+                    if(local_diag->verbose){
+                        event.tracking_code = REVERSE_MASQUERADE_ENTRY_ADDED;
+                        send_event(&event);
+                    }
                 }
                 __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
                 struct masq_value mv = {0};
-                mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
-                mv.o_sport = tuple->ipv4.sport;
                 struct masq_key mk = {0};
                 mk.__in46_u_dest.ip =  tuple->ipv4.daddr;
                 mk.dport = tuple->ipv4.dport;
                 mk.sport = rand_source_port;
                 mk.ifindex = skb->ifindex;
                 mk.protocol = IPPROTO_TCP;
-                insert_masquerade(mv, mk);
+                struct masq_value *mvptr = get_masquerade(mk);
+                if(!mvptr){
+                    mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
+                    mv.o_sport = tuple->ipv4.sport;
+                    insert_masquerade(mv, mk);
+                    if(local_diag->verbose){
+                        event.tracking_code = MASQUERADE_ENTRY_ADDED;
+                        send_event(&event);
+                    }
+                }else{
+                    mv = *mvptr;
+                }
                 iph->saddr = local_ip4->ipaddr[0];
                 /*Calculate l3 Checksum*/
                 bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
@@ -2433,6 +2456,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
                         rk.protocol = IPPROTO_TCP;
                         del_reverse_masq(rk);
+                        if(local_diag->verbose){
+                            event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                            send_event(&event);
+                        }
                         struct masq_key mk = {0};
                         mk.dport = tcph->dest;
                         mk.sport = tcph->source;
@@ -2440,6 +2467,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         mk.ifindex = event.ifindex;
                         mk.protocol = IPPROTO_TCP;
                         del_masq(mk);
+                        if(local_diag->verbose){
+                            event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                            send_event(&event);
+                        }
                     }
                     del_tcp(tcp_state_key);
                     tstate = get_tcp(tcp_state_key);
@@ -2473,6 +2504,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
                             rk.protocol = IPPROTO_TCP;
                             del_reverse_masq(rk);
+                            if(local_diag->verbose){
+                                event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                send_event(&event);
+                            }
                             struct masq_key mk = {0};
                             mk.dport = tcph->dest;
                             mk.sport = tcph->source;
@@ -2480,6 +2515,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             mk.ifindex = event.ifindex;
                             mk.protocol = IPPROTO_TCP;
                             del_masq(mk);
+                            if(local_diag->verbose){
+                                event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                send_event(&event);
+                            }
                         }
                         del_tcp(tcp_state_key);
                         tstate = get_tcp(tcp_state_key);
@@ -2544,18 +2583,31 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         rev_new_val.o_sport =  rand_source_port;
                         rev_new_val.__in46_u_origin.ip = 0;
                         insert_reverse_masquerade(rev_new_val,revk);
+                        if(local_diag->verbose){
+                            event.tracking_code = REVERSE_MASQUERADE_ENTRY_ADDED;
+                            send_event(&event);
+                        }
                     }
                     __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
                     struct masq_value mv = {0};
-                    mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
-                    mv.o_sport = tuple->ipv4.sport;
                     struct masq_key mk = {0};
                     mk.__in46_u_dest.ip =  tuple->ipv4.daddr;
                     mk.dport = tuple->ipv4.dport;
                     mk.sport = rand_source_port;
                     mk.ifindex = skb->ifindex;
                     mk.protocol = IPPROTO_UDP;
-                    insert_masquerade(mv, mk);
+                    struct masq_value *mvptr = get_masquerade(mk);
+                    if(!mvptr){
+                        mv.__in46_u_origin.ip =  tuple->ipv4.saddr;
+                        mv.o_sport = tuple->ipv4.sport;
+                        insert_masquerade(mv, mk);
+                        if(local_diag->verbose){
+                            event.tracking_code = MASQUERADE_ENTRY_ADDED;
+                            send_event(&event);
+                        }
+                    }else{
+                        mv = *mvptr;
+                    }
                     iph->saddr = local_ip4->ipaddr[0];
                     /*Calculate l3 Checksum*/
                     bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
