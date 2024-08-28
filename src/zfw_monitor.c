@@ -70,6 +70,10 @@
 #define CLIENT_INITIATED_ICMP_ECHO 29
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
+#define REVERSE_MASQUERADE_ENTRY_REMOVED 32
+#define MASQUERADE_ENTRY_REMOVED 33
+#define REVERSE_MASQUERADE_ENTRY_ADDED 34
+#define MASQUERADE_ENTRY_ADDED 35
 
 bool logging = false;
 bool monitor = false;
@@ -81,7 +85,7 @@ char check_alt[IF_NAMESIZE];
 char doc[] = "zfw_monitor -- ebpf firewall monitor tool";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *argp_program_version = "0.8.14";
+const char *argp_program_version = "0.8.15";
 union bpf_attr rb_map;
 int rb_fd = -1;
 
@@ -510,6 +514,22 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "MATCHED_DROP_FILTER";
                     }
+                    else if (code == REVERSE_MASQUERADE_ENTRY_ADDED)
+                    {
+                        state = "REVERSE_MASQUERADE_ENTRY_ADDED";
+                    }
+                    else if (code == REVERSE_MASQUERADE_ENTRY_REMOVED)
+                    {
+                        state = "REVERSE_MASQUERADE_ENTRY_REMOVED";
+                    }
+                    else if (code == MASQUERADE_ENTRY_ADDED)
+                    {
+                        state = "MASQUERADE_ENTRY_ADDED";
+                    }
+                    else if (code == MASQUERADE_ENTRY_REMOVED)
+                    {
+                        state = "MASQUERADE_ENTRY_REMOVED";
+                    }
 
                     if (state)
                     {
@@ -847,6 +867,22 @@ static int process_events(void *ctx, void *data, size_t len)
                     else if (code == MATCHED_DROP_FILTER)
                     {
                         state = "MATCHED_DROP_FILTER";
+                    }
+                    else if (code == REVERSE_MASQUERADE_ENTRY_ADDED)
+                    {
+                        state = "REVERSE_MASQUERADE_ENTRY_ADDED";
+                    }
+                    else if (code == REVERSE_MASQUERADE_ENTRY_REMOVED)
+                    {
+                        state = "REVERSE_MASQUERADE_ENTRY_REMOVED";
+                    }
+                    else if (code == MASQUERADE_ENTRY_ADDED)
+                    {
+                        state = "MASQUERADE_ENTRY_ADDED";
+                    }
+                    else if (code == MASQUERADE_ENTRY_REMOVED)
+                    {
+                        state = "MASQUERADE_ENTRY_REMOVED";
                     }
 
 

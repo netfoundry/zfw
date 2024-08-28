@@ -78,6 +78,8 @@
 #define ICMP_MATCHED_ACTIVE_STATE 28
 #define IP6_HEADER_TOO_BIG 30
 #define IPV6_TUPLE_TOO_BIG 31
+#define REVERSE_MASQUERADE_ENTRY_REMOVED 32
+#define MASQUERADE_ENTRY_REMOVED 33
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -223,12 +225,29 @@ struct masq_key {
     __u16 dport;
 };
 
+/*Key to masquerade_reverse_map*/
+struct masq_reverse_key {
+    uint32_t ifindex;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
+    __u8 protocol;
+    __u16 sport;
+    __u16 dport;
+};
+
 /*value to masquerade_map and icmp_masquerade_map*/
 struct masq_value {
     union {
         __u32 ip;
         __u32 ip6[4];
     }__in46_u_origin;
+    __u16 o_sport;
 };
 
 /*Key to tun_map*/
@@ -610,6 +629,15 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } masquerade_map SEC(".maps");
 
+/*stores reverse lookup table udp and tcp masquerade*/
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(key_size, sizeof(struct masq_reverse_key));
+     __uint(value_size,sizeof(struct masq_value));
+     __uint(max_entries, BPF_MAX_SESSIONS * 2);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} masquerade_reverse_map SEC(".maps");
+
 /*tracks icmp_echo masquerade*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -695,6 +723,22 @@ static inline struct tcp_state *get_tcp(struct tuple_key key){
 static inline struct masq_value *get_masquerade(struct masq_key key){
     struct masq_value *mv;
     mv = bpf_map_lookup_elem(&masquerade_map, &key);
+	return mv;
+}
+
+/*Remove entry from  masq state table*/
+static inline void del_masq(struct masq_key key){
+     bpf_map_delete_elem(&masquerade_map, &key);
+}
+
+/*Remove entry from reverse masq state table*/
+static inline void del_reverse_masq(struct masq_reverse_key key){
+     bpf_map_delete_elem(&masquerade_reverse_map, &key);
+}
+
+static inline struct masq_value *get_reverse_masquerade(struct masq_reverse_key key){
+    struct masq_value *mv;
+    mv = bpf_map_lookup_elem(&masquerade_reverse_map, &key);
 	return mv;
 }
 
@@ -1265,7 +1309,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct icmp_state *istate = get_icmp(icmp_state_key);
                     if(istate){
-                        /*if icmp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                        /*if icmp outbound state has been up for 15 seconds without traffic remove it from hashmap*/
                         if(tstamp > (istate->tstamp + 15000000000)){
                             del_icmp(icmp_state_key);
                             istate = get_icmp(icmp_state_key);
@@ -1638,7 +1682,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         unsigned long long tstamp = bpf_ktime_get_ns();
                         struct icmp_state *istate = get_icmp(icmp_state_key);
                         if(istate){
-                            /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                            /*if udp outbound state has been up for 15 seconds without traffic remove it from hashmap*/
                             if(tstamp > (istate->tstamp + 15000000000)){
                                 del_icmp(icmp_state_key);
                                 istate = get_icmp(icmp_state_key);
@@ -1852,7 +1896,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             return TC_ACT_SHOT;
                         }
                         /*Calculate l4 Checksum*/
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check),local_ip4->ipaddr[0], iph->daddr, BPF_F_PSEUDO_HDR | 4);
+                        int flags = BPF_F_PSEUDO_HDR;
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), local_ip4->ipaddr[0] ,mv->__in46_u_origin.ip, flags | 4);
                         iph = (struct iphdr *)(skb->data + sizeof(*eth));
                         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
@@ -1869,6 +1914,24 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
                         }
+                        tcph->dest = mv->o_sport;
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), mk.sport , mv->o_sport, flags | 2);
+                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                        if(!tuple){
+                            return TC_ACT_SHOT;
+                        }
+                        tuple_len = sizeof(tuple->ipv4);
+                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }  
                     }
                 }
                 tcp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
@@ -1901,6 +1964,34 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                     else if(tcph->rst){
+                        if(local_diag->masquerade){
+                            struct masq_reverse_key rk = {0};
+                            rk.dport = tcp_state_key.dport;
+                            rk.sport = tcp_state_key.sport;
+                            rk.ifindex = event.ifindex;
+                            rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
+                            rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
+                            rk.protocol = IPPROTO_TCP;
+                            struct masq_value *rv = get_reverse_masquerade(rk);
+                            if(rv){
+                                struct masq_key mk = {0};
+                                mk.dport = tcph->source;
+                                mk.sport = rv->o_sport;
+                                mk.__in46_u_dest.ip = iph->saddr;
+                                mk.ifindex = event.ifindex;
+                                mk.protocol = IPPROTO_TCP;
+                                del_masq(mk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
+                            }
+                            del_reverse_masq(rk);
+                            if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                            }
+                        }
                         del_tcp(tcp_state_key);
                         tstate = get_tcp(tcp_state_key);
                         if(!tstate){
@@ -1913,6 +2004,34 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                     else if(tcph->ack){
                         if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                            if(local_diag->masquerade){
+                                struct masq_reverse_key rk = {0};
+                                rk.dport = tcp_state_key.dport;
+                                rk.sport = tcp_state_key.sport;
+                                rk.ifindex = event.ifindex;
+                                rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
+                                rk.protocol = IPPROTO_TCP;
+                                struct masq_value *rv = get_reverse_masquerade(rk);
+                                if(rv){
+                                    struct masq_key mk = {0};
+                                    mk.dport = tcph->source;
+                                    mk.sport = rv->o_sport;
+                                    mk.__in46_u_dest.ip = iph->saddr;
+                                    mk.ifindex = event.ifindex;
+                                    mk.protocol = IPPROTO_TCP;
+                                    del_masq(mk);
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                        send_event(&event);
+                                    }
+                                }
+                                del_reverse_masq(rk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
+                            }
                             del_tcp(tcp_state_key);
                             tstate = get_tcp(tcp_state_key);
                             if(!tstate){
@@ -1921,7 +2040,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     send_event(&event);
                                 }
                             }
-
                         }
                         else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
                             tstate->sfack = 1;
@@ -1996,19 +2114,46 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
                         }
+                        struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                        if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
                         /*Calculate l4 Checksum*/
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check),local_ip4->ipaddr[0], iph->daddr, BPF_F_PSEUDO_HDR | 4);
-                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                        if(!tuple){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple_len = sizeof(tuple->ipv4);
-                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
+                        if(udph->check != 0){
+                            int flags = BPF_F_PSEUDO_HDR;
+                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check),local_ip4->ipaddr[0], iph->daddr, flags | 4);
+                            iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                            if(!tuple){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple_len = sizeof(tuple->ipv4);
+                            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                            if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            udph->dest = mv->o_sport;
+                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mk.sport , mv->o_sport, flags | 2);
+                            iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                            if(!tuple){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple_len = sizeof(tuple->ipv4);
+                            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                        }else{
+                            udph->dest = mv->o_sport;
                         }
                     }
                 }
@@ -2021,6 +2166,42 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 if(ustate){
                     /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
                     if(tstamp > (ustate->tstamp + 30000000000)){
+                        if(local_diag->masquerade){
+                                struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                    return TC_ACT_SHOT;
+                                }
+                                struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                                if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                                    return TC_ACT_SHOT;
+                                }
+                                struct masq_reverse_key rk = {0};
+                                rk.dport = udp_state_key.dport;
+                                rk.sport = udp_state_key.sport;
+                                rk.ifindex = event.ifindex;
+                                rk.__in46_u_dest.ip = udp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_src.ip = udp_state_key.__in46_u_src.ip;
+                                rk.protocol = IPPROTO_UDP;
+                                struct masq_value *rv = get_reverse_masquerade(rk);
+                                if(rv){
+                                    struct masq_key mk = {0};
+                                    mk.dport = udph->source;
+                                    mk.sport = rv->o_sport;
+                                    mk.__in46_u_dest.ip = iph->saddr;
+                                    mk.ifindex = event.ifindex;
+                                    mk.protocol = IPPROTO_UDP;
+                                    del_masq(mk);
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                        send_event(&event);
+                                    }
+                                }
+                                del_reverse_masq(rk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
+                        }
                         del_udp(udp_state_key);
                         ustate = get_udp(udp_state_key);
                         if(!ustate){
