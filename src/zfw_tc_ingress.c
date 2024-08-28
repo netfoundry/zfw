@@ -1307,7 +1307,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct icmp_state *istate = get_icmp(icmp_state_key);
                     if(istate){
-                        /*if icmp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                        /*if icmp outbound state has been up for 15 seconds without traffic remove it from hashmap*/
                         if(tstamp > (istate->tstamp + 15000000000)){
                             del_icmp(icmp_state_key);
                             istate = get_icmp(icmp_state_key);
@@ -1680,7 +1680,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         unsigned long long tstamp = bpf_ktime_get_ns();
                         struct icmp_state *istate = get_icmp(icmp_state_key);
                         if(istate){
-                            /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
+                            /*if udp outbound state has been up for 15 seconds without traffic remove it from hashmap*/
                             if(tstamp > (istate->tstamp + 15000000000)){
                                 del_icmp(icmp_state_key);
                                 istate = get_icmp(icmp_state_key);
@@ -2097,38 +2097,46 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
                         }
-                        /*Calculate l4 Checksum*/
-                        int flags = BPF_F_PSEUDO_HDR;
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check),local_ip4->ipaddr[0], iph->daddr, flags | 4);
-                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                        if(!tuple){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple_len = sizeof(tuple->ipv4);
-                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
                         struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
                         if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
                         }
-                        udph->dest = mv->o_sport;
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mk.sport , mv->o_sport, flags | 2);
-                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                        if(!tuple){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple_len = sizeof(tuple->ipv4);
-                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
+                        /*Calculate l4 Checksum*/
+                        if(udph->check != 0){
+                            int flags = BPF_F_PSEUDO_HDR;
+                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check),local_ip4->ipaddr[0], iph->daddr, flags | 4);
+                            iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                            if(!tuple){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple_len = sizeof(tuple->ipv4);
+                            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                            if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            udph->dest = mv->o_sport;
+                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mk.sport , mv->o_sport, flags | 2);
+                            iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                            if(!tuple){
+                                return TC_ACT_SHOT;
+                            }
+                            tuple_len = sizeof(tuple->ipv4);
+                            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                                return TC_ACT_SHOT;
+                            }
+                        }else{
+                            udph->dest = mv->o_sport;
                         }
                     }
                 }
