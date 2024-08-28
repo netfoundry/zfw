@@ -10,11 +10,12 @@ EBPF based masquerade capability for both IPv4/IPv6.
 
 ### Native EBPF based IPv4 and IPv6 Masquerade support
 
-zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass through connections which can be enabled via:
+zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass through connections which can be enabled via on WAN facing interface:
 
 ```sudo zfw -k, --masquerade <ifname>```
 
-This function requires that both ingress and egress TC filters are enabled on outbound interface. 
+This function requires that both ingress and egress TC filters are enabled on outbound interface. For IPv4 this is now using Dynamic PAT and IPv6 is using 
+static PAT.  Note: When running on later kernels i.e. 6+ some older network hardware may not work with ebpf Dynamic PAT.   
 
 ### Explicit Deny Rules
 This feature adds the ability to enter explicit deny rules by appending ```-d, --disable to the -I, --insert rule``` to both ingress and egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
@@ -97,8 +98,7 @@ The above should result in all outbound traffic except for arp and icmp to be dr
 will also be dropped unless  ```sudo zfw -e ens33 is set```). ssh return traffic will also be allowed outbound
 unless ```ssh -x ens33 is set```.
 
-In order to survive reboot you must have "OutboundPassThroughTrack": true which is default for ExternalInterfaces
-but can also be explicitly set for InternalInterfaces. If per interface rules is not false then the egress rules would
+If per interface rules is not false then the egress rules would
 need explicit -N <interface name added> for each rule in the same manner as ingress rules. 
 
 i.e. set ```/opt/openziti/etc/ebpf_config.json``` as below changing interface name only
@@ -107,7 +107,7 @@ i.e. set ```/opt/openziti/etc/ebpf_config.json``` as below changing interface na
 
   or equivalent InternalInterfaces config:
 
-```{"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}```
+```{"InternalInterfaces":[{"Name":"ens33"}],"ExternalInterfaces":[]}```
 
 Then in executable script file ```/opt/openziti/bin/user/user_rules.sh```
 ```
@@ -184,7 +184,7 @@ Rule Count: 1
 - *Supports inbound ssh (Can be disabled via ```sudo zfw -x <ifname | all>```) (Care should be taken as this affects IPv4 as well)
 - Supports outbound stateful host connections (Inbound only if outbound initiated)
 - Supports outbound passthrough tracking.  Sessions initiated from non-ebpf enabled and ebpf enabled  internal interfaces out 
-  through interface(s) defined as ExternalInterface or with "OutboundPassThroughTrack": true in /opt/openziti/etc/ebpf_config.json
+  through interface(s) defined as ExternalInterface (requires -N <iface-name> with -I unless "PerInterfaceRules": false) or InternalInterface in /opt/openziti/etc/ebpf_config.json
   or manually applied with sudo ```zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o -z egress``` 
   will allow stateful udp and tcp session traffic back in.
 - Support for inbound IPv6 filter destination rules. Currently only destination filtering is allowed.
@@ -281,10 +281,9 @@ sudo cp /opt/openziti/etc/ebpf_config.json.sample /opt/openziti/etc/ebpf_config.
 sudo vi /opt/openziti/etc/ebpf_config.json
 ```
 - Adding interfaces
-  Replace ens33 in line with:{"InternalInterfaces":[{"Name":"ens33" ,"OutboundPassThroughTrack": false, "PerInterfaceRules": false}], "ExternalInterfaces":[]}
+  Replace ens33 in line with:{"InternalInterfaces":[{"Name":"ens33"}], "ExternalInterfaces":[]}
   Replace with interface that you want to enable for ingress firewalling / openziti interception and 
-  optionally ExternalInterfaces if running containers or other subtending devices (Described in more detail
-  later in this README.md).
+  optionally ExternalInterfaces if you want per interface rules -N <iface-name> with -I.
 ```
 i.e. ens33
     {"InternalInterfaces":[{"Name":"ens33"}], "ExternalInterfaces":[]}
@@ -425,15 +424,14 @@ sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o --direction egres
 sudo vi /opt/openziti/etc/ebpf_config.json
 ```
 ```
-{"InternalInterfaces":[{"Name":"ens37","OutboundPassThroughTrack": false, PerInterfaceRules: false}],
+{"InternalInterfaces":[{"Name":"ens37","OutboundPassThroughTrack": true, PerInterfaceRules: false}],
  "ExternalInterfaces":[{"Name":"ens33", OutboundPassThroughTrack: true, PerInterfaceRules: true}]}
 ```
 The above JSON sets up ens33 to be an internal interface (No outbound tracking) and ens33 as an external interface
 with outbound tracking (Default for External Interface).  It also automatically adds runs the sudo zfw -P ens33 so ens33
 (default for ExternalInterfaces) which requires -N to add inbound rules to it and will ignore rules where it is not in the interface list.
 Keys "OutboundPassThroughTrack" and "PerInterfaceRules" are shown with their default values, you only need to add them if you
-want change the default operation for the interface type.  Note: if ebpf is enabled on an interface before it has ip address assigned a rule assigned
-with that interface name  and -N it will not show up until at least one diag command is toggled or ebpf is disabled and re-enabled on it via -X, --set-tc-filter.
+want change the default operation for the interface type.
 
 #### Single Interface config with ens33 facing lan local lan
 ```
@@ -470,7 +468,7 @@ source of the L2tpv3 tunnel on each zet host needs to be set to the ip address a
 interface which will be the first host address in the ZITI_DNS_IP_RANGE. In addition you will need to enable
 ebpf outbound tracking on the loopback interface.  This can be setup vi /opt/openziti/etc/ebpf_config.json i.e.
 ```
-{"InternalInterfaces":[{"Name":"eth0", "OutboundPassThroughTrack": false, "PerInterfaceRules": false}, {"Name":"lo", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}
+{"InternalInterfaces":[{"Name":"eth0"}, {"Name":"lo", "OutboundPassThroughTrack": true}],"ExternalInterfaces":[]}
 ```
 
 ### Ziti Edge Tunnel Bidirectional Transparency (zfw-tunnel only)

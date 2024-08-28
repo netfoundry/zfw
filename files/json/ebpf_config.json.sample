@@ -1,2 +1,2 @@
-{"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": false, "PerInterfaceRules": false}],
+{"InternalInterfaces":[{"Name":"ens33", "OutboundPassThroughTrack": true, "PerInterfaceRules": false}],
  "ExternalInterfaces":[]}
