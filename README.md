@@ -10,7 +10,7 @@ EBPF based masquerade capability for both IPv4/IPv6.
 
 ### Native EBPF based IPv4 and IPv6 Masquerade support
 
-zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass through connections which can be enabled via on WAN facing interface:
+zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass through connections which can be enabled on a WAN facing interface:
 
 ```sudo zfw -k, --masquerade <ifname>```
 
