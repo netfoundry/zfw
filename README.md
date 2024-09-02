@@ -745,7 +745,6 @@ Example: Remove all tc-ebpf on router
 sudo zfw --disable-ebpf
 ```
 ```
-tc parent del : ens33
 removing /sys/fs/bpf/tc/globals/zt_tproxy_map
 removing /sys/fs/bpf/tc/globals/diag_map
 removing /sys/fs/bpf/tc/globals/ifindex_ip_map
@@ -780,6 +779,9 @@ removing /sys/fs/bpf/tc//globals/egress_matched_map
 removing /sys/fs/bpf/tc/globals/udp_ingress_map
 removing /sys/fs/bpf/tc/globals/tcp_ingress_map
 removing /sys/fs/bpf/tc/globals/masquerade_map
+removing /sys/fs/bpf/tc/globals/icmp_masquerade_map
+removing /sys/fs/bpf/tc/globals/icmp_echo_map
+removing /sys/fs/bpf/tc/globals/masquerade_reverse_map
 ```
 
 
