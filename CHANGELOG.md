@@ -8,8 +8,6 @@ All notable changes to this project will be documented in this file. The format 
 - Fixed incorrect waitpid success/failure conditional checks in zfw.c and zfw_tunnel_wrapper.c.  This did not cause an operational issue but would not
   report correctly in case system call failures.
 - Updated README with latest ```zfw -Q``` printout. 
-- Reverting to static PAT masquerade for DNS due to random udp checksum calculation failures that seem to only affect DNS.  Will re-add back when a solution
-  is found.
   
 ###
 # [0.8.15] - 2024-08-26
