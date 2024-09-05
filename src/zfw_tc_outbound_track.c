@@ -2573,13 +2573,18 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     revk.protocol = IPPROTO_UDP;
                     revk.ifindex = skb->ifindex;
                     __u16 rand_source_port = 0;
-                    if(tuple->ipv4.dport != bpf_ntohs(53)){
+                    
                         struct masq_value *revv = get_reverse_masquerade(revk);
                         if(revv){
                             rand_source_port = revv->o_sport;
                         }
                         else{
-                            rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                            if(tuple->ipv4.dport != bpf_ntohs(53)){
+                                rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                            }
+                            else{
+                                rand_source_port = tuple->ipv4.sport;
+                            }
                             struct masq_value rev_new_val = {0};
                             rev_new_val.o_sport =  rand_source_port;
                             rev_new_val.__in46_u_origin.ip = 0;
@@ -2589,9 +2594,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                                 send_event(&event);
                             }
                         }
-                    }else{
-                        rand_source_port = tuple->ipv4.sport;
-                    }
+                   
                     __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
                     struct masq_value mv = {0};
                     struct masq_key mk = {0};
