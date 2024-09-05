@@ -843,7 +843,7 @@ void bind_route(struct in_addr *address, unsigned short mask)
         printf("execv error: unknown error binding route");
     }else{
         int status =0;
-        if(!(waitpid(pid, &status, 0) > 0)){
+        if(!(waitpid(pid, &status, 0) < 0)){
             if(WIFEXITED(status) && !WEXITSTATUS(status)){
                 printf("bound %s to dev lo\n", cidr_block);
             }
@@ -870,7 +870,7 @@ void unbind_route_loopback(struct in_addr *address, unsigned short mask)
         printf("execv error: unknown error unbinding route");
     }else{
         int status =0;
-        if(!(waitpid(pid, &status, 0) > 0)){
+        if(!(waitpid(pid, &status, 0) < 0)){
             if(WIFEXITED(status) && !WEXITSTATUS(status)){
                 printf("unbound %s from dev lo\n", cidr_block);
             }
@@ -897,7 +897,7 @@ void unbind_route(struct in_addr *address, unsigned short mask, char *dev)
         printf("execv error: unknown error unbinding route");
     }else{
         int status =0;
-        if(!(waitpid(pid, &status, 0) > 0)){
+        if(!(waitpid(pid, &status, 0) < 0)){
             if(WIFEXITED(status) && !WEXITSTATUS(status)){
                 printf("unbound %s from dev %s\n", cidr_block, dev);
             }
@@ -1025,7 +1025,7 @@ void zfw_update(char *ip, char *mask, char *lowport, char *highport, char *proto
        printf("execv error: unknown error binding\n");
     }else{
         int status =0;
-        if(!(waitpid(pid, &status, 0) > 0)){
+        if(!(waitpid(pid, &status, 0) < 0)){
             if(WIFEXITED(status) && !WEXITSTATUS(status)){
                 printf("zfw %s action for : %s set\n", action,  ip);
             }
@@ -1043,7 +1043,7 @@ bool check_diag(){
        printf("execv error: unknown error binding\n");
     }else{
         int status =0;
-        if(!(waitpid(pid, &status, 0) > 0)){
+        if(!(waitpid(pid, &status, 0) < 0)){
             if(WIFEXITED(status) && !WEXITSTATUS(status)){
                 printf("Diag Interface Listed!\n");
                 return false;

@@ -246,7 +246,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.15";
+const char *argp_program_version = "0.8.16";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -560,22 +560,11 @@ void set_tc(char *action)
     else
     {
         int status = 0;
-        if (waitpid(pid, &status, 0) > 0)
+        if(!(waitpid(pid, &status, 0) < 0))
         {
-            if (WIFEXITED(status) && !WEXITSTATUS(status))
+            if(!(WIFEXITED(status) && !WEXITSTATUS(status)))
             {
-                printf("tc parent %s : %s\n", action, tc_interface);
-            }
-            else
-            {
-                if (!strcmp("add", action))
-                {
-                    printf("tc parent already exists : %s\n", tc_interface);
-                }
-                else
-                {
-                    printf("tc parent does not exist : %s\n", tc_interface);
-                }
+                printf("could not set tc parent %s : %s\n", action, tc_interface);
             }
         }
     }
@@ -626,17 +615,12 @@ void set_tc_filter(char *action)
             else
             {
                 int status = 0;
-                if (!(waitpid(pid, &status, 0) > 0))
+                if(!(waitpid(pid, &status, 0) < 0))
                 {
-                    if (WIFEXITED(status) && !WEXITSTATUS(status))
+                    if(!(WIFEXITED(status) && !WEXITSTATUS(status)))
                     {
                         printf("tc %s filter not set : %s\n", direction_string, tc_interface);
                     }
-                }
-                if (status)
-                {
-                    printf("tc %s filter action/%d not set : %s\n", direction_string, x, tc_interface);
-                    close_maps(1);
                 }
             }
         }

@@ -18,7 +18,7 @@ This function requires that both ingress and egress TC filters are enabled on ou
 static PAT.  Note: When running on later kernels i.e. 6+ some older network hardware may not work with ebpf Dynamic PAT.   
 
 ### Explicit Deny Rules
-This feature adds the ability to enter explicit deny rules by appending ```-d, --disable to the -I, --insert rule``` to both ingress and egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
+This feature adds the ability to enter explicit deny rules by appending ```-d, --disable``` to the ```-I, --insert rule``` to either ingress or egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
 
 If you wanted to allow all tcp 443 traffic outbound except to 10.1.0.0/16 you would enter the following egress rules:
 
@@ -745,7 +745,6 @@ Example: Remove all tc-ebpf on router
 sudo zfw --disable-ebpf
 ```
 ```
-tc parent del : ens33
 removing /sys/fs/bpf/tc/globals/zt_tproxy_map
 removing /sys/fs/bpf/tc/globals/diag_map
 removing /sys/fs/bpf/tc/globals/ifindex_ip_map
@@ -780,6 +779,9 @@ removing /sys/fs/bpf/tc//globals/egress_matched_map
 removing /sys/fs/bpf/tc/globals/udp_ingress_map
 removing /sys/fs/bpf/tc/globals/tcp_ingress_map
 removing /sys/fs/bpf/tc/globals/masquerade_map
+removing /sys/fs/bpf/tc/globals/icmp_masquerade_map
+removing /sys/fs/bpf/tc/globals/icmp_echo_map
+removing /sys/fs/bpf/tc/globals/masquerade_reverse_map
 ```
 
 

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 ###
+# [0.8.16] - 2024-09-02
+- Fixed incorrect waitpid success/failure conditional checks in zfw.c and zfw_tunnel_wrapper.c.  This did not cause an operational issue but would not
+  report correctly in case system call failures.
+- Refactored csum calc for both ipv4 tcp / udp. 
+- Updated README with latest ```zfw -Q``` printout. 
+  
+###
 # [0.8.15] - 2024-08-26
 - Refactored all startup scripts to default InternalInterfaces to have outbound tracking enabled
 - Refactored IPv4 masquerade to use dynamic PAT vs static PAT and added RB logging

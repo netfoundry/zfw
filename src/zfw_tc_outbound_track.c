@@ -2374,7 +2374,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 }
                 /*Calculate l4 Checksum*/
                 int flags = BPF_F_PSEUDO_HDR;
-                bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), mv.__in46_u_origin.ip ,local_ip4->ipaddr[0], flags | 4);
+                bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), 0, l3_sum, flags);
                 iph = (struct iphdr *)(skb->data + sizeof(*eth));
                 if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
@@ -2630,7 +2630,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     /*Calculate l4 Checksum if checksum not equal to zero*/
                     if(udph->check != 0){
                         int flags = BPF_F_PSEUDO_HDR;
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mv.__in46_u_origin.ip, iph->saddr, flags | 4);
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), 0, l3_sum, flags);
                         iph = (struct iphdr *)(skb->data + sizeof(*eth));
                         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
