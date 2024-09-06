@@ -3,6 +3,11 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+---
+###
+# [0.8.17] - 2024-09-06
+- Refactor of L4 csum ipv4 
+  
 ###
 # [0.8.16] - 2024-09-02
 - Fixed incorrect waitpid success/failure conditional checks in zfw.c and zfw_tunnel_wrapper.c.  This did not cause an operational issue but would not

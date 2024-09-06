@@ -1897,25 +1897,19 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                         /*Calculate l4 Checksum*/
                         int flags = BPF_F_PSEUDO_HDR;
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), 0, l3_sum, flags);
-                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                        if(!tuple){
-                            return TC_ACT_SHOT;
-                        }
-                        tuple_len = sizeof(tuple->ipv4);
-                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-                        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
+                        struct l4_change_fields{
+                            __u32 daddr;
+                            __u16 dport;
+                        };
+                        struct l4_change_fields old_fields = {0};
+                        struct l4_change_fields new_fields = {0};
+                        old_fields.daddr = local_ip4->ipaddr[0];
+                        old_fields.dport = mk.sport;
+                        new_fields.daddr = mv->__in46_u_origin.ip;
+                        new_fields.dport = mv->o_sport;
+                        __u32 l4_sum = bpf_csum_diff((__u32 *)&old_fields, sizeof(old_fields), (__u32 *)&new_fields, sizeof(new_fields), 0);
                         tcph->dest = mv->o_sport;
-                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), mk.sport , mv->o_sport, flags | 2);
+                        bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check), 0, l4_sum, flags);
                         iph = (struct iphdr *)(skb->data + sizeof(*eth));
                         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
@@ -1931,7 +1925,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
                         if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
-                        }  
+                        }
                     }
                 }
                 tcp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
@@ -2121,7 +2115,19 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         /*Calculate l4 Checksum*/
                         if(udph->check != 0){
                             int flags = BPF_F_PSEUDO_HDR;
-                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), 0, l3_sum, flags);
+                            struct l4_change_fields{
+                                __u32 daddr;
+                                __u16 dport;
+                            };
+                            struct l4_change_fields old_fields = {0};
+                            struct l4_change_fields new_fields = {0};
+                            old_fields.daddr = local_ip4->ipaddr[0];
+                            old_fields.dport = mk.sport;
+                            new_fields.daddr = mv->__in46_u_origin.ip;
+                            new_fields.dport = mv->o_sport;
+                            __u32 l4_sum = bpf_csum_diff((__u32 *)&old_fields, sizeof(old_fields), (__u32 *)&new_fields, sizeof(new_fields), 0);
+                            udph->dest = mv->o_sport;
+                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), 0, l4_sum, flags);
                             iph = (struct iphdr *)(skb->data + sizeof(*eth));
                             if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                 return TC_ACT_SHOT;
@@ -2136,20 +2142,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             }
                             udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
                             if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
-                                return TC_ACT_SHOT;
-                            }
-                            udph->dest = mv->o_sport;
-                            bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct udphdr, check), mk.sport , mv->o_sport, flags | 2);
-                            iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                                return TC_ACT_SHOT;
-                            }
-                            tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                            if(!tuple){
-                                return TC_ACT_SHOT;
-                            }
-                            tuple_len = sizeof(tuple->ipv4);
-                            if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                                 return TC_ACT_SHOT;
                             }
                         }else{
