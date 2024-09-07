@@ -2204,11 +2204,58 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                     else{
+                        ustate->tstamp = tstamp;
                         if(local_diag->verbose){
                             event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
                             send_event(&event);
                         }
-                        ustate->tstamp = tstamp;
+                        /*DNS state over after response so clear the state tables upon reply from server*/
+                        if(bpf_ntohs(udp_state_key.dport) == 53){
+                            if(local_diag->masquerade){
+                                struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                    return TC_ACT_SHOT;
+                                }
+                                struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+                                if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                                    return TC_ACT_SHOT;
+                                }
+                                struct masq_reverse_key rk = {0};
+                                rk.dport = udp_state_key.dport;
+                                rk.sport = udp_state_key.sport;
+                                rk.ifindex = event.ifindex;
+                                rk.__in46_u_dest.ip = udp_state_key.__in46_u_dst.ip;
+                                rk.__in46_u_src.ip = udp_state_key.__in46_u_src.ip;
+                                rk.protocol = IPPROTO_UDP;
+                                struct masq_value *rv = get_reverse_masquerade(rk);
+                                if(rv){
+                                    struct masq_key mk = {0};
+                                    mk.dport = udph->source;
+                                    mk.sport = rv->o_sport;
+                                    mk.__in46_u_dest.ip = iph->saddr;
+                                    mk.ifindex = event.ifindex;
+                                    mk.protocol = IPPROTO_UDP;
+                                    del_masq(mk);
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MASQUERADE_ENTRY_REMOVED;
+                                        send_event(&event);
+                                    }
+                                }
+                                del_reverse_masq(rk);
+                                if(local_diag->verbose){
+                                    event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
+                                    send_event(&event);
+                                }
+                            }
+                            del_udp(udp_state_key);
+                            ustate = get_udp(udp_state_key);
+                            if(!ustate){
+                                if(local_diag->verbose){
+                                    event.tracking_code = UDP_MATCHED_EXPIRED_STATE;
+                                    send_event(&event);
+                                }
+                            }
+                        }
                         return TC_ACT_OK;
                     }
                 }
