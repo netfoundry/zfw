@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ---
 ###
+# [0.8.18] - 2024-09-07
+- Add removal of udp state upon receipt of DNS reply from server for passthrough tracking / Masquerade
+  
+###
 # [0.8.17] - 2024-09-06
 - Refactor of L4 csum ipv4 
   
