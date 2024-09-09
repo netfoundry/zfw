@@ -87,7 +87,7 @@ struct bpf_event{
     unsigned char dest[6];
 };
 
-/*Key to tcp_map and udp_map*/
+/*Key to tcp_map/udp_map*/
 struct tuple_key {
     union {
         __u32 ip;
@@ -99,6 +99,8 @@ struct tuple_key {
     }__in46_u_src;
     __u16 sport;
     __u16 dport;
+    __u32 ifindex;
+    __u8 type;
 };
 
 /*Key to icmp_echo_map*/
@@ -1192,6 +1194,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 tcp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 tcp_state_key.sport = tuple->ipv4.dport;
                 tcp_state_key.dport = tuple->ipv4.sport;
+                tcp_state_key.ifindex = event.ifindex;
+                tcp_state_key.type = 4;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_ingress_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
@@ -1264,6 +1268,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             udp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
             udp_state_key.sport = tuple->ipv4.dport;
             udp_state_key.dport = tuple->ipv4.sport;
+            udp_state_key.ifindex = event.ifindex;
+            udp_state_key.type = 4;
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
             if(ustate)
@@ -1378,6 +1384,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 tcp_state_key.sport = tuple->ipv6.dport;
                 tcp_state_key.dport = tuple->ipv6.sport;
+                tcp_state_key.ifindex = event.ifindex;
+                tcp_state_key.type = 6;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_ingress_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
@@ -1450,6 +1458,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             udp_state_key.sport = tuple->ipv6.dport;
             udp_state_key.dport = tuple->ipv6.sport;
+            udp_state_key.ifindex = event.ifindex;
+            udp_state_key.type = 6;
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
             if(ustate){
@@ -2309,6 +2319,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             tcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.sport;
             tcp_state_key.dport = tuple->ipv4.dport;
+            tcp_state_key.ifindex = event.ifindex;
+            tcp_state_key.type = 4;
             if(local_diag->masquerade && local_ip4 && local_ip4->count){
                 struct masq_reverse_key revk = {0};
                 revk.__in46_u_src.ip =  tuple->ipv4.saddr;
@@ -2558,6 +2570,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.sport;
                 udp_state_key.dport = tuple->ipv4.dport;
+                udp_state_key.ifindex = event.ifindex;
+                udp_state_key.type = 4;
                 if(local_diag->masquerade && local_ip4 && local_ip4->count){
                     struct masq_reverse_key revk = {0};
                     revk.__in46_u_src.ip =  tuple->ipv4.saddr;
@@ -2726,6 +2740,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             tcp_state_key.sport = tuple->ipv6.sport;
             tcp_state_key.dport = tuple->ipv6.dport;
+            tcp_state_key.ifindex = event.ifindex;
+            tcp_state_key.type = 6;
             if(local_diag->masquerade && local_ip6 && local_ip6->count){
                 struct masq_value mv = {0};
                 memcpy(mv.__in46_u_origin.ip6, tuple->ipv6.saddr, sizeof(mv.__in46_u_origin.ip6));
@@ -2859,6 +2875,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 udp_state_key.sport = tuple->ipv6.sport;
                 udp_state_key.dport = tuple->ipv6.dport;
+                udp_state_key.ifindex = event.ifindex;
+                udp_state_key.type = 6;
                 if(local_diag->masquerade && local_ip6 && local_ip6->count){
                     struct masq_value mv = {0};
                     memcpy(mv.__in46_u_origin.ip6, tuple->ipv6.saddr, sizeof(mv.__in46_u_origin.ip6));

@@ -185,6 +185,8 @@ struct tuple_key {
     }__in46_u_src;
     __u16 sport;
     __u16 dport;
+    __u32 ifindex;
+    __u8 type;
 };
 
 /*Key to icmp_echo_map*/
@@ -1475,6 +1477,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             tk.__in46_u_src.ip = iph->daddr;
                             tk.dport = o_session->ipv4.dport;
                             tk.sport = o_session->ipv4.sport;
+                            tk.ifindex = event.ifindex;
+                            tk.type = 4;
                             struct tcp_state *ts = get_tcp(tk);
                             if(ts){
                                 return TC_ACT_OK;
@@ -1607,6 +1611,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 uk.__in46_u_src.ip = iph->daddr;
                                 uk.dport = u_session->dport;
                                 uk.sport = u_session->sport;
+                                uk.ifindex = event.ifindex;
+                                uk.type = 4;
                                 struct udp_state *us = get_udp(uk);
                                 if(us){
                                     return TC_ACT_OK;
@@ -1932,6 +1938,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 tcp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 tcp_state_key.sport = tuple->ipv4.dport;
                 tcp_state_key.dport = tuple->ipv4.sport;
+                tcp_state_key.ifindex = event.ifindex;
+                tcp_state_key.type = 4;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
@@ -2153,6 +2161,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 udp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.dport;
                 udp_state_key.dport = tuple->ipv4.sport;
+                udp_state_key.ifindex = event.ifindex;
+                udp_state_key.type = 4;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if(ustate){
@@ -2209,8 +2219,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
                             send_event(&event);
                         }
-                        /*DNS state over after response so clear the state tables upon reply from server*/
-                        if(bpf_ntohs(udp_state_key.dport) == 53){
+                        /*DNS || NTP state over after response so clear the state tables upon reply from server*/
+                        if(bpf_ntohs(udp_state_key.dport) == 53 || bpf_ntohs(udp_state_key.dport) == 123){
                             if(local_diag->masquerade){
                                 struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                 if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
@@ -2371,6 +2381,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 tcp_state_key.sport = tuple->ipv6.dport;
                 tcp_state_key.dport = tuple->ipv6.sport;
+                tcp_state_key.ifindex =event.ifindex;
+                tcp_state_key.type = 6;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
@@ -2496,6 +2508,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 udp_state_key.sport = tuple->ipv6.dport;
                 udp_state_key.dport = tuple->ipv6.sport;
+                udp_state_key.ifindex = event.ifindex;
+                udp_state_key.type = 6;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if(ustate){
@@ -3501,6 +3515,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             udp_state_key.sport = tuple->ipv4.sport;
             udp_state_key.dport = tuple->ipv4.dport;
+            udp_state_key.ifindex = event.ifindex;
+            udp_state_key.type = 4;
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
             if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
                 struct udp_state us = {
@@ -3527,6 +3543,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             tcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.sport;
             tcp_state_key.dport = tuple->ipv4.dport;
+            tcp_state_key.ifindex = event.ifindex;
+            tcp_state_key.type = 4;
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate;
             if(tcph->syn && !tcph->ack){
@@ -3639,6 +3657,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             udp_state_key.sport = tuple->ipv6.sport;
             udp_state_key.dport = tuple->ipv6.dport;
+            udp_state_key.ifindex = event.ifindex;
+            udp_state_key.type = 6;
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
             if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
                 struct udp_state us = {
@@ -3664,6 +3684,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             tcp_state_key.sport = tuple->ipv6.sport;
             tcp_state_key.dport = tuple->ipv6.dport;
+            tcp_state_key.ifindex = event.ifindex;
+            tcp_state_key.type = 6;
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate;
             if(tcph->syn && !tcph->ack){
