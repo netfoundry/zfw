@@ -4659,6 +4659,7 @@ struct masq_value get_reverse_masquerade(struct masq_reverse_key key){
     map.value = (uint64_t)&mstate;
     syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     return mstate;
+    close(fd);
 }
 
 struct masq_value get_masquerade(struct masq_key key){
@@ -4678,6 +4679,7 @@ struct masq_value get_masquerade(struct masq_key key){
     map.value = (uint64_t)&mstate;
     syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     return mstate;
+    close(fd);
 }
 
 void del_reverse_masq(struct masq_reverse_key key){
@@ -4694,6 +4696,7 @@ void del_reverse_masq(struct masq_reverse_key key){
     map.map_fd = fd;
     map.key = (uint64_t)&key;
     syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    close(fd);
 }
 
 void del_masq(struct masq_key key){
@@ -4745,9 +4748,19 @@ void tcp_egress_map_delete_key(struct tuple_key key)
         rk.protocol = IPPROTO_TCP;
         struct masq_value rv = get_reverse_masquerade(rk);
         if(rv.o_sport){
-            printf("found tcp egress masquerade -> source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
-                , key.__in46_u_src.ip, key.__in46_u_dst.ip, ntohs(key.sport), ntohs(key.dport), key.ifindex,
-                 ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
+            char *saddr = nitoa(ntohl(key.__in46_u_src.ip));
+            char *daddr = nitoa(ntohl(key.__in46_u_dst.ip));
+            if(saddr && daddr){
+                printf("found tcp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
+                    , saddr, daddr, ntohs(key.sport), ntohs(key.dport), key.ifindex,
+                    ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
+            }
+            if(saddr){
+                free(saddr);
+            }
+            if(daddr){
+                free(daddr);
+            }
             if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
                 struct masq_reverse_key rk = {0};
                 rk.dport = key.dport;
@@ -4924,9 +4937,19 @@ void udp_egress_map_delete_key(struct tuple_key key)
         rk.protocol = IPPROTO_UDP;
         struct masq_value rv = get_reverse_masquerade(rk);
         if(rv.o_sport){
-            printf("found udp egress masquerade -> source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
-                , key.__in46_u_src.ip, key.__in46_u_dst.ip, ntohs(key.sport), ntohs(key.dport), key.ifindex,
-                 ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
+            char *saddr = nitoa(ntohl(key.__in46_u_src.ip));
+            char *daddr = nitoa(ntohl(key.__in46_u_dst.ip));
+            if(saddr && daddr){
+                printf("found udp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
+                    , saddr, daddr, ntohs(key.sport), ntohs(key.dport), key.ifindex,
+                    ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
+            }
+            if(saddr){
+                free(saddr);
+            }
+            if(daddr){
+                free(daddr);
+            }
             if(((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000) && rv.o_sport)
             {
                 struct masq_key mk = {0};
