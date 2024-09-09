@@ -4658,8 +4658,8 @@ struct masq_value get_reverse_masquerade(struct masq_reverse_key key){
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&mstate;
     syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    return mstate;
     close(fd);
+    return mstate;
 }
 
 struct masq_value get_masquerade(struct masq_key key){
@@ -4678,8 +4678,8 @@ struct masq_value get_masquerade(struct masq_key key){
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&mstate;
     syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    return mstate;
     close(fd);
+    return mstate;
 }
 
 void del_reverse_masq(struct masq_reverse_key key){
