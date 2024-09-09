@@ -470,7 +470,7 @@ struct {
 } icmp_echo_map SEC(".maps");
 
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(type, BPF_MAP_TYPE_HASH);
      __uint(key_size, sizeof(struct masq_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS * 2);
@@ -479,7 +479,7 @@ struct {
 
 /*stores reverse lookup table udp and tcp masquerade*/
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(type, BPF_MAP_TYPE_HASH);
      __uint(key_size, sizeof(struct masq_reverse_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS * 2);

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 # [0.8.19] - 2024-09-08
-- Add tcp/udp/masquerade/reverse_masquerade map garbage collection to ```zfw.c -L -G, --list-gc-sessions``` which is now added to
+- Add masquerade/reverse_masquerade map garbage collection to ```zfw.c -L -G, --list-gc-sessions``` which is now added to
   /etc/cron.d/zfw_refresh as well
 
 ###
