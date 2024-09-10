@@ -4716,7 +4716,7 @@ void del_masq(struct masq_key key){
     close(fd);
 }
 
-void tcp_egress_map_delete_key(struct tuple_key key)
+void tcp_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -4732,7 +4732,7 @@ void tcp_egress_map_delete_key(struct tuple_key key)
         close_maps(1);
     }
     map.map_fd = fd;
-    map.key = (uint64_t)&key;
+    map.key = (uint64_t)key;
     struct tcp_state tstate = {0};
     map.value = (uint64_t)&tstate;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
@@ -4740,19 +4740,19 @@ void tcp_egress_map_delete_key(struct tuple_key key)
         //printf("tstamp %llu\n", tstate.tstamp);
         //delete state if tstamp is more than 3600 seconds old
         struct masq_reverse_key rk = {0};
-        rk.dport = key.dport;
-        rk.sport = key.sport;
-        rk.ifindex = key.ifindex;
-        rk.__in46_u_dest.ip = key.__in46_u_dst.ip;
-        rk.__in46_u_src.ip = key.__in46_u_src.ip;
+        rk.dport = key->dport;
+        rk.sport = key->sport;
+        rk.ifindex = key->ifindex;
+        rk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+        rk.__in46_u_src.ip = key->__in46_u_src.ip;
         rk.protocol = IPPROTO_TCP;
         struct masq_value rv = get_reverse_masquerade(rk);
         if(rv.o_sport){
-            char *saddr = nitoa(ntohl(key.__in46_u_src.ip));
-            char *daddr = nitoa(ntohl(key.__in46_u_dst.ip));
+            char *saddr = nitoa(ntohl(key->__in46_u_src.ip));
+            char *daddr = nitoa(ntohl(key->__in46_u_dst.ip));
             if(saddr && daddr){
                 printf("found tcp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
-                    , saddr, daddr, ntohs(key.sport), ntohs(key.dport), key.ifindex,
+                    , saddr, daddr, ntohs(key->sport), ntohs(key->dport), key->ifindex,
                     ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
             }
             if(saddr){
@@ -4763,20 +4763,20 @@ void tcp_egress_map_delete_key(struct tuple_key key)
             }
             if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
                 struct masq_reverse_key rk = {0};
-                rk.dport = key.dport;
-                rk.sport = key.sport;
-                rk.ifindex = key.ifindex;
-                rk.__in46_u_dest.ip = key.__in46_u_dst.ip;
-                rk.__in46_u_src.ip = key.__in46_u_src.ip;
+                rk.dport = key->dport;
+                rk.sport = key->sport;
+                rk.ifindex = key->ifindex;
+                rk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+                rk.__in46_u_src.ip = key->__in46_u_src.ip;
                 rk.protocol = IPPROTO_TCP;
                 struct masq_value rv = get_reverse_masquerade(rk);
                 if(rv.o_sport){
 
                     struct masq_key mk = {0};
-                    mk.dport = key.dport;
+                    mk.dport = key->dport;
                     mk.sport = rv.o_sport;
-                    mk.__in46_u_dest.ip = key.__in46_u_dst.ip;
-                    mk.ifindex = key.ifindex;
+                    mk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+                    mk.ifindex = key->ifindex;
                     mk.protocol = IPPROTO_TCP;
                     del_masq(mk);
                 }
@@ -4800,7 +4800,7 @@ void tcp_egress_map_delete_key(struct tuple_key key)
     close(fd);
 }
 
-void tcp_ipv6_egress_map_delete_key(struct tuple_key key)
+void tcp_ipv6_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -4816,16 +4816,16 @@ void tcp_ipv6_egress_map_delete_key(struct tuple_key key)
         close_maps(1);
     }
     map.map_fd = fd;
-    map.key = (uint64_t)&key;
+    map.key = (uint64_t)key;
     struct tcp_state tstate = {0};
     map.value = (uint64_t)&tstate;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     if(!lookup){
         struct masq_key mk = {0};
-        mk.dport = key.dport;
-        mk.sport = key.sport;
-        memcpy(mk.__in46_u_dest.ip6, key.__in46_u_dst.ip6, sizeof(key.__in46_u_dst.ip6));
-        mk.ifindex = key.ifindex;
+        mk.dport = key->dport;
+        mk.sport = key->sport;
+        memcpy(mk.__in46_u_dest.ip6, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
+        mk.ifindex = key->ifindex;
         mk.protocol = IPPROTO_TCP;
         struct masq_value mv = get_masquerade(mk);
         //printf("tstamp %llu\n", tstate.tstamp);
@@ -4835,12 +4835,12 @@ void tcp_ipv6_egress_map_delete_key(struct tuple_key key)
             char daddr6[INET6_ADDRSTRLEN];
             struct in6_addr saddr_6 = {0};
             struct in6_addr daddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, key.__in46_u_src.ip6, sizeof(key.__in46_u_src.ip6));
-            memcpy(daddr_6.__in6_u.__u6_addr32, key.__in46_u_dst.ip6, sizeof(key.__in46_u_dst.ip6));
+            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_src.ip6, sizeof(key->__in46_u_src.ip6));
+            memcpy(daddr_6.__in6_u.__u6_addr32, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
             inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
             inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
             printf("found ipv6 tcp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
-                , saddr6, daddr6, ntohs(key.sport), ntohs(key.dport), key.ifindex,
+                , saddr6, daddr6, ntohs(key->sport), ntohs(key->dport), key->ifindex,
                  ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
             if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
                 del_masq(mk);
@@ -4905,7 +4905,7 @@ void tcp_ipv6_egress_map_delete_key(struct tuple_key key)
     close(fd);
 }*/
 
-void udp_egress_map_delete_key(struct tuple_key key)
+void udp_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -4921,7 +4921,7 @@ void udp_egress_map_delete_key(struct tuple_key key)
         close_maps(1);
     }
     map.map_fd = fd;
-    map.key = (uint64_t)&key;
+    map.key = (uint64_t)key;
     struct udp_state ustate = {0};
     map.value = (uint64_t)&ustate;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
@@ -4929,19 +4929,19 @@ void udp_egress_map_delete_key(struct tuple_key key)
         //printf("tstamp %llu\n", ustate.tstamp);
         //delete state if tstamp is more than 30 seconds old
         struct masq_reverse_key rk = {0};
-        rk.dport = key.dport;
-        rk.sport = key.sport;
-        rk.ifindex = key.ifindex;
-        rk.__in46_u_dest.ip = key.__in46_u_dst.ip;
-        rk.__in46_u_src.ip = key.__in46_u_src.ip;
+        rk.dport = key->dport;
+        rk.sport = key->sport;
+        rk.ifindex = key->ifindex;
+        rk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+        rk.__in46_u_src.ip = key->__in46_u_src.ip;
         rk.protocol = IPPROTO_UDP;
         struct masq_value rv = get_reverse_masquerade(rk);
         if(rv.o_sport){
-            char *saddr = nitoa(ntohl(key.__in46_u_src.ip));
-            char *daddr = nitoa(ntohl(key.__in46_u_dst.ip));
+            char *saddr = nitoa(ntohl(key->__in46_u_src.ip));
+            char *daddr = nitoa(ntohl(key->__in46_u_dst.ip));
             if(saddr && daddr){
                 printf("found udp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
-                    , saddr, daddr, ntohs(key.sport), ntohs(key.dport), key.ifindex,
+                    , saddr, daddr, ntohs(key->sport), ntohs(key->dport), key->ifindex,
                     ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
             }
             if(saddr){
@@ -4953,10 +4953,10 @@ void udp_egress_map_delete_key(struct tuple_key key)
             if(((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000) && rv.o_sport)
             {
                 struct masq_key mk = {0};
-                mk.dport = key.dport;
+                mk.dport = key->dport;
                 mk.sport = rv.o_sport;
-                mk.__in46_u_dest.ip = key.__in46_u_dst.ip;
-                mk.ifindex = key.ifindex;
+                mk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+                mk.ifindex = key->ifindex;
                 mk.protocol = IPPROTO_UDP;
                 del_masq(mk);
                 del_reverse_masq(rk);
@@ -4979,7 +4979,7 @@ void udp_egress_map_delete_key(struct tuple_key key)
     close(fd);
 }
 
-void udp_ipv6_egress_map_delete_key(struct tuple_key key)
+void udp_ipv6_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -4995,16 +4995,16 @@ void udp_ipv6_egress_map_delete_key(struct tuple_key key)
         close_maps(1);
     }
     map.map_fd = fd;
-    map.key = (uint64_t)&key;
+    map.key = (uint64_t)key;
     struct udp_state ustate = {0};
     map.value = (uint64_t)&ustate;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     if(!lookup){
         struct masq_key mk = {0};
-        mk.dport = key.dport;
-        mk.sport = key.sport;
-        memcpy(mk.__in46_u_dest.ip6, key.__in46_u_dst.ip6, sizeof(key.__in46_u_dst.ip6));
-        mk.ifindex = key.ifindex;
+        mk.dport = key->dport;
+        mk.sport = key->sport;
+        memcpy(mk.__in46_u_dest.ip6, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
+        mk.ifindex = key->ifindex;
         mk.protocol = IPPROTO_UDP;
         struct masq_value mv = get_masquerade(mk);
         //printf("tstamp %llu\n", ustate.tstamp);
@@ -5014,12 +5014,12 @@ void udp_ipv6_egress_map_delete_key(struct tuple_key key)
             char daddr6[INET6_ADDRSTRLEN];
             struct in6_addr saddr_6 = {0};
             struct in6_addr daddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, key.__in46_u_src.ip6, sizeof(key.__in46_u_src.ip6));
-            memcpy(daddr_6.__in6_u.__u6_addr32, key.__in46_u_dst.ip6, sizeof(key.__in46_u_dst.ip6));
+            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_src.ip6, sizeof(key->__in46_u_src.ip6));
+            memcpy(daddr_6.__in6_u.__u6_addr32, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
             inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
             inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
             printf("found ipv6 udp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
-                , saddr6, daddr6, ntohs(key.sport), ntohs(key.dport), key.ifindex,
+                , saddr6, daddr6, ntohs(key->sport), ntohs(key->dport), key->ifindex,
                  ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
             if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000){
                 del_masq(mk);
@@ -5663,9 +5663,11 @@ int flush_udp_egress()
         }
         map.key = map.next_key;
         current_key = *(struct tuple_key *)map.key;
+        struct tuple_key *pass_key = malloc(sizeof(struct tuple_key));
+        memcpy(pass_key,&current_key, sizeof(struct tuple_key));
         if(current_key.type == 4){
             //printf("found udp egress key source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u\n" , current_key.__in46_u_src.ip, current_key.__in46_u_dst.ip, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
-            udp_egress_map_delete_key(current_key);
+            udp_egress_map_delete_key(pass_key);
         }
         else{
             /*char saddr6[INET6_ADDRSTRLEN];
@@ -5677,8 +5679,9 @@ int flush_udp_egress()
             inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
             inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
             printf("found ipv6 udp egress key source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u\n" , saddr6, daddr6, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);*/
-            udp_ipv6_egress_map_delete_key(current_key);
+            udp_ipv6_egress_map_delete_key(pass_key);
         }
+        free(pass_key);
     }
     close(fd);
     return 0;
@@ -5766,9 +5769,11 @@ int flush_tcp_egress()
         }
         map.key = map.next_key;
         current_key = *(struct tuple_key *)map.key;
+        struct tuple_key *pass_key = malloc(sizeof(struct tuple_key));
+        memcpy(pass_key,&current_key, sizeof(struct tuple_key));
         if(current_key.type == 4){
             //printf("found tcp egress key source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u\n" , current_key.__in46_u_src.ip, current_key.__in46_u_dst.ip, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
-            tcp_egress_map_delete_key(current_key);
+            tcp_egress_map_delete_key(pass_key);
         }
         else{
             /*char saddr6[INET6_ADDRSTRLEN];
@@ -5780,8 +5785,9 @@ int flush_tcp_egress()
             inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
             inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
             printf("found ipv6 tcp egress key source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u\n" , saddr6, daddr6, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);*/
-            tcp_ipv6_egress_map_delete_key(current_key);
+            tcp_ipv6_egress_map_delete_key(pass_key);
         }
+        free(pass_key);
     }
     close(fd);
     return 0;
