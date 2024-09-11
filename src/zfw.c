@@ -4720,7 +4720,6 @@ void tcp_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    //printf("Time since system start: %ld nanoseconds\n", (long)((ts.tv_sec * 1000000000) + ts.tv_nsec));
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)tcp_map_path;
@@ -4737,8 +4736,7 @@ void tcp_egress_map_delete_key(struct tuple_key *key)
     map.value = (uint64_t)&tstate;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     if(!lookup){
-        //printf("tstamp %llu\n", tstate.tstamp);
-        //delete state if tstamp is more than 3600 seconds old
+        //delete masquerade state if tstamp is more than 3600 seconds old
         struct masq_reverse_key rk = {0};
         rk.dport = key->dport;
         rk.sport = key->sport;
@@ -4781,19 +4779,6 @@ void tcp_egress_map_delete_key(struct tuple_key *key)
                     del_masq(mk);
                 }
                 del_reverse_masq(rk);
-                /*union bpf_attr tcp_map;
-                memset(&tcp_map, 0, sizeof(tcp_map));
-                tcp_map.pathname = (uint64_t)tcp_map_path;
-                int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tcp_map, sizeof(tcp_map));
-                if (end_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s\n", strerror(errno));
-                }
-                // delete element with specified key
-                tcp_map.map_fd = end_fd;
-                tcp_map.key = (uint64_t)&key;
-                syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &tcp_map, sizeof(tcp_map));
-                close(end_fd);*/
             }
         }
     }
@@ -4804,7 +4789,6 @@ void tcp_ipv6_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    //printf("Time since system start: %ld nanoseconds\n", (long)((ts.tv_sec * 1000000000) + ts.tv_nsec));
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)tcp_map_path;
@@ -4828,8 +4812,7 @@ void tcp_ipv6_egress_map_delete_key(struct tuple_key *key)
         mk.ifindex = key->ifindex;
         mk.protocol = IPPROTO_TCP;
         struct masq_value mv = get_masquerade(mk);
-        //printf("tstamp %llu\n", tstate.tstamp);
-        //delete state if tstamp is more than 3600 seconds old
+        //delete masquerade state if tstamp is more than 3600 seconds old
         if(mv.__in46_u_origin.ip6[0]){
             char saddr6[INET6_ADDRSTRLEN];
             char daddr6[INET6_ADDRSTRLEN];
@@ -4844,72 +4827,16 @@ void tcp_ipv6_egress_map_delete_key(struct tuple_key *key)
                  ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
             if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
                 del_masq(mk);
-                /*union bpf_attr tcp_map;
-                memset(&tcp_map, 0, sizeof(tcp_map));
-                tcp_map.pathname = (uint64_t)tcp_map_path;
-                int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tcp_map, sizeof(tcp_map));
-                if (end_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s\n", strerror(errno));
-                }
-                // delete element with specified key
-                tcp_map.map_fd = end_fd;
-                tcp_map.key = (uint64_t)&key;
-                syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &tcp_map, sizeof(tcp_map));
-                close(end_fd);*/
             }
         }
     }
     close(fd);
 }
 
-/*void tcp_ingress_map_delete_key(struct tuple_key key)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    printf("Time since system start: %ld nanoseconds\n", (long)((ts.tv_sec * 1000000000) + ts.tv_nsec));
-    union bpf_attr map;
-    memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tcp_ingress_map_path;
-    map.bpf_fd = 0;
-    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
-    if (fd == -1)
-    {
-        printf("BPF_OBJ_GET: %s\n", strerror(errno));
-        close_maps(1);
-    }
-    map.map_fd = fd;
-    map.key = (uint64_t)&key;
-    struct tcp_state tstate = {0};
-    map.value = (uint64_t)&tstate;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    if(!lookup){
-        printf("tstamp %llu\n", tstate.tstamp);
-        //delete state if tstamp is more than 3600 seconds old
-        if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
-            union bpf_attr tcp_map;
-            memset(&tcp_map, 0, sizeof(tcp_map));
-            tcp_map.pathname = (uint64_t)tcp_ingress_map_path;
-            int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &tcp_map, sizeof(tcp_map));
-            if (end_fd == -1)
-            {
-                printf("BPF_OBJ_GET: %s\n", strerror(errno));
-            }
-            // delete element with specified key
-            tcp_map.map_fd = end_fd;
-            tcp_map.key = (uint64_t)&key;
-            syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &tcp_map, sizeof(tcp_map));
-            close(end_fd);
-        }
-    }
-    close(fd);
-}*/
-
 void udp_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    //printf("Time since system start: %ld nanoseconds\n", (long)((ts.tv_sec * 1000000000) + ts.tv_nsec));
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)udp_map_path;
@@ -4926,8 +4853,7 @@ void udp_egress_map_delete_key(struct tuple_key *key)
     map.value = (uint64_t)&ustate;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     if(!lookup){
-        //printf("tstamp %llu\n", ustate.tstamp);
-        //delete state if tstamp is more than 30 seconds old
+        //delete masquerade state if tstamp is more than 30 seconds old
         struct masq_reverse_key rk = {0};
         rk.dport = key->dport;
         rk.sport = key->sport;
@@ -4960,19 +4886,6 @@ void udp_egress_map_delete_key(struct tuple_key *key)
                 mk.protocol = IPPROTO_UDP;
                 del_masq(mk);
                 del_reverse_masq(rk);
-                /*union bpf_attr udp_map;
-                memset(&udp_map, 0, sizeof(udp_map));
-                udp_map.pathname = (uint64_t)udp_map_path;
-                int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &udp_map, sizeof(udp_map));
-                if (end_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s\n", strerror(errno));
-                }
-                // delete element with specified key
-                udp_map.map_fd = end_fd;
-                udp_map.key = (uint64_t)&key;
-                syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &udp_map, sizeof(udp_map));
-                close(end_fd);*/
             }
         }
     }
@@ -4983,7 +4896,6 @@ void udp_ipv6_egress_map_delete_key(struct tuple_key *key)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    //printf("Time since system start: %ld nanoseconds\n", (long)((ts.tv_sec * 1000000000) + ts.tv_nsec));
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)udp_map_path;
@@ -5007,8 +4919,7 @@ void udp_ipv6_egress_map_delete_key(struct tuple_key *key)
         mk.ifindex = key->ifindex;
         mk.protocol = IPPROTO_UDP;
         struct masq_value mv = get_masquerade(mk);
-        //printf("tstamp %llu\n", ustate.tstamp);
-        //delete state if tstamp is more than 30 seconds old
+        //delete masquerade state if tstamp is more than 30 seconds old
         if(mv.__in46_u_origin.ip6[0]){
             char saddr6[INET6_ADDRSTRLEN];
             char daddr6[INET6_ADDRSTRLEN];
@@ -5023,67 +4934,11 @@ void udp_ipv6_egress_map_delete_key(struct tuple_key *key)
                  ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
             if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000){
                 del_masq(mk);
-                /*union bpf_attr udp_map;
-                memset(&udp_map, 0, sizeof(udp_map));
-                udp_map.pathname = (uint64_t)udp_map_path;
-                int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &udp_map, sizeof(udp_map)); 
-                if (end_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s\n", strerror(errno));
-                }
-                // delete element with specified key
-                udp_map.map_fd = end_fd;
-                udp_map.key = (uint64_t)&key;
-                syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &udp_map, sizeof(udp_map));
-                close(end_fd);*/
             }
         }
     }
     close(fd);
 }
-
-/*void udp_ingress_map_delete_key(struct tuple_key key)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    printf("Time since system start: %ld nanoseconds\n", (long)((ts.tv_sec * 1000000000) + ts.tv_nsec));
-    union bpf_attr map;
-    memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)udp_ingress_map_path;
-    map.bpf_fd = 0;
-    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
-    if (fd == -1)
-    {
-        printf("BPF_OBJ_GET: %s\n", strerror(errno));
-        close_maps(1);
-    }
-    map.map_fd = fd;
-    map.key = (uint64_t)&key;
-    struct udp_state ustate = {0};
-    map.value = (uint64_t)&ustate;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    if(!lookup){
-        printf("tstamp %llu\n", ustate.tstamp);
-        //delete state if tstamp is more than 30 seconds old
-        if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000){
-            union bpf_attr udp_map;
-            memset(&udp_map, 0, sizeof(udp_map));
-            udp_map.pathname = (uint64_t)udp_ingress_map_path;
-            int end_fd = syscall(__NR_bpf, BPF_OBJ_GET, &udp_map, sizeof(udp_map));
-            if (end_fd == -1)
-            {
-                printf("BPF_OBJ_GET: %s\n", strerror(errno));
-            }
-            // delete element with specified key
-            udp_map.map_fd = end_fd;
-            udp_map.key = (uint64_t)&key;
-            syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &udp_map, sizeof(udp_map));
-            close(end_fd);
-        }
-    }
-    close(fd);
-}*/
-
 
 void map_flush6()
 {
@@ -5666,19 +5521,9 @@ int flush_udp_egress()
         struct tuple_key *pass_key = malloc(sizeof(struct tuple_key));
         memcpy(pass_key,&current_key, sizeof(struct tuple_key));
         if(current_key.type == 4){
-            //printf("found udp egress key source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u\n" , current_key.__in46_u_src.ip, current_key.__in46_u_dst.ip, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
             udp_egress_map_delete_key(pass_key);
         }
         else{
-            /*char saddr6[INET6_ADDRSTRLEN];
-            char daddr6[INET6_ADDRSTRLEN];
-            struct in6_addr saddr_6 = {0};
-            struct in6_addr daddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, current_key.__in46_u_src.ip6, sizeof(current_key.__in46_u_src.ip6));
-            memcpy(daddr_6.__in6_u.__u6_addr32, current_key.__in46_u_dst.ip6, sizeof(current_key.__in46_u_dst.ip6));
-            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
-            inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
-            printf("found ipv6 udp egress key source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u\n" , saddr6, daddr6, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);*/
             udp_ipv6_egress_map_delete_key(pass_key);
         }
         free(pass_key);
@@ -5686,57 +5531,6 @@ int flush_udp_egress()
     close(fd);
     return 0;
 }
-
-/*int flush_udp_ingress()
-{
-    union bpf_attr map;
-    struct tuple_key init_key = {0};
-    struct tuple_key *key = &init_key;
-    struct tuple_key current_key = {0};
-    struct udp_state ostate;
-    // Open BPF udp_map
-    memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)udp_ingress_map_path;
-    map.bpf_fd = 0;
-    map.file_flags = 0;
-    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
-    if (fd == -1)
-    {
-        printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        return 1;
-    }
-    map.map_fd = fd;
-    map.key = (uint64_t)key;
-    map.value = (uint64_t)&ostate;
-    int ret = 0;
-    while (true)
-    {
-        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
-        if (ret == -1)
-        {
-            break;
-        }
-        map.key = map.next_key;
-        current_key = *(struct tuple_key *)map.key;
-        if(current_key.type == 4){
-            printf("found udp ingress key source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u\n" , current_key.__in46_u_src.ip, current_key.__in46_u_dst.ip, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
-        }
-        else{
-            char saddr6[INET6_ADDRSTRLEN];
-            char daddr6[INET6_ADDRSTRLEN];
-            struct in6_addr saddr_6 = {0};
-            struct in6_addr daddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, current_key.__in46_u_src.ip6, sizeof(current_key.__in46_u_src.ip6));
-            memcpy(daddr_6.__in6_u.__u6_addr32, current_key.__in46_u_dst.ip6, sizeof(current_key.__in46_u_dst.ip6));
-            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
-            inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
-            printf("found ipv6 udp ingress key source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u\n" , saddr6, daddr6, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
-        } 
-        udp_ingress_map_delete_key(current_key);
-    }
-    close(fd);
-    return 0;
-}*/
 
 int flush_tcp_egress()
 {
@@ -5772,19 +5566,9 @@ int flush_tcp_egress()
         struct tuple_key *pass_key = malloc(sizeof(struct tuple_key));
         memcpy(pass_key,&current_key, sizeof(struct tuple_key));
         if(current_key.type == 4){
-            //printf("found tcp egress key source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u\n" , current_key.__in46_u_src.ip, current_key.__in46_u_dst.ip, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
             tcp_egress_map_delete_key(pass_key);
         }
         else{
-            /*char saddr6[INET6_ADDRSTRLEN];
-            char daddr6[INET6_ADDRSTRLEN];
-            struct in6_addr saddr_6 = {0};
-            struct in6_addr daddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, current_key.__in46_u_src.ip6, sizeof(current_key.__in46_u_src.ip6));
-            memcpy(daddr_6.__in6_u.__u6_addr32, current_key.__in46_u_dst.ip6, sizeof(current_key.__in46_u_dst.ip6));
-            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
-            inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
-            printf("found ipv6 tcp egress key source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u\n" , saddr6, daddr6, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);*/
             tcp_ipv6_egress_map_delete_key(pass_key);
         }
         free(pass_key);
@@ -5792,56 +5576,6 @@ int flush_tcp_egress()
     close(fd);
     return 0;
 }
-
-/*int flush_tcp_ingress()
-{
-    union bpf_attr map;
-    struct tuple_key init_key = {0};
-    struct tuple_key *key = &init_key;
-    struct tuple_key current_key = {0};
-    struct udp_state ostate;
-    // Open BPF tcp_map
-    memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)tcp_ingress_map_path;
-    map.bpf_fd = 0;
-    map.file_flags = 0;
-    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
-    if (fd == -1)
-    {
-        printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        return 1;
-    }
-    map.map_fd = fd;
-    map.key = (uint64_t)key;
-    map.value = (uint64_t)&ostate;
-    int ret = 0;
-    while (true)
-    {
-        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
-        if (ret == -1)
-        {
-            break;
-        }
-        map.key = map.next_key;
-        current_key = *(struct tuple_key *)map.key;
-       if(current_key.type == 4){
-            printf("found tcp ingress key source: %x | dest: %x | sport: %d | dport: %d, ifindex: %u\n" , current_key.__in46_u_src.ip, current_key.__in46_u_dst.ip, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
-        }else{
-            char saddr6[INET6_ADDRSTRLEN];
-            char daddr6[INET6_ADDRSTRLEN];
-            struct in6_addr saddr_6 = {0};
-            struct in6_addr daddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, current_key.__in46_u_src.ip6, sizeof(current_key.__in46_u_src.ip6));
-            memcpy(daddr_6.__in6_u.__u6_addr32, current_key.__in46_u_dst.ip6, sizeof(current_key.__in46_u_dst.ip6));
-            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
-            inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
-            printf("found ipv6 tcp ingress key source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u\n" , saddr6, daddr6, ntohs(current_key.sport), ntohs(current_key.dport), current_key.ifindex);
-        }
-        tcp_ingress_map_delete_key(current_key); 
-    }
-    close(fd);
-    return 0;
-}*/
 
 void map_list()
 {
@@ -7585,9 +7319,7 @@ int main(int argc, char **argv)
             {
                 usage("-G, --list-gc-sessions cannot be combined with other list arguments -E,-c,-o, -m, -n, -p, -Y");
             }
-            //flush_udp_ingress();
             flush_udp_egress();
-            //flush_tcp_ingress();
             flush_tcp_egress();
             close_maps(0);
         }
