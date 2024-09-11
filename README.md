@@ -15,7 +15,10 @@ zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass thro
 ```sudo zfw -k, --masquerade <ifname>```
 
 This function requires that both ingress and egress TC filters are enabled on outbound interface. For IPv4 this is now using Dynamic PAT and IPv6 is using 
-static PAT.  Note: When running on later kernels i.e. 6+ some older network hardware may not work with ebpf Dynamic PAT.   
+static PAT.  Note: When running on later kernels i.e. 6+ some older network hardware may not work with ebpf Dynamic PAT. We have also seen some incompatibility with 2.5Gb interfaces on 5.x+ kernels. 
+
+In release v0.8.19 masquerade session gc was added to /etc/cron.d/zfw_refresh via ```/opt/openziti/bin/zfw -L -G > /dev/null``` and runs once per minute.  Stale udp sessions will be 
+removed if over 30s and stale tcp sessions will be removed if over 3600 seconds(1hr). 
 
 ### Explicit Deny Rules
 This feature adds the ability to enter explicit deny rules by appending ```-d, --disable``` to the ```-I, --insert rule``` to either ingress or egress rules.  Rule precedence is based on longest match prefix.  If the prefix is the same then the precedence follows the order entry of the rules, which when listed will go from top to bottom for ports with in the same prefix e.g.  
