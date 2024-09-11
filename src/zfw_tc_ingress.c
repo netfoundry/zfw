@@ -1420,8 +1420,20 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     }
                                     __u16 otcpcheck = itcph->check;
                                     int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
+                                    struct l4_change_fields{
+                                        __u32 saddr;
+                                        __u16 sport;
+                                    };
+                                    struct l4_change_fields old_fields = {0};
+                                    struct l4_change_fields new_fields = {0};
+                                    old_fields.saddr = local_ip4->ipaddr[0];
+                                    old_fields.sport = mk.sport;
+                                    new_fields.saddr = mv->__in46_u_origin.ip;
+                                    new_fields.sport = mv->o_sport;
+                                    __u32 l4_sum_tcp = bpf_csum_diff((__u32 *)&old_fields, sizeof(old_fields), (__u32 *)&new_fields, sizeof(new_fields), 0);
+                                    itcph->source = mv->o_sport;
                                     bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
-                                     offsetof(struct tcphdr, check), 0, l3_sum, flags | 0);
+                                     offsetof(struct tcphdr, check), 0, l4_sum_tcp, flags);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
@@ -1444,8 +1456,18 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     if ((unsigned long)(itcph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
                                     }
-                                    __u32 l4_sum = bpf_csum_diff((__u32 *)&otcpcheck, sizeof(__u32),(__u32 *)&itcph->check, sizeof(__u32), 0);
-                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum, flags | 0);
+                                    struct icmp_l4_change_fields{
+                                        __u16 sport;
+                                        __u16 check;
+                                    };
+                                    struct icmp_l4_change_fields old_icmp_fields = {0};
+                                    struct icmp_l4_change_fields new_icmp_fields = {0};
+                                    old_icmp_fields.sport = mk.sport;
+                                    old_icmp_fields.check = otcpcheck;
+                                    new_icmp_fields.sport = mv->o_sport;
+                                    new_icmp_fields.check = itcph->check;
+                                    __u32 l4_sum_icmp = bpf_csum_diff((__u32 *)&old_icmp_fields, sizeof(old_icmp_fields),(__u32 *)&new_icmp_fields, sizeof(new_icmp_fields), 0);
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum_icmp, flags | 0);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
@@ -1554,8 +1576,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                         return TC_ACT_SHOT;
                                     }
                                     l3_sum = bpf_csum_diff((__u32 *)&inner_iph->saddr, sizeof(__u32),(__u32 *)&mv->__in46_u_origin.ip, sizeof(__u32), 0);
-                                    inner_iph->saddr = mv->__in46_u_origin.ip;
-                                   
+                                    inner_iph->saddr = mv->__in46_u_origin.ip;   
                                     bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
@@ -1573,6 +1594,94 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                             event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
                                             send_event(&event);
                                         }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    struct udphdr *iudph = (struct udphdr *)((unsigned long)inner_iph + sizeof(*inner_iph));
+                                    if ((unsigned long)(iudph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 
+                                    if ((unsigned long)(u_session + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = IP_TUPLE_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    __u16 oudpcheck = iudph->check;
+                                    int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
+                                    struct l4_change_fields{
+                                        __u32 saddr;
+                                        __u16 sport;
+                                    };
+                                    struct l4_change_fields old_fields = {0};
+                                    struct l4_change_fields new_fields = {0};
+                                    old_fields.saddr = local_ip4->ipaddr[0];
+                                    old_fields.sport = mk.sport;
+                                    new_fields.saddr = mv->__in46_u_origin.ip;
+                                    new_fields.sport = mv->o_sport;
+                                    __u32 l4_sum_udp = bpf_csum_diff((__u32 *)&old_fields, sizeof(old_fields), (__u32 *)&new_fields, sizeof(new_fields), 0);
+                                    iudph->source = mv->o_sport;
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
+                                     offsetof(struct udphdr, check), 0, l4_sum_udp, flags);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    iudph = (struct udphdr *)((unsigned long)inner_iph + sizeof(*inner_iph));
+                                    if ((unsigned long)(iudph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 
+                                    if ((unsigned long)(u_session + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = IP_TUPLE_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    struct icmp_l4_change_fields{
+                                        __u16 sport;
+                                        __u16 check;
+                                    };
+                                    struct icmp_l4_change_fields old_icmp_fields = {0};
+                                    struct icmp_l4_change_fields new_icmp_fields = {0};
+                                    old_icmp_fields.sport = mk.sport;
+                                    old_icmp_fields.check = oudpcheck;
+                                    new_icmp_fields.sport = mv->o_sport;
+                                    new_icmp_fields.check = iudph->check;
+                                    __u32 l4_sum_icmp = bpf_csum_diff((__u32 *)&old_icmp_fields, sizeof(old_icmp_fields),(__u32 *)&new_icmp_fields, sizeof(new_icmp_fields), 0);
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum_icmp, flags | 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    iudph = (struct udphdr *)((unsigned long)inner_iph + sizeof(*inner_iph));
+                                    if ((unsigned long)(iudph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
                                     }
                                     u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 

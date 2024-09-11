@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file. The format 
 ###
 # [0.8.19] - 2024-09-08
 - Add masquerade/reverse_masquerade map garbage collection to ```zfw.c -L -G, --list-gc-sessions``` which is now added to
-  /etc/cron.d/zfw_refresh as well
+  /etc/cron.d/zfw_refresh as well so it will run once every 60 seconds unless modified.
+- Fixed issue where icmp unreachable were not working for ipv4 masqueraded tcp/udp sessions that was introduced when dynamic PAT was added. 
 
 ###
 # [0.8.18] - 2024-09-07
