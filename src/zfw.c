@@ -102,6 +102,7 @@ bool ddos = false;
 bool add = false;
 bool delete = false;
 bool list = false;
+bool list_gc = false;
 bool flush = false;
 bool lpt = false;
 bool hpt = false;
@@ -246,7 +247,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.18";
+const char *argp_program_version = "0.8.19";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -256,6 +257,79 @@ struct interface
     char *name;
     uint16_t addr_count;
     uint32_t addresses[MAX_ADDRESSES];
+};
+
+/*Key to masquerade_map*/
+struct masq_key {
+    uint32_t ifindex;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
+    __u8 protocol;
+    __u16 sport;
+    __u16 dport;
+};
+
+/*value to masquerade_map and icmp_masquerade_map*/
+struct masq_value {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_origin;
+    __u16 o_sport;
+};
+
+/*Key to masquerade_reverse_map*/
+struct masq_reverse_key {
+    uint32_t ifindex;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
+    __u8 protocol;
+    __u16 sport;
+    __u16 dport;
+};
+
+/*Key to tcp_map/udp_map*/
+struct tuple_key {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dst;
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_src;
+    __u16 sport;
+    __u16 dport;
+    __u32 ifindex;
+    __u8 type;
+};
+
+/*Value to tcp_map*/
+struct tcp_state {
+    unsigned long long tstamp;
+    __u32 sfseq;
+    __u32 cfseq;
+    __u8 syn;
+    __u8 sfin;
+    __u8 cfin;
+    __u8 sfack;
+    __u8 cfack;
+    __u8 ack;
+    __u8 rst;
+    __u8 est;
+};
+
+/*Value to udp_map*/
+struct udp_state {
+    unsigned long long tstamp;
 };
 
 struct interface6
@@ -4568,6 +4642,304 @@ void map_delete()
     if_list_ext_delete_key(port_ext_key);
 }
 
+struct masq_value get_reverse_masquerade(struct masq_reverse_key key){
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)masquerade_reverse_map_path;
+    map.bpf_fd = 0;
+    struct masq_value mstate = {0};
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return mstate;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&mstate;
+    syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    close(fd);
+    return mstate;
+}
+
+struct masq_value get_masquerade(struct masq_key key){
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)masquerade_map_path;
+    map.bpf_fd = 0;
+    struct masq_value mstate = {0};
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return mstate;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&mstate;
+    syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    close(fd);
+    return mstate;
+}
+
+void del_reverse_masq(struct masq_reverse_key key){
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)masquerade_reverse_map_path;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    close(fd);
+}
+
+void del_masq(struct masq_key key){
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)masquerade_map_path;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        return;
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    close(fd);
+}
+
+void tcp_egress_map_delete_key(struct tuple_key *key)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tcp_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    struct tcp_state tstate = {0};
+    map.value = (uint64_t)&tstate;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if(!lookup){
+        //delete masquerade state if tstamp is more than 3600 seconds old
+        struct masq_reverse_key rk = {0};
+        rk.dport = key->dport;
+        rk.sport = key->sport;
+        rk.ifindex = key->ifindex;
+        rk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+        rk.__in46_u_src.ip = key->__in46_u_src.ip;
+        rk.protocol = IPPROTO_TCP;
+        struct masq_value rv = get_reverse_masquerade(rk);
+        if(rv.o_sport){
+            char *saddr = nitoa(ntohl(key->__in46_u_src.ip));
+            char *daddr = nitoa(ntohl(key->__in46_u_dst.ip));
+            if(saddr && daddr){
+                printf("found tcp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
+                    , saddr, daddr, ntohs(key->sport), ntohs(key->dport), key->ifindex,
+                    ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
+            }
+            if(saddr){
+                free(saddr);
+            }
+            if(daddr){
+                free(daddr);
+            }
+            if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
+                struct masq_reverse_key rk = {0};
+                rk.dport = key->dport;
+                rk.sport = key->sport;
+                rk.ifindex = key->ifindex;
+                rk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+                rk.__in46_u_src.ip = key->__in46_u_src.ip;
+                rk.protocol = IPPROTO_TCP;
+                struct masq_value rv = get_reverse_masquerade(rk);
+                if(rv.o_sport){
+
+                    struct masq_key mk = {0};
+                    mk.dport = key->dport;
+                    mk.sport = rv.o_sport;
+                    mk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+                    mk.ifindex = key->ifindex;
+                    mk.protocol = IPPROTO_TCP;
+                    del_masq(mk);
+                }
+                del_reverse_masq(rk);
+            }
+        }
+    }
+    close(fd);
+}
+
+void tcp_ipv6_egress_map_delete_key(struct tuple_key *key)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tcp_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    struct tcp_state tstate = {0};
+    map.value = (uint64_t)&tstate;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if(!lookup){
+        struct masq_key mk = {0};
+        mk.dport = key->dport;
+        mk.sport = key->sport;
+        memcpy(mk.__in46_u_dest.ip6, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
+        mk.ifindex = key->ifindex;
+        mk.protocol = IPPROTO_TCP;
+        struct masq_value mv = get_masquerade(mk);
+        //delete masquerade state if tstamp is more than 3600 seconds old
+        if(mv.__in46_u_origin.ip6[0]){
+            char saddr6[INET6_ADDRSTRLEN];
+            char daddr6[INET6_ADDRSTRLEN];
+            struct in6_addr saddr_6 = {0};
+            struct in6_addr daddr_6 = {0};
+            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_src.ip6, sizeof(key->__in46_u_src.ip6));
+            memcpy(daddr_6.__in6_u.__u6_addr32, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
+            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
+            inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
+            printf("found ipv6 tcp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
+                , saddr6, daddr6, ntohs(key->sport), ntohs(key->dport), key->ifindex,
+                 ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  tstate.tstamp)/1000000000);
+            if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - tstate.tstamp) > 3600000000000){
+                del_masq(mk);
+            }
+        }
+    }
+    close(fd);
+}
+
+void udp_egress_map_delete_key(struct tuple_key *key)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)udp_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    struct udp_state ustate = {0};
+    map.value = (uint64_t)&ustate;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if(!lookup){
+        //delete masquerade state if tstamp is more than 30 seconds old
+        struct masq_reverse_key rk = {0};
+        rk.dport = key->dport;
+        rk.sport = key->sport;
+        rk.ifindex = key->ifindex;
+        rk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+        rk.__in46_u_src.ip = key->__in46_u_src.ip;
+        rk.protocol = IPPROTO_UDP;
+        struct masq_value rv = get_reverse_masquerade(rk);
+        if(rv.o_sport){
+            char *saddr = nitoa(ntohl(key->__in46_u_src.ip));
+            char *daddr = nitoa(ntohl(key->__in46_u_dst.ip));
+            if(saddr && daddr){
+                printf("found udp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
+                    , saddr, daddr, ntohs(key->sport), ntohs(key->dport), key->ifindex,
+                    ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
+            }
+            if(saddr){
+                free(saddr);
+            }
+            if(daddr){
+                free(daddr);
+            }
+            if(((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000) && rv.o_sport)
+            {
+                struct masq_key mk = {0};
+                mk.dport = key->dport;
+                mk.sport = rv.o_sport;
+                mk.__in46_u_dest.ip = key->__in46_u_dst.ip;
+                mk.ifindex = key->ifindex;
+                mk.protocol = IPPROTO_UDP;
+                del_masq(mk);
+                del_reverse_masq(rk);
+            }
+        }
+    }
+    close(fd);
+}
+
+void udp_ipv6_egress_map_delete_key(struct tuple_key *key)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)udp_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    struct udp_state ustate = {0};
+    map.value = (uint64_t)&ustate;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if(!lookup){
+        struct masq_key mk = {0};
+        mk.dport = key->dport;
+        mk.sport = key->sport;
+        memcpy(mk.__in46_u_dest.ip6, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
+        mk.ifindex = key->ifindex;
+        mk.protocol = IPPROTO_UDP;
+        struct masq_value mv = get_masquerade(mk);
+        //delete masquerade state if tstamp is more than 30 seconds old
+        if(mv.__in46_u_origin.ip6[0]){
+            char saddr6[INET6_ADDRSTRLEN];
+            char daddr6[INET6_ADDRSTRLEN];
+            struct in6_addr saddr_6 = {0};
+            struct in6_addr daddr_6 = {0};
+            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_src.ip6, sizeof(key->__in46_u_src.ip6));
+            memcpy(daddr_6.__in6_u.__u6_addr32, key->__in46_u_dst.ip6, sizeof(key->__in46_u_dst.ip6));
+            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
+            inet_ntop(AF_INET6, &daddr_6, daddr6, INET6_ADDRSTRLEN);
+            printf("found ipv6 udp egress masquerade -> source: %s | dest: %s | sport: %d | dport: %d, ifindex: %u age (sec): %lld\n" 
+                , saddr6, daddr6, ntohs(key->sport), ntohs(key->dport), key->ifindex,
+                 ((long long)((ts.tv_sec * 1000000000) + ts.tv_nsec) -  ustate.tstamp)/1000000000);
+            if((((ts.tv_sec * 1000000000) + ts.tv_nsec) - ustate.tstamp) > 30000000000){
+                del_masq(mk);
+            }
+        }
+    }
+    close(fd);
+}
+
 void map_flush6()
 {
     union bpf_attr map;
@@ -5115,6 +5487,96 @@ void map_flush()
     }
 }
 
+int flush_udp_egress()
+{
+    union bpf_attr map;
+    struct tuple_key init_key = {0};
+    struct tuple_key *key = &init_key;
+    struct tuple_key current_key = {0};
+    struct udp_state ostate;
+    // Open BPF udp_map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)udp_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return 1;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&ostate;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tuple_key *)map.key;
+        struct tuple_key *pass_key = malloc(sizeof(struct tuple_key));
+        memcpy(pass_key,&current_key, sizeof(struct tuple_key));
+        if(current_key.type == 4){
+            udp_egress_map_delete_key(pass_key);
+        }
+        else{
+            udp_ipv6_egress_map_delete_key(pass_key);
+        }
+        free(pass_key);
+    }
+    close(fd);
+    return 0;
+}
+
+int flush_tcp_egress()
+{
+    union bpf_attr map;
+    struct tuple_key init_key = {0};
+    struct tuple_key *key = &init_key;
+    struct tuple_key current_key = {0};
+    struct udp_state ostate;
+    // Open BPF tcp_map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)tcp_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return 1;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&ostate;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tuple_key *)map.key;
+        struct tuple_key *pass_key = malloc(sizeof(struct tuple_key));
+        memcpy(pass_key,&current_key, sizeof(struct tuple_key));
+        if(current_key.type == 4){
+            tcp_egress_map_delete_key(pass_key);
+        }
+        else{
+            tcp_ipv6_egress_map_delete_key(pass_key);
+        }
+        free(pass_key);
+    }
+    close(fd);
+    return 0;
+}
+
 void map_list()
 {
     union bpf_attr map;
@@ -5578,6 +6040,7 @@ void map_list_all()
 static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
+    {"list-gc-sessions", 'G', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
@@ -5633,6 +6096,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'F':
         flush = true;
+        break;
+    case 'G':
+        list_gc = true;
         break;
     case 'I':
         add = true;
@@ -6580,6 +7046,11 @@ int main(int argc, char **argv)
         usage("-E, --list-diag requires -L --list");
     }
 
+    if (list_gc && !list)
+    {
+        usage("-G, --list-gc-sessions requires -L --list");
+    }
+
     if ((tun && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush || tcfilter)))
     {
         usage("-T, --set-tun-mode cannot be set as a part of combination call to zfw");
@@ -6840,6 +7311,16 @@ int main(int argc, char **argv)
                 usage("-E, --list-diag cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -Y");
             }
             interface_diag();
+            close_maps(0);
+        }
+        if (list_gc)
+        {
+            if (cd || dl || cs || sl || prot || ddos_saddr_list || list_diag)
+            {
+                usage("-G, --list-gc-sessions cannot be combined with other list arguments -E,-c,-o, -m, -n, -p, -Y");
+            }
+            flush_udp_egress();
+            flush_tcp_egress();
             close_maps(0);
         }
         if (ddos_saddr_list)

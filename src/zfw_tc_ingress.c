@@ -185,6 +185,8 @@ struct tuple_key {
     }__in46_u_src;
     __u16 sport;
     __u16 dport;
+    __u32 ifindex;
+    __u8 type;
 };
 
 /*Key to icmp_echo_map*/
@@ -622,7 +624,7 @@ struct {
 
 /*tracks udp and tcp masquerade*/
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(type, BPF_MAP_TYPE_HASH);
      __uint(key_size, sizeof(struct masq_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS * 2);
@@ -631,7 +633,7 @@ struct {
 
 /*stores reverse lookup table udp and tcp masquerade*/
 struct {
-     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(type, BPF_MAP_TYPE_HASH);
      __uint(key_size, sizeof(struct masq_reverse_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS * 2);
@@ -1418,8 +1420,20 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     }
                                     __u16 otcpcheck = itcph->check;
                                     int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
+                                    struct l4_change_fields{
+                                        __u32 saddr;
+                                        __u16 sport;
+                                    };
+                                    struct l4_change_fields old_fields = {0};
+                                    struct l4_change_fields new_fields = {0};
+                                    old_fields.saddr = local_ip4->ipaddr[0];
+                                    old_fields.sport = mk.sport;
+                                    new_fields.saddr = mv->__in46_u_origin.ip;
+                                    new_fields.sport = mv->o_sport;
+                                    __u32 l4_sum_tcp = bpf_csum_diff((__u32 *)&old_fields, sizeof(old_fields), (__u32 *)&new_fields, sizeof(new_fields), 0);
+                                    itcph->source = mv->o_sport;
                                     bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
-                                     offsetof(struct tcphdr, check), 0, l3_sum, flags | 0);
+                                     offsetof(struct tcphdr, check), 0, l4_sum_tcp, flags);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
@@ -1442,8 +1456,18 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     if ((unsigned long)(itcph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
                                     }
-                                    __u32 l4_sum = bpf_csum_diff((__u32 *)&otcpcheck, sizeof(__u32),(__u32 *)&itcph->check, sizeof(__u32), 0);
-                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum, flags | 0);
+                                    struct icmp_l4_change_fields{
+                                        __u16 sport;
+                                        __u16 check;
+                                    };
+                                    struct icmp_l4_change_fields old_icmp_fields = {0};
+                                    struct icmp_l4_change_fields new_icmp_fields = {0};
+                                    old_icmp_fields.sport = mk.sport;
+                                    old_icmp_fields.check = otcpcheck;
+                                    new_icmp_fields.sport = mv->o_sport;
+                                    new_icmp_fields.check = itcph->check;
+                                    __u32 l4_sum_icmp = bpf_csum_diff((__u32 *)&old_icmp_fields, sizeof(old_icmp_fields),(__u32 *)&new_icmp_fields, sizeof(new_icmp_fields), 0);
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum_icmp, flags | 0);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
@@ -1475,6 +1499,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             tk.__in46_u_src.ip = iph->daddr;
                             tk.dport = o_session->ipv4.dport;
                             tk.sport = o_session->ipv4.sport;
+                            tk.ifindex = event.ifindex;
+                            tk.type = 4;
                             struct tcp_state *ts = get_tcp(tk);
                             if(ts){
                                 return TC_ACT_OK;
@@ -1550,8 +1576,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                         return TC_ACT_SHOT;
                                     }
                                     l3_sum = bpf_csum_diff((__u32 *)&inner_iph->saddr, sizeof(__u32),(__u32 *)&mv->__in46_u_origin.ip, sizeof(__u32), 0);
-                                    inner_iph->saddr = mv->__in46_u_origin.ip;
-                                   
+                                    inner_iph->saddr = mv->__in46_u_origin.ip;   
                                     bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
                                     iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                     if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
@@ -1569,6 +1594,94 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                             event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
                                             send_event(&event);
                                         }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    struct udphdr *iudph = (struct udphdr *)((unsigned long)inner_iph + sizeof(*inner_iph));
+                                    if ((unsigned long)(iudph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 
+                                    if ((unsigned long)(u_session + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = IP_TUPLE_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    __u16 oudpcheck = iudph->check;
+                                    int flags = BPF_F_MARK_MANGLED_0 | BPF_F_MARK_ENFORCE | BPF_F_PSEUDO_HDR;
+                                    struct l4_change_fields{
+                                        __u32 saddr;
+                                        __u16 sport;
+                                    };
+                                    struct l4_change_fields old_fields = {0};
+                                    struct l4_change_fields new_fields = {0};
+                                    old_fields.saddr = local_ip4->ipaddr[0];
+                                    old_fields.sport = mk.sport;
+                                    new_fields.saddr = mv->__in46_u_origin.ip;
+                                    new_fields.sport = mv->o_sport;
+                                    __u32 l4_sum_udp = bpf_csum_diff((__u32 *)&old_fields, sizeof(old_fields), (__u32 *)&new_fields, sizeof(new_fields), 0);
+                                    iudph->source = mv->o_sport;
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr) + inner_iph->ihl *4 +
+                                     offsetof(struct udphdr, check), 0, l4_sum_udp, flags);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    iudph = (struct udphdr *)((unsigned long)inner_iph + sizeof(*inner_iph));
+                                    if ((unsigned long)(iudph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 
+                                    if ((unsigned long)(u_session + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = IP_TUPLE_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    struct icmp_l4_change_fields{
+                                        __u16 sport;
+                                        __u16 check;
+                                    };
+                                    struct icmp_l4_change_fields old_icmp_fields = {0};
+                                    struct icmp_l4_change_fields new_icmp_fields = {0};
+                                    old_icmp_fields.sport = mk.sport;
+                                    old_icmp_fields.check = oudpcheck;
+                                    new_icmp_fields.sport = mv->o_sport;
+                                    new_icmp_fields.check = iudph->check;
+                                    __u32 l4_sum_icmp = bpf_csum_diff((__u32 *)&old_icmp_fields, sizeof(old_icmp_fields),(__u32 *)&new_icmp_fields, sizeof(new_icmp_fields), 0);
+                                    bpf_l4_csum_replace(skb, sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct icmphdr, checksum), 0, l4_sum_icmp, flags | 0);
+                                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                                        return TC_ACT_SHOT;
+                                    }
+                                    icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+                                    if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                                        event.error_code = ICMP_HEADER_TOO_BIG;
+                                        send_event(&event);
+                                        return TC_ACT_SHOT;
+                                    }
+                                    inner_iph = (struct iphdr *)((unsigned long)icmph + sizeof(*icmph));
+                                    if ((unsigned long)(inner_iph + 1) > (unsigned long)skb->data_end){
+                                        if(local_diag->verbose){
+                                            event.error_code = ICMP_INNER_IP_HEADER_TOO_BIG;
+                                            send_event(&event);
+                                        }
+                                        return TC_ACT_SHOT;
+                                    }
+                                    iudph = (struct udphdr *)((unsigned long)inner_iph + sizeof(*inner_iph));
+                                    if ((unsigned long)(iudph + 1) > (unsigned long)skb->data_end){
                                         return TC_ACT_SHOT;
                                     }
                                     u_session = (struct udp_v4_tuple *)(void*)(long)&inner_iph->saddr; 
@@ -1607,6 +1720,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 uk.__in46_u_src.ip = iph->daddr;
                                 uk.dport = u_session->dport;
                                 uk.sport = u_session->sport;
+                                uk.ifindex = event.ifindex;
+                                uk.type = 4;
                                 struct udp_state *us = get_udp(uk);
                                 if(us){
                                     return TC_ACT_OK;
@@ -1932,6 +2047,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 tcp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 tcp_state_key.sport = tuple->ipv4.dport;
                 tcp_state_key.dport = tuple->ipv4.sport;
+                tcp_state_key.ifindex = event.ifindex;
+                tcp_state_key.type = 4;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
@@ -2153,6 +2270,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 udp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.dport;
                 udp_state_key.dport = tuple->ipv4.sport;
+                udp_state_key.ifindex = event.ifindex;
+                udp_state_key.type = 4;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if(ustate){
@@ -2209,8 +2328,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
                             send_event(&event);
                         }
-                        /*DNS state over after response so clear the state tables upon reply from server*/
-                        if(bpf_ntohs(udp_state_key.dport) == 53){
+                        /*DNS || NTP state over after response so clear the state tables upon reply from server*/
+                        if(bpf_ntohs(udp_state_key.dport) == 53 || bpf_ntohs(udp_state_key.dport) == 123){
                             if(local_diag->masquerade){
                                 struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
                                 if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
@@ -2371,6 +2490,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 tcp_state_key.sport = tuple->ipv6.dport;
                 tcp_state_key.dport = tuple->ipv6.sport;
+                tcp_state_key.ifindex =event.ifindex;
+                tcp_state_key.type = 6;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
@@ -2496,6 +2617,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 memcpy(udp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 udp_state_key.sport = tuple->ipv6.dport;
                 udp_state_key.dport = tuple->ipv6.sport;
+                udp_state_key.ifindex = event.ifindex;
+                udp_state_key.type = 6;
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct udp_state *ustate = get_udp(udp_state_key);
                 if(ustate){
@@ -3501,6 +3624,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             udp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             udp_state_key.sport = tuple->ipv4.sport;
             udp_state_key.dport = tuple->ipv4.dport;
+            udp_state_key.ifindex = event.ifindex;
+            udp_state_key.type = 4;
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
             if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
                 struct udp_state us = {
@@ -3527,6 +3652,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             tcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.sport;
             tcp_state_key.dport = tuple->ipv4.dport;
+            tcp_state_key.ifindex = event.ifindex;
+            tcp_state_key.type = 4;
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate;
             if(tcph->syn && !tcph->ack){
@@ -3639,6 +3766,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             memcpy(udp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             udp_state_key.sport = tuple->ipv6.sport;
             udp_state_key.dport = tuple->ipv6.dport;
+            udp_state_key.ifindex = event.ifindex;
+            udp_state_key.type = 6;
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
             if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
                 struct udp_state us = {
@@ -3664,6 +3793,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
             tcp_state_key.sport = tuple->ipv6.sport;
             tcp_state_key.dport = tuple->ipv6.dport;
+            tcp_state_key.ifindex = event.ifindex;
+            tcp_state_key.type = 6;
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate;
             if(tcph->syn && !tcph->ack){

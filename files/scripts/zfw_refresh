@@ -1,2 +1,3 @@
 * * * * * root /opt/openziti/bin/zfw -L -E > /dev/null
+* * * * * root /opt/openziti/bin/zfw -L -G > /dev/null
 
