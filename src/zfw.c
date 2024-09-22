@@ -100,6 +100,8 @@
 
 bool ddos = false;
 bool add = false;
+bool bind_saddr = false;
+bool unbind_saddr = false;
 bool delete = false;
 bool list = false;
 bool list_gc = false;
@@ -114,9 +116,11 @@ bool cd6 = false;
 bool cs = false;
 bool cs6 = false;
 bool prot = false;
+bool non_tuple = false;
 bool route = false;
 bool passthru = false;
 bool intercept = false;
+bool bind_flush = false;
 bool masquerade = false;
 bool echo = false;
 bool eapol = false;
@@ -168,6 +172,8 @@ union bpf_attr if6_map;
 int if6_fd = -1;
 union bpf_attr ddos_saddr_map;
 int ddos_saddr_fd = -1;
+union bpf_attr bind_saddr_map;
+int bind_saddr_fd = -1;
 union bpf_attr ddos_dport_map;
 int ddos_dport_fd = -1;
 union bpf_attr diag_map;
@@ -225,6 +231,7 @@ const char *egress_count6_map_path = "/sys/fs/bpf/tc/globals/egress6_count_map";
 const char *masquerade_map_path = "/sys/fs/bpf/tc/globals/masquerade_map";
 const char *masquerade_reverse_map_path = "/sys/fs/bpf/tc/globals/masquerade_reverse_map";
 const char *icmp_masquerade_map_path = "/sys/fs/bpf/tc/globals/icmp_masquerade_map";
+const char *bind_saddr_map_path = "/sys/fs/bpf/tc/globals/bind_saddr_map";
 const char *icmp_echo_map_path = "/sys/fs/bpf/tc/globals/icmp_echo_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
@@ -234,6 +241,7 @@ char *eapol_interface;
 char *verbose_interface;
 char *ssh_interface;
 char *prefix_interface;
+char *nt_interface;
 char *tun_interface;
 char *vrrp_interface;
 char *ddos_interface;
@@ -247,7 +255,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.8.19";
+const char *argp_program_version = "0.9.0";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -257,6 +265,16 @@ struct interface
     char *name;
     uint16_t addr_count;
     uint32_t addresses[MAX_ADDRESSES];
+};
+
+/*Key to bind_map*/
+struct bind_key {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
+    __u8 mask;
+    __u8 type;
 };
 
 /*Key to masquerade_map*/
@@ -381,6 +399,7 @@ void open_tproxy_ext_map();
 void open_egress_ext_map();
 void open_if_list_ext_map();
 void open_egress_if_list_ext_map();
+void open_bind_saddr_map();
 void map_insert6();
 void map_delete6();
 void map_insert();
@@ -469,6 +488,7 @@ struct diag_ip4 {
     bool ipv6_enable;
     bool outbound_filter;
     bool masquerade;
+    bool pass_non_tuple;
 };
 
 struct tproxy_tuple
@@ -570,7 +590,7 @@ int check_filter(uint32_t idx, char *direction){
     return 0;
 }
 
-/*function to add loopback binding for intercept IP prefixes that do not
+/*function to add loopback binding for intercept IPv4 prefixes that do not
  * currently exist as a subset of an external interface
  * */
 void bind_prefix(struct in_addr *address, unsigned short mask)
@@ -578,7 +598,7 @@ void bind_prefix(struct in_addr *address, unsigned short mask)
     char *prefix = inet_ntoa(*address);
     char *cidr_block = malloc(19);
     sprintf(cidr_block, "%s/%u", prefix, mask);
-    printf("binding intercept %s to loopback\n", cidr_block);
+    printf("binding route %s to loopback\n", cidr_block);
     pid_t pid;
     char *const parmList[] = {"/usr/sbin/ip", "addr", "add", cidr_block, "dev", "lo", "scope", "host", NULL};
     if ((pid = fork()) == -1)
@@ -593,12 +613,57 @@ void bind_prefix(struct in_addr *address, unsigned short mask)
     free(cidr_block);
 }
 
+/*function to add loopback binding for intercept IPv6 prefixes that*/
+void bind6_prefix(struct in6_addr *address, unsigned short mask)
+{
+    char prefix[INET6_ADDRSTRLEN];
+    struct in6_addr addr_6 = {0};
+    inet_ntop(AF_INET6, address, prefix, INET6_ADDRSTRLEN);
+    char cidr_block[44];
+    sprintf(cidr_block, "%s/%u", prefix, mask);
+    printf("binding route %s to loopback\n", cidr_block);
+    pid_t pid;
+    char *const parmList[] = {"/usr/sbin/ip", "addr", "add", cidr_block, "dev", "lo", "scope", "host", NULL};
+    if ((pid = fork()) == -1)
+    {
+        perror("fork error: can't spawn bind");
+    }
+    else if (pid == 0)
+    {
+        execv("/usr/sbin/ip", parmList);
+        printf("execv error: unknown error binding");
+    }
+}
+
+/*function to add loopback binding for intercept IPv6 prefixes that*/
+void unbind6_prefix(struct in6_addr *address, unsigned short mask)
+{
+    char prefix[INET6_ADDRSTRLEN];
+    struct in6_addr addr_6 = {0};
+    inet_ntop(AF_INET6, address, prefix, INET6_ADDRSTRLEN);
+    char cidr_block[44];
+    sprintf(cidr_block, "%s/%u", prefix, mask);
+    printf("unbinding route %s from loopback\n", cidr_block);
+    pid_t pid;
+    char *const parmList[] = {"/usr/sbin/ip", "addr", "delete", cidr_block, "dev", "lo", "scope", "host", NULL};
+    if ((pid = fork()) == -1)
+    {
+        perror("fork error: can't spawn unbind");
+    }
+    else if (pid == 0)
+    {
+        execv("/usr/sbin/ip", parmList);
+        printf("execv error: unknown error unbinding");
+    }
+}
+
+/*Unbind IPv4 prefixes from lo*/
 void unbind_prefix(struct in_addr *address, unsigned short mask)
 {
     char *prefix = inet_ntoa(*address);
     char *cidr_block = malloc(19);
     sprintf(cidr_block, "%s/%u", prefix, mask);
-    printf("unbinding intercept %s from loopback\n", cidr_block);
+    printf("unbinding route %s from loopback\n", cidr_block);
     pid_t pid;
     char *const parmList[] = {"/usr/sbin/ip", "addr", "delete", cidr_block, "dev", "lo", "scope", "host", NULL};
     if ((pid = fork()) == -1)
@@ -720,15 +785,15 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[37] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[38] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
                              egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, 
-                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path};
-    for (int map_count = 0; map_count < 37; map_count++)
+                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path, bind_saddr_map_path};
+    for (int map_count = 0; map_count < 38; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -1515,6 +1580,92 @@ bool set_tun_diag()
     return true;
 }
 
+void update_bind_saddr_map(struct bind_key *key)
+{
+    if (bind_saddr_fd == -1)
+    {
+        open_bind_saddr_map();
+    }
+    struct in_addr cidr;
+    bool state = false;
+    bind_saddr_map.key = (uint64_t)key;
+    bind_saddr_map.value = (uint64_t)&state;
+    bind_saddr_map.map_fd = bind_saddr_fd;
+    bind_saddr_map.flags = BPF_ANY;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
+    if (lookup)
+    {
+        state = true;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_BIND_ELEM: %s \n", strerror(errno));
+        }
+        if(key->type == 4){
+            struct in_addr addr = {0};
+            addr.s_addr = key->__in46_u_dest.ip;
+            bind_prefix(&addr, key->mask);
+            char *source = inet_ntoa(addr);
+            if(source){
+                printf("Prefix: %s/%u Added to loopback\n", source, key->mask);
+            }
+        }else{
+            char saddr6[INET6_ADDRSTRLEN];
+            struct in6_addr saddr_6 = {0};
+            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_dest.ip6, sizeof(key->__in46_u_dest.ip6));
+            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
+            bind6_prefix(&saddr_6, key->mask);
+            printf("Prefix: %s/%u Added to loopback\n", saddr6, key->mask);
+        }
+    }
+    else
+    {
+        printf("Key already exists: state=%d\n", state);
+    }
+}
+
+void delete_bind_saddr_map(struct bind_key *key)
+{
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)bind_saddr_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        if(key->type == 4){
+            struct in_addr addr = {0};
+            addr.s_addr = key->__in46_u_dest.ip;
+            unbind_prefix(&addr, key->mask);
+            char *source = inet_ntoa(addr);
+            if(source){
+                printf("Prefix: %s/%u removed from loopback\n", source, key->mask);
+            }
+        }else{
+            char saddr6[INET6_ADDRSTRLEN];
+            struct in6_addr saddr_6 = {0};
+            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_dest.ip6, sizeof(key->__in46_u_dest.ip6));
+            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
+            unbind6_prefix(&saddr_6, key->mask);
+            printf("Prefix: %s/%u removed from loopback\n", saddr6, key->mask);
+        }
+    }
+    close(fd);
+}
+
 void update_ddos_saddr_map(char *source)
 {
     if (ddos_saddr_fd == -1)
@@ -1676,6 +1827,26 @@ bool set_diag(uint32_t *idx)
             else
             {
                 printf("icmp echo is always set to 1 for lo\n");
+            }
+        }
+
+        if (non_tuple)
+        {
+            if (!disable || *idx == 1)
+            {
+                o_diag.pass_non_tuple = true;
+            }
+            else
+            {
+                o_diag.pass_non_tuple = false;
+            }
+            if (*idx != 1)
+            {
+                printf("Set pass-non-tuple to %d for %s\n", !disable, nt_interface);
+            }
+            else
+            {
+                printf("pass-non-tuple is always set to 1 for lo\n");
             }
         }
         
@@ -1878,10 +2049,14 @@ bool set_diag(uint32_t *idx)
         if (*idx != 1)
         {
             printf("%-24s:%d\n", "icmp echo", o_diag.echo);
+            printf("%-24s:%d\n", "pass non tuple", o_diag.pass_non_tuple);
+            printf("%-24s:%d\n", "ipv6 enable", o_diag.ipv6_enable);
         }
         else
         {
             printf("%-24s:%d\n", "icmp echo", 1);
+            printf("%-24s:%d\n", "pass non tuple", 1);
+            printf("%-24s:%d\n", "ipv6 enable", 1);
         }
         printf("%-24s:%d\n", "verbose", o_diag.verbose);
         printf("%-24s:%d\n", "ssh disable", o_diag.ssh_disable);
@@ -1894,14 +2069,6 @@ bool set_diag(uint32_t *idx)
         printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
         printf("%-24s:%d\n", "ddos filtering", o_diag.ddos_filtering);
         printf("%-24s:%d\n", "masquerade", o_diag.masquerade);
-        if (*idx != 1)
-        {
-            printf("%-24s:%d\n", "ipv6 enable", o_diag.ipv6_enable);
-        }
-        else
-        {
-            printf("%-24s:%d\n", "ipv6 enable", 1);
-        }
         printf("--------------------------\n\n");
     }
     return true;
@@ -2058,6 +2225,7 @@ void interface_diag()
             }
             if (all_interface)
             {
+                nt_interface = address->ifa_name;
                 echo_interface = address->ifa_name;
                 verbose_interface = address->ifa_name;
                 prefix_interface = address->ifa_name;
@@ -2074,6 +2242,10 @@ void interface_diag()
             if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6 || outbound || masquerade))
             {
                 if (per_interface && !strncmp(prefix_interface, "ziti", 4))
+                {
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
+                }
+                if (non_tuple && !strncmp(nt_interface, "ziti", 4))
                 {
                     printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
@@ -2119,6 +2291,13 @@ void interface_diag()
             if (echo)
             {
                 if (!strcmp(echo_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+            if (non_tuple)
+            {
+                if (!strcmp(nt_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -5577,6 +5756,46 @@ int flush_tcp_egress()
     return 0;
 }
 
+int flush_bind()
+{
+    union bpf_attr map;
+    struct bind_key init_key = {0};
+    struct bind_key *key = &init_key;
+    struct bind_key current_key = {0};
+    bool bstate;
+    // Open BPF tcp_map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)bind_saddr_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        return 1;
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&bstate;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct bind_key *)map.key;
+        struct bind_key *pass_key = malloc(sizeof(struct bind_key));
+        memcpy(pass_key,&current_key, sizeof(struct bind_key));
+        delete_bind_saddr_map(pass_key);
+        free(pass_key);
+    }
+    close(fd);
+    return 0;
+}
+
 void map_list()
 {
     union bpf_attr map;
@@ -6038,10 +6257,12 @@ void map_list_all()
 
 // commandline parser options
 static struct argp_option options[] = {
+    {"bind-saddr-add", 'B', "", 0, "Bind loopback route with scope host", 0},
+    {"bind-saddr-delete", 'J', "", 0, "Unbind loopback route with scope host", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
-    {"list-gc-sessions", 'G', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
+    {"list-gc-sessions", 'G', NULL, 0, "", 0},
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"monitor", 'M', "", 0, "Monitor ebpf events for interface", 0},
@@ -6064,12 +6285,14 @@ static struct argp_option options[] = {
     {"passthrough", 'f', NULL, 0, "List passthrough rules <optional list>", 0},
     {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
     {"intercepts", 'i', NULL, 0, "List intercept rules <optional for list>", 0},
+    {"bind-flush", 'j', NULL, 0, "flush all bind routes <Requires -F, --flush>", 0},
     {"masquerade", 'k', "", 0, "enable outbound masquerade", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
+    {"pass-non-tuple", 'q', "", 0, "Pass all non-tuple to <interface | all>", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"service-id", 's', "", 0, "set ziti service id", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
@@ -6079,7 +6302,8 @@ static struct argp_option options[] = {
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
     {"ddos-saddr-add", 'y', "", 0, "Add source IP Address to DDOS IP whitelist i.e. 192.168.1.1", 0},
     {"direction", 'z', "", 0, "Set direction", 0},
-    {0}};
+    {0}
+};
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
 {
@@ -6087,6 +6311,23 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     uint32_t idx = 0;
     switch (key)
     {
+    case 'B':
+        bind_saddr = true;
+        if (inet_aton(arg, &dcidr))
+        {
+            cd = true;
+        }
+        else if (inet_pton(AF_INET6, arg, &dcidr6))
+        {
+            cd6 = true;
+        }
+        else
+        {
+            fprintf(stderr, "Invalid IP Address for arg -B, --bind-saddr-add: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        break;
     case 'D':
         delete = true;
         break;
@@ -6099,6 +6340,23 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'G':
         list_gc = true;
+        break;
+    case 'J':
+        unbind_saddr = true;
+        if (inet_aton(arg, &dcidr))
+        {
+            cd = true;
+        }
+        else if (inet_pton(AF_INET6, arg, &dcidr6))
+        {
+            cd6 = true;
+        }
+        else
+        {
+            fprintf(stderr, "Invalid IP Address for arg -J, --bind-saddr-delete: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
         break;
     case 'I':
         add = true;
@@ -6439,6 +6697,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'i':
         intercept = true;
         break;
+    case 'j':
+        bind_flush = true;
+        break;
     case 'k':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
@@ -6511,6 +6772,33 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         protocol_name = arg;
         prot = true;
+        break;
+    case 'q':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -q, --pass-non-tuple: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        non_tuple = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            if(if_indextoname(idx, check_alt)){
+                nt_interface = check_alt;
+            }else{
+                nt_interface = arg;
+            }
+        }
         break;
     case 'r':
         route = true;
@@ -6658,6 +6946,9 @@ void close_maps(int code)
     {
         close(diag_fd);
     }
+    if(bind_saddr_fd != -1){
+        close(bind_saddr_fd);
+    }
     if (if_fd != -1)
     {
         close(if_fd);
@@ -6715,9 +7006,7 @@ char *get_ts(unsigned long long tstamp)
     time_t s;
     struct timespec spec;
     const char *format = "%b %d %Y %H:%M:%S";
-    ;
     clock_gettime(CLOCK_REALTIME, &spec);
-
     s = spec.tv_sec;
     ns = spec.tv_nsec;
     time_t now = s + (ns / 1000000000);
@@ -6753,6 +7042,20 @@ void open_ddos_saddr_map()
     /* make system call to get fd for map */
     ddos_saddr_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ddos_saddr_map, sizeof(ddos_saddr_map));
     if (ddos_saddr_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_bind_saddr_map()
+{
+    memset(&bind_saddr_map, 0, sizeof(bind_saddr_map));
+    bind_saddr_map.pathname = (uint64_t)bind_saddr_map_path;
+    bind_saddr_map.bpf_fd = 0;
+    bind_saddr_map.file_flags = 0;
+    /* make system call to get fd for map */
+    bind_saddr_fd = syscall(__NR_bpf, BPF_OBJ_GET, &bind_saddr_map, sizeof(bind_saddr_map));
+    if (bind_saddr_fd == -1)
     {
         ebpf_usage();
     }
@@ -6949,6 +7252,90 @@ int main(int argc, char **argv)
     signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+
+    if(non_tuple && (dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
+        monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport)){
+            usage("-j, --bind-flush cannot be used in non related combination calls");
+    }
+
+    if(bind_flush){
+        if(dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
+        monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr|| ddport){
+            usage("-j, --bind-flush cannot be used in non related combination calls");
+        }else{
+            if(flush){
+                flush_bind();
+            }else{
+                usage("-j, --bind-flush requires -F, --flush\n");
+            }
+        }
+        close_maps(0);
+    }
+
+    if(bind_saddr){
+        if ((dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete
+            || flush || eapol) || ddos || vrrp || monitor || logging || ddport || masquerade || list || outbound || 
+            unbind_saddr || ddport)
+            {
+                usage("-B, --bind-saddr-add can not be used in combination call\n");
+
+        }else if(cd && dl){
+            if((dplen >= 0) && (dplen <= 32)){
+                struct bind_key key = {0};
+                key.__in46_u_dest.ip = dcidr.s_addr;
+                key.mask = dplen;
+                key.type = 4;
+                update_bind_saddr_map(&key);
+            }else{
+                usage("Invalid IPv4 cidr len\n");
+            }
+        }else if(cd6 && dl){
+            if((dplen >= 0) && (dplen <= 128)){
+                struct bind_key key = {0};
+                memcpy(key.__in46_u_dest.ip6, dcidr6.__in6_u.__u6_addr32, sizeof(key.__in46_u_dest.ip6));
+                key.mask = dplen;
+                key.type = 6;
+                update_bind_saddr_map(&key);
+            }else{
+                usage("Invalid IPv6 cidr len\n");
+            }
+        }
+        close_maps(0);
+    }
+
+    if(unbind_saddr){
+        if ((dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete
+            || flush || eapol) || ddos || vrrp || monitor || logging || ddport || masquerade || list || outbound || 
+            bind_saddr || ddport)
+            {
+                usage("-J, --bind-saddr-delete can not be used in combination call\n");
+
+        }else if(cd && dl){
+            if((dplen >= 0) && (dplen <= 32)){
+                struct bind_key key = {0};
+                key.__in46_u_dest.ip = dcidr.s_addr;
+                key.mask = dplen;
+                key.type = 4;
+                delete_bind_saddr_map(&key);
+            }else{
+                printf("Invalid IPv4 cidr len\n");
+                close_maps(1);
+            }
+        }else if(cd6 && dl){
+            if((dplen >= 0) && (dplen <= 128)){
+                struct bind_key key = {0};
+                memcpy(key.__in46_u_dest.ip6, dcidr6.__in6_u.__u6_addr32, sizeof(key.__in46_u_dest.ip6));
+                key.mask = dplen;
+                key.type =6;
+                delete_bind_saddr_map(&key);
+            }else{
+                printf("Invalid IPv6 cidr len\n");
+                close_maps(1);
+            }
+        }
+        close_maps(0);
+    }
+
     if (service && (!add && !delete))
     {
         usage("-s, --service-id requires -I, --insert or -D, --delete");
@@ -7112,7 +7499,7 @@ int main(int argc, char **argv)
     }
 
     if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp
-     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete && !masquerade))
+     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete && !masquerade && !non_tuple))
     {
         usage("Missing argument at least one of -a,-b,-6,-e, -k, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
@@ -7390,7 +7777,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound || masquerade)
+    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound || masquerade || non_tuple )
     {
         interface_diag();
     }

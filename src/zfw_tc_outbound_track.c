@@ -206,6 +206,7 @@ struct diag_ip4 {
     bool ipv6_enable;
     bool outbound_filter;
     bool masquerade;
+    bool pass_non_tuple;
 };
 
 /*value to ifindex_tun_map*/
@@ -924,6 +925,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* if not tuple forward */
     if (!tuple){
+        if(local_diag->pass_non_tuple || skb->ifindex == 1){
+            return TC_ACT_OK;
+        }
         if(ipv4){
             struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
             if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
