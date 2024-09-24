@@ -102,6 +102,7 @@ bool ddos = false;
 bool add = false;
 bool bind_saddr = false;
 bool unbind_saddr = false;
+bool user_rules = false;
 bool delete = false;
 bool list = false;
 bool list_gc = false;
@@ -135,6 +136,8 @@ bool all_interface = false;
 bool ssh_disable = false;
 bool tc = false;
 bool tcfilter = false;
+bool init_tc = false;
+bool init_xdp = false;
 bool direction = false;
 bool object;
 bool ebpf_disable = false;
@@ -249,6 +252,7 @@ char *outbound_interface;
 char *monitor_interface;
 char *ipv6_interface;
 char *tc_interface;
+char *xdp_interface;
 char *log_file_name;
 char *object_file;
 char *direction_string;
@@ -694,7 +698,7 @@ void set_tc(char *action)
     else if (pid == 0)
     {
         execv("/usr/sbin/tc", parmList);
-        printf("execv error: unknown error binding");
+        printf("execv error: unknown error binding\n");
     }
     else
     {
@@ -703,7 +707,7 @@ void set_tc(char *action)
         {
             if(!(WIFEXITED(status) && !WEXITSTATUS(status)))
             {
-                printf("could not set tc parent %s : %s\n", action, tc_interface);
+                printf("waitpid error: could not set tc parent %s : %s\n", action, tc_interface);
             }
         }
     }
@@ -749,7 +753,7 @@ void set_tc_filter(char *action)
             else if (pid == 0)
             {
                 execv("/usr/sbin/tc", parmList);
-                printf("execv error: unknown error attaching filter");
+                printf("execv error: unknown error attaching filter\n");
             }
             else
             {
@@ -758,7 +762,7 @@ void set_tc_filter(char *action)
                 {
                     if(!(WIFEXITED(status) && !WEXITSTATUS(status)))
                     {
-                        printf("tc %s filter not set : %s\n", direction_string, tc_interface);
+                        printf("waitpid error: tc %s filter not set : %s\n", direction_string, tc_interface);
                     }
                 }
             }
@@ -6257,6 +6261,7 @@ void map_list_all()
 
 // commandline parser options
 static struct argp_option options[] = {
+    {"add-user-rules", 'A', NULL, 0, "Add user rules from /opt/openziti/bin/user/user_rules.sh", 0},
     {"bind-saddr-add", 'B', "", 0, "Bind loopback route with scope host", 0},
     {"bind-saddr-delete", 'J', "", 0, "Unbind loopback route with scope host", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
@@ -6273,9 +6278,11 @@ static struct argp_option options[] = {
     {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
     {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
     {"list-ddos-dports", 'U', NULL, 0, "List destination ports to protect from DDOS", 0},
+    {"init-tc", 'V', "", 0, "sets ingress and egress tc filters for <interface> ", 0},
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
+    {"init-xdp", 'Z', "", 0, "sets ingress xdp for <interface> (used for setting xdp on zet tun interface) ", 0},
     {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"outbound-filtering", 'b', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
@@ -6296,8 +6303,8 @@ static struct argp_option options[] = {
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"service-id", 's', "", 0, "set ziti service id", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
-    {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
     {"ddos-dport-add", 'u', "", 0, "Add destination port to DDOS port list i.e. (1-65535)", 0},
+    {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
     {"ddos-saddr-add", 'y', "", 0, "Add source IP Address to DDOS IP whitelist i.e. 192.168.1.1", 0},
@@ -6311,6 +6318,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     uint32_t idx = 0;
     switch (key)
     {
+    case 'A':
+        user_rules = true;
+        break;
     case 'B':
         bind_saddr = true;
         if (inet_aton(arg, &dcidr))
@@ -6520,6 +6530,33 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'U':
         ddos_dport_list = true;
         break;
+    case 'V':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -V, --init-tc: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        init_tc = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            if(if_indextoname(idx, check_alt)){
+                tc_interface = check_alt;
+            }else{
+                tc_interface = arg;
+            }
+        }
+        break;
     case 'W':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
@@ -6559,6 +6596,26 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'Y':
         ddos_saddr_list = true;
+        break;
+    case 'Z':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -Z, --init-xdp: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        init_xdp = true;
+        if(if_indextoname(idx, check_alt)){
+            xdp_interface = check_alt;
+        }else{
+            xdp_interface = arg;
+        }
         break;
     case 'a':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
@@ -6938,6 +6995,41 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     return 0;
 }
 
+void zfw_init_tc(){
+    tcfilter = true;
+    object_file = "/opt/openziti/bin/zfw_tc_ingress.o";
+    ingress = true;
+    direction_string = "ingress";
+    interface_tc();
+    ingress = false;
+    object_file = "/opt/openziti/bin/zfw_tc_outbound_track.o";
+    egress = true;
+    direction_string = "egress";
+    interface_tc();
+    close_maps(0);
+}
+
+void zfw_init_xdp(){
+    pid_t pid;
+    char *const parmList[] = {"/usr/sbin/ip", "link", "set", xdp_interface, "xdpgeneric", "obj", "/opt/openziti/bin/zfw_xdp_tun_ingress.o", "sec", "xdp_redirect", NULL};
+    if ((pid = fork()) == -1)
+    {
+        perror("fork error: can't spawn bind");
+    }
+    else if (pid == 0)
+    {
+        execv("/usr/sbin/ip", parmList);
+        printf("execv error: unknown error binding xdp to %s\n", xdp_interface);
+    }else{
+        int status =0;
+        if(!(waitpid(pid, &status, 0) < 0)){
+            if(!(WIFEXITED(status) && !WEXITSTATUS(status))){
+                printf("waitpid error: xdp not set on dev %s\n", xdp_interface);
+            }
+        }
+    }
+}
+
 struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
 
 void close_maps(int code)
@@ -7246,12 +7338,68 @@ void egress_usage(){
     close_maps(1);
 }
 
+void add_user_rules(){
+    pid_t pid;
+    char *const parmList[] = {"/opt/openziti/bin/user/user_rules.sh", NULL};
+    if ((pid = fork()) == -1)
+    {
+        perror("fork error: can't spawn bind");
+        close_maps(1);
+    }
+    else if (pid == 0)
+    {
+        execv("/opt/openziti/bin/user/user_rules.sh", parmList);
+        printf("execv error: unknown error adding user defined rules\n");
+        close_maps(1);
+    }else{
+        int status =0;
+        if(!(waitpid(pid, &status, 0) < 0)){
+            if(!(WIFEXITED(status) && !WEXITSTATUS(status))){
+                printf("waitpid error: adding user defined rules\n");
+                close_maps(1);
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     signal(SIGINT, INThandler);
     signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+    if(user_rules){
+        if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0))
+        {
+            ebpf_usage();
+        }
+        if(non_tuple ||dsip || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
+        monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport || init_xdp || tcfilter){
+            usage("-A, --add-user-rules cannot be used in non related combination calls");
+        }
+        add_user_rules();
+        close_maps(0);
+    }
+
+    if(init_tc){
+        if(non_tuple ||dsip || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
+        monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport || init_xdp || tcfilter){
+            usage("-V, --init-tc cannot be used in non related combination calls");
+        }else{
+            zfw_init_tc();
+            close_maps(0);
+        }
+    }
+
+    if(init_xdp){
+        if(init_tc || non_tuple ||dsip || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
+        monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport || tcfilter){
+            usage("-Z, --init-xdp cannot be used in non related combination calls");
+        }else{
+            zfw_init_xdp();
+            close_maps(0);
+        }
+    }
 
     if(non_tuple && (dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
         monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport)){
