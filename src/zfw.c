@@ -6268,6 +6268,7 @@ static struct argp_option options[] = {
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
     {"list-gc-sessions", 'G', NULL, 0, "", 0},
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
+    {"init-tc", 'H', "", 0, "sets ingress and egress tc filters for <interface> ", 0},
     {"bind-saddr-delete", 'J', "", 0, "Unbind loopback route with scope host", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"monitor", 'M', "", 0, "Monitor ebpf events for interface", 0},
@@ -6278,7 +6279,6 @@ static struct argp_option options[] = {
     {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
     {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
     {"list-ddos-dports", 'U', NULL, 0, "List destination ports to protect from DDOS", 0},
-    {"init-tc", 'V', "", 0, "sets ingress and egress tc filters for <interface> ", 0},
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
@@ -6351,6 +6351,36 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'G':
         list_gc = true;
         break;
+    case 'H':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -H, --init-tc: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        init_tc = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            if(if_indextoname(idx, check_alt)){
+                tc_interface = check_alt;
+            }else{
+                tc_interface = arg;
+            }
+        }
+        break;
+    case 'I':
+        add = true;
+        break;
     case 'J':
         unbind_saddr = true;
         if (inet_aton(arg, &dcidr))
@@ -6367,9 +6397,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
-        break;
-    case 'I':
-        add = true;
         break;
     case 'L':
         list = true;
@@ -6529,33 +6556,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'U':
         ddos_dport_list = true;
-        break;
-    case 'V':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
-        {
-            fprintf(stderr, "Interface name or all required as arg to -V, --init-tc: %s\n", arg);
-            fprintf(stderr, "%s --help for more info\n", program_name);
-            exit(1);
-        }
-        idx = if_nametoindex(arg);
-        if (strcmp("all", arg) && idx == 0)
-        {
-            printf("Interface not found: %s\n", arg);
-            exit(1);
-        }
-        init_tc = true;
-        if (!strcmp("all", arg))
-        {
-            all_interface = true;
-        }
-        else
-        {
-            if(if_indextoname(idx, check_alt)){
-                tc_interface = check_alt;
-            }else{
-                tc_interface = arg;
-            }
-        }
         break;
     case 'W':
         if (!strlen(arg) || (strchr(arg, '-') != NULL))
