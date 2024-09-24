@@ -6263,12 +6263,12 @@ void map_list_all()
 static struct argp_option options[] = {
     {"add-user-rules", 'A', NULL, 0, "Add user rules from /opt/openziti/bin/user/user_rules.sh", 0},
     {"bind-saddr-add", 'B', "", 0, "Bind loopback route with scope host", 0},
-    {"bind-saddr-delete", 'J', "", 0, "Unbind loopback route with scope host", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
     {"list-gc-sessions", 'G', NULL, 0, "", 0},
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
+    {"bind-saddr-delete", 'J', "", 0, "Unbind loopback route with scope host", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"monitor", 'M', "", 0, "Monitor ebpf events for interface", 0},
     {"interface", 'N', "", 0, "Interface <optional insert>", 0},
