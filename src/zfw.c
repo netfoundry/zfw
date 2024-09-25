@@ -1591,15 +1591,15 @@ void update_bind_saddr_map(struct bind_key *key)
         open_bind_saddr_map();
     }
     struct in_addr cidr;
-    bool state = false;
+    __u32 count = 0;
     bind_saddr_map.key = (uint64_t)key;
-    bind_saddr_map.value = (uint64_t)&state;
+    bind_saddr_map.value = (uint64_t)&count;
     bind_saddr_map.map_fd = bind_saddr_fd;
     bind_saddr_map.flags = BPF_ANY;
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
     if (lookup)
     {
-        state = true;
+        count = 1;
         int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
         if (result)
         {
@@ -1624,50 +1624,82 @@ void update_bind_saddr_map(struct bind_key *key)
     }
     else
     {
-        printf("Key already exists: state=%d\n", state);
+        count += 1;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_BIND_ELEM: %s \n", strerror(errno));
+        }
+        printf("Key already exists: total add count=%u\n", count);
     }
 }
 
 void delete_bind_saddr_map(struct bind_key *key)
 {
-    union bpf_attr map;
-    memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)bind_saddr_map_path;
-    map.bpf_fd = 0;
-    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
-    if (fd == -1)
+    if (bind_saddr_fd == -1)
     {
-        printf("BPF_OBJ_GET: %s\n", strerror(errno));
-        close_maps(1);
+        open_bind_saddr_map();
     }
-    // delete element with specified key
-    map.map_fd = fd;
-    map.key = (uint64_t)key;
-    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
-    if (result)
+    struct in_addr cidr;
+    __u32 count = 0;
+    bind_saddr_map.key = (uint64_t)key;
+    bind_saddr_map.value = (uint64_t)&count;
+    bind_saddr_map.map_fd = bind_saddr_fd;
+    bind_saddr_map.flags = BPF_ANY;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
+    if (!lookup)
     {
-        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
-    }
-    else
-    {
-        if(key->type == 4){
-            struct in_addr addr = {0};
-            addr.s_addr = key->__in46_u_dest.ip;
-            unbind_prefix(&addr, key->mask);
-            char *source = inet_ntoa(addr);
-            if(source){
-                printf("Prefix: %s/%u removed from loopback\n", source, key->mask);
+        if(count <= 1 || flush){
+            union bpf_attr map;
+            memset(&map, 0, sizeof(map));
+            map.pathname = (uint64_t)bind_saddr_map_path;
+            map.bpf_fd = 0;
+            int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+            if (fd == -1)
+            {
+                printf("BPF_OBJ_GET: %s\n", strerror(errno));
+                close_maps(1);
             }
+            // delete element with specified key
+            map.map_fd = fd;
+            map.key = (uint64_t)key;
+            int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+            if (result)
+            {
+                printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+            }
+            else
+            {
+                if(key->type == 4){
+                    struct in_addr addr = {0};
+                    addr.s_addr = key->__in46_u_dest.ip;
+                    unbind_prefix(&addr, key->mask);
+                    char *source = inet_ntoa(addr);
+                    if(source){
+                        printf("Prefix: %s/%u removed from loopback\n", source, key->mask);
+                    }
+                }else{
+                    char saddr6[INET6_ADDRSTRLEN];
+                    struct in6_addr saddr_6 = {0};
+                    memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_dest.ip6, sizeof(key->__in46_u_dest.ip6));
+                    inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
+                    unbind6_prefix(&saddr_6, key->mask);
+                    printf("Prefix: %s/%u removed from loopback\n", saddr6, key->mask);
+                }
+            }
+            close(fd);
         }else{
-            char saddr6[INET6_ADDRSTRLEN];
-            struct in6_addr saddr_6 = {0};
-            memcpy(saddr_6.__in6_u.__u6_addr32, key->__in46_u_dest.ip6, sizeof(key->__in46_u_dest.ip6));
-            inet_ntop(AF_INET6, &saddr_6, saddr6, INET6_ADDRSTRLEN);
-            unbind6_prefix(&saddr_6, key->mask);
-            printf("Prefix: %s/%u removed from loopback\n", saddr6, key->mask);
+            count -= 1;
+            printf("add count decremented to: %u\n", count);
+            int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &bind_saddr_map, sizeof(bind_saddr_map));
+            if (result)
+            {
+                printf("MAP_UPDATE_BIND_ELEM: %s \n", strerror(errno));
+            }
         }
+    }else{
+        printf("bind prefix does not exist\n");
     }
-    close(fd);
 }
 
 void update_ddos_saddr_map(char *source)
