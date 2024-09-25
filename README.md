@@ -87,8 +87,9 @@ Attached /opt/openziti/bin/zfw_tc_outbound_track.o to eth1
 ```
 
 In order to ensure the FW starts on boot you need to enable the fw-init.service.
-
-systemctl enable fw-init.service
+```
+sudo systemctl enable fw-init.service
+```
 
 Since you will not be using ziti to populate rules all your rules would be with respect to the local OS then any rules will need to be set 
 
