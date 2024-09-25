@@ -165,7 +165,7 @@ sudo vi /opt/openziti/etc/ebpf_config.json
 - Adding interfaces
   Replace ens33 in line with:{"InternalInterfaces":[{"Name":"ens33"}], "ExternalInterfaces":[]}
   Replace with interface that you want to enable for ingress firewalling / openziti interception and 
-  optionally ExternalInterfaces if you want per interface rules -N <iface-name> with -I.
+  optionally ExternalInterfaces if you want per interface rules -N <ifname> with -I.
 ```
 i.e. ens33
     {"InternalInterfaces":[{"Name":"ens33"}], "ExternalInterfaces":[]}
@@ -529,7 +529,7 @@ sudo zfw -M <ifname>|all
 
 ### Enable both TC ingress and Egress filters on an interface
 
-```sudo zfw -H, --init-tc <iface | all>```
+```sudo zfw -H, --init-tc <ifname | all>```
 
 ### Native EBPF based IPv4 and IPv6 Masquerade support
 
@@ -709,7 +709,7 @@ Rule Count: 1
 - *Supports inbound ssh (Can be disabled via ```sudo zfw -x <ifname | all>```) (Care should be taken as this affects IPv4 as well)
 - Supports outbound stateful host connections (Inbound only if outbound initiated)
 - Supports outbound passthrough tracking.  Sessions initiated from non-ebpf enabled and ebpf enabled  internal interfaces out 
-  through interface(s) defined as ExternalInterface (requires -N <iface-name> with -I unless "PerInterfaceRules": false) or InternalInterface in /opt/openziti/etc/ebpf_config.json
+  through interface(s) defined as ExternalInterface (requires -N <ifname> with -I unless "PerInterfaceRules": false) or InternalInterface in /opt/openziti/etc/ebpf_config.json
   or manually applied with sudo ```zfw -X <ifname> -O /opt/openziti/zfw_outbound_track.o -z egress``` 
   will allow stateful udp and tcp session traffic back in.
 - Support for inbound IPv6 filter destination rules. Currently only destination filtering is allowed.
