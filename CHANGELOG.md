@@ -5,12 +5,13 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
-# [0.9.0] - 2024-09-08
+# [0.9.0] - 2024-09-24
 - Added several new Arguments to zfw to allow for direct system call integrations with 
   ziti-edge-tunnel ```-A --add-user-rules```, ```-H --init-tc <iface>```, ```-Z, --init-xdp <iface>```, ```-B, bind-saddr-add <cidr>```,
   ```-J, bind-saddr-delete <cidr>```, ```-F -j, bind-flush```
   - Added new interface setting to ```-q, pass-non-tuple``` (off by default) pass all non tuple (tcp/udp) traffic to the os for
     applications requiring only redirection (Not recommended for stand alone fw use)
+  - Updated README.md 
 
 
 # [0.8.19] - 2024-09-08
