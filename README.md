@@ -47,7 +47,7 @@ example ebpf_config.json:
 
 To start the firewall just run 
 
- /opt/openziti/bin/start_ebpf_router.py
+ sudo /opt/openziti/bin/start_ebpf_router.py
 
 you will see output like 
 
