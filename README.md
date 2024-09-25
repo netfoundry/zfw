@@ -523,6 +523,14 @@ sudo zfw -M <ifname>|all
 
 ```
 
+### Load rules from /opt/openziti/bin/user/user_rules.sh
+
+```sudo zfw -A, --add-user-rules```
+
+### Enable both TC ingress and Egress filters on an interface
+
+```sudo zfw -H, --init-tc <iface | all>```
+
 ### Native EBPF based IPv4 and IPv6 Masquerade support
 
 zfw can now provide native IPv4/IPv6 masquerade operation for outbound pass through connections which can be enabled on a WAN facing interface:
@@ -607,8 +615,7 @@ An egress filter must be attached to the interface , ```-b, --outbound-filter <i
 From cli:
 
 ```
-sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_ingress.o -z ingress
-sudo zfw -X ens33 -O /opt/openziti/bin/zfw_tc_outbound_track.o -z egress
+sudo zfw --init-tc ens33
 sudo /opt/openziti/bin/zfw --outbound-filter ens33
 ```
 
