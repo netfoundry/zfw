@@ -223,6 +223,7 @@ const char *egress6_map_path = "/run/zfw/zt_egress6_map";
 const char *egress_count_map_path = "/run/zfw/egress_count_map";
 const char *egress_count6_map_path = "/run/zfw/egress6_count_map";
 const char *masquerade_map_path = "/run/zfw/masquerade_map";
+const char *masquerade_reverse_map_path = "/sys/fs/bpf/tc/globals/masquerade_reverse_map";
 const char *icmp_masquerade_map_path = "/run/zfw/icmp_masquerade_map";
 const char *icmp_echo_map_path = "/run/zfw/icmp_echo_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
