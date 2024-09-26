@@ -215,6 +215,16 @@ struct icmp_masq_key {
     __u32 ifindex;
 };
 
+/*Key to bind_map*/
+struct bind_key {
+    union {
+        __u32 ip;
+        __u32 ip6[4];
+    }__in46_u_dest;
+    __u8 mask;
+    __u8 type;
+};
+
 /*Key to masquerade_map*/
 struct masq_key {
     uint32_t ifindex;
@@ -355,6 +365,7 @@ struct diag_ip4 {
     bool ipv6_enable;
     bool outbound_filter;
     bool masquerade;
+    bool pass_non_tuple;
 };
 
 /*Value to tun_map*/
@@ -406,6 +417,15 @@ struct {
      __uint(max_entries, BPF_MAX_ENTRIES);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ddos_saddr_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(key_size, sizeof(struct bind_key));
+     __uint(value_size,sizeof(uint32_t));
+     __uint(max_entries, 65535);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     __uint(map_flags, BPF_F_NO_PREALLOC);
+} bind_saddr_map SEC(".maps");
 
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -1248,7 +1268,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
-        if(skb->ifindex == 1){
+        if(skb->ifindex == 1 || local_diag->pass_non_tuple){
             return TC_ACT_OK;
         }
         else if(icmp){
