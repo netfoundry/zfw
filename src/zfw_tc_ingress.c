@@ -386,7 +386,7 @@ struct {
      __uint(key_size, sizeof(struct transp_key));
      __uint(value_size,sizeof(struct transp_value));
      __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zet_transp_map SEC(".maps");
 
@@ -395,7 +395,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(uint32_t));
     __uint(max_entries, MAX_IF_ENTRIES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } syn_count_map SEC(".maps");
 
@@ -404,7 +404,7 @@ struct {
      __uint(key_size, sizeof(uint32_t));
      __uint(value_size,sizeof(bool));
      __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } ddos_saddr_map SEC(".maps");
 
 struct {
@@ -412,7 +412,7 @@ struct {
      __uint(key_size, sizeof(uint16_t));
      __uint(value_size,sizeof(bool));
      __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } ddos_dport_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming IPv4 packet search.  Map is 
@@ -425,7 +425,7 @@ struct {
     __uint(key_size, sizeof(struct match_key));
     __uint(value_size, sizeof(struct match_tracker));
     __uint(max_entries, 65535);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
 } matched_map SEC(".maps");
 
 struct {
@@ -433,7 +433,7 @@ struct {
     __uint(key_size, sizeof(struct match6_key));
     __uint(value_size, sizeof(struct tproxy6_key));
     __uint(max_entries, 65535);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
 } matched6_map SEC(".maps");
 
 /* File system pinned Array Map key mapping to ifindex with used to allow 
@@ -448,7 +448,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct ifindex_ip4));
     __uint(max_entries, MAX_IF_ENTRIES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } ifindex_ip_map SEC(".maps");
 
@@ -464,7 +464,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct ifindex_ip6));
     __uint(max_entries, MAX_IF_ENTRIES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } ifindex_ip6_map SEC(".maps");
 
@@ -473,7 +473,7 @@ struct {
     __uint(key_size, sizeof(struct wildcard_port_key));
     __uint(value_size, sizeof(uint32_t));
     __uint(max_entries, MAX_TABLE_SIZE * 2);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } wildcard_port_map SEC(".maps");
 
@@ -483,7 +483,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct ifindex_tun));
     __uint(max_entries, 1);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
 } ifindex_tun_map SEC(".maps");
 
 //map to keep status of diagnostic rules
@@ -492,7 +492,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct diag_ip4));
     __uint(max_entries, MAX_IF_ENTRIES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } diag_map SEC(".maps");
 
@@ -502,7 +502,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(uint32_t));
     __uint(max_entries, 1);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
 } tuple_count_map SEC(".maps");
 
 //map to keep track of total entries in zt_tproxy6_map
@@ -511,7 +511,7 @@ struct {
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(uint32_t));
     __uint(max_entries, 1);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
 } tuple6_count_map SEC(".maps");
 
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
@@ -542,7 +542,7 @@ struct {
      __uint(key_size, sizeof(struct tproxy_key));
      __uint(value_size,sizeof(struct tproxy_tuple));
      __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zt_tproxy_map SEC(".maps");
 
@@ -574,7 +574,7 @@ struct {
      __uint(key_size, sizeof(struct tproxy6_key));
      __uint(value_size,sizeof(struct tproxy_tuple));
      __uint(max_entries, BPF_MAX_ENTRIES);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
      __uint(map_flags, BPF_F_NO_PREALLOC);
 } zt_tproxy6_map SEC(".maps");
 
@@ -583,7 +583,7 @@ struct {
      __uint(key_size, sizeof(struct tuple_key));
      __uint(value_size,sizeof(struct tcp_state));
      __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } tcp_map SEC(".maps");
 
 /*Hashmap to track ingress passthrough TCP connections i.e. to LAN or host
@@ -593,7 +593,7 @@ struct {
      __uint(key_size, sizeof(struct tuple_key));
      __uint(value_size,sizeof(struct tcp_state));
      __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } tcp_ingress_map SEC(".maps");
 
 struct {
@@ -601,7 +601,7 @@ struct {
      __uint(key_size, sizeof(struct tuple_key));
      __uint(value_size,sizeof(struct udp_state));
      __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } udp_map SEC(".maps");
 
 /*tracks inbound allowed sessions*/
@@ -610,7 +610,7 @@ struct {
      __uint(key_size, sizeof(struct tuple_key));
      __uint(value_size,sizeof(struct udp_state));
      __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } udp_ingress_map SEC(".maps");
 
 /*tracks icmp echo sessions*/
@@ -619,7 +619,7 @@ struct {
      __uint(key_size, sizeof(struct icmp_key));
      __uint(value_size,sizeof(struct icmp_state));
      __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } icmp_echo_map SEC(".maps");
 
 /*tracks udp and tcp masquerade*/
@@ -628,7 +628,7 @@ struct {
      __uint(key_size, sizeof(struct masq_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS * 2);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } masquerade_map SEC(".maps");
 
 /*stores reverse lookup table udp and tcp masquerade*/
@@ -637,7 +637,7 @@ struct {
      __uint(key_size, sizeof(struct masq_reverse_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS * 2);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } masquerade_reverse_map SEC(".maps");
 
 /*tracks icmp_echo masquerade*/
@@ -646,7 +646,7 @@ struct {
      __uint(key_size, sizeof(struct icmp_masq_key));
      __uint(value_size,sizeof(struct masq_value));
      __uint(max_entries, BPF_MAX_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } icmp_masquerade_map SEC(".maps");
 
 /*Hashmap to track tun interface inbound passthrough connections*/
@@ -655,7 +655,7 @@ struct {
      __uint(key_size, sizeof(struct tun_key));
      __uint(value_size,sizeof(struct tun_state));
      __uint(max_entries, BPF_MAX_TUN_SESSIONS);
-     __uint(pinning, LIBBPF_PIN_BY_NAME);
+     
 } tun_map SEC(".maps");
 
 struct {
@@ -663,7 +663,7 @@ struct {
     __uint(key_size, sizeof(struct tproxy_extension_key));
     __uint(value_size, sizeof(struct tproxy_extension_mapping));
     __uint(max_entries, BPF_MAX_RANGES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } tproxy_extension_map SEC(".maps");
 
@@ -672,7 +672,7 @@ struct {
     __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct if_list_extension_mapping));
     __uint(max_entries, BPF_MAX_RANGES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } if_list_extension_map SEC(".maps");
 
@@ -681,7 +681,7 @@ struct {
     __uint(key_size, sizeof(struct port_extension_key));
     __uint(value_size, sizeof(struct range_mapping));
     __uint(max_entries, BPF_MAX_RANGES);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } range_map SEC(".maps");
 
@@ -827,7 +827,7 @@ static inline struct ifindex_tun *get_tun_index(uint32_t key){
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 256 * 1024);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    
 } rb_map SEC(".maps");
 
 /* Function used by ebpf program to access ifindex_ip_map
