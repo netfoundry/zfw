@@ -476,6 +476,19 @@ sudo zfw --vrrp-enable <ens33 | all>
 sudo zfw --vrrp-enable <ens33 | all> -d
 ```
 
+### Non tuple passthrough
+**Caution:**
+This allows all non udp/tcp traffic to passthrough to the OS and should only be enabled if you are using zfw for tcp/udp redirection and are
+using **another firewall** to filter traffic. This setting will also disable icmp masquerade if enabled. **THIS SETTING IS DISABLED BY DEFAULT**.
+- Enable
+```
+sudo zfw -q, --pass-non-tuple <ifname | all>
+```
+
+- Disable 
+```
+sudo zfw -q, --pass-non-tuple <ifname | all> -d
+```
 
 ### Inserting / Deleting Ingress rules
     
