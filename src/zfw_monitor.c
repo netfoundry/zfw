@@ -74,6 +74,8 @@
 #define MASQUERADE_ENTRY_REMOVED 33
 #define REVERSE_MASQUERADE_ENTRY_ADDED 34
 #define MASQUERADE_ENTRY_ADDED 35
+#define MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND 36
+#define MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND 37
 
 bool logging = false;
 bool monitor = false;
@@ -85,7 +87,7 @@ char check_alt[IF_NAMESIZE];
 char doc[] = "zfw_monitor -- ebpf firewall monitor tool";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *argp_program_version = "0.9.0";
+const char *argp_program_version = "0.9.1";
 union bpf_attr rb_map;
 int rb_fd = -1;
 
@@ -529,6 +531,14 @@ static int process_events(void *ctx, void *data, size_t len)
                     else if (code == MASQUERADE_ENTRY_REMOVED)
                     {
                         state = "MASQUERADE_ENTRY_REMOVED";
+                    }
+                    else if (code == MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND)
+                    {
+                        state = "MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND";
+                    }
+                    else if (code == MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND)
+                    {
+                        state = "MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND";
                     }
 
                     if (state)

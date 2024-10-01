@@ -749,13 +749,15 @@ static inline struct masq_value *get_masquerade(struct masq_key key){
 }
 
 /*Remove entry from  masq state table*/
-static inline void del_masq(struct masq_key key){
-     bpf_map_delete_elem(&masquerade_map, &key);
+static inline int del_masq(struct masq_key key){
+    int ret = bpf_map_delete_elem(&masquerade_map, &key);
+    return ret;
 }
 
 /*Remove entry from reverse masq state table*/
-static inline void del_reverse_masq(struct masq_reverse_key key){
-     bpf_map_delete_elem(&masquerade_reverse_map, &key);
+static inline int del_reverse_masq(struct masq_reverse_key key){
+    int ret = bpf_map_delete_elem(&masquerade_reverse_map, &key);
+    return ret;
 }
 
 static inline struct masq_value *get_reverse_masquerade(struct masq_reverse_key key){
@@ -2111,14 +2113,14 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 mk.__in46_u_dest.ip = iph->saddr;
                                 mk.ifindex = event.ifindex;
                                 mk.protocol = IPPROTO_TCP;
-                                del_masq(mk);
-                                if(local_diag->verbose){
+                                int dm_ret = del_masq(mk);
+                                if(!dm_ret && local_diag->verbose){
                                     event.tracking_code = MASQUERADE_ENTRY_REMOVED;
                                     send_event(&event);
                                 }
                             }
-                            del_reverse_masq(rk);
-                            if(local_diag->verbose){
+                            int drm_ret = del_reverse_masq(rk);
+                            if(!drm_ret && local_diag->verbose){
                                     event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
                                     send_event(&event);
                             }
@@ -2151,14 +2153,14 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     mk.__in46_u_dest.ip = iph->saddr;
                                     mk.ifindex = event.ifindex;
                                     mk.protocol = IPPROTO_TCP;
-                                    del_masq(mk);
-                                    if(local_diag->verbose){
+                                    int dm_ret = del_masq(mk);
+                                    if(!dm_ret && local_diag->verbose){
                                         event.tracking_code = MASQUERADE_ENTRY_REMOVED;
                                         send_event(&event);
                                     }
                                 }
-                                del_reverse_masq(rk);
-                                if(local_diag->verbose){
+                                int drm_ret = del_reverse_masq(rk);
+                                if(!drm_ret && local_diag->verbose){
                                     event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
                                     send_event(&event);
                                 }
@@ -2321,14 +2323,14 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     mk.__in46_u_dest.ip = iph->saddr;
                                     mk.ifindex = event.ifindex;
                                     mk.protocol = IPPROTO_UDP;
-                                    del_masq(mk);
-                                    if(local_diag->verbose){
+                                    int dm_ret = del_masq(mk);
+                                    if(!dm_ret && local_diag->verbose){
                                         event.tracking_code = MASQUERADE_ENTRY_REMOVED;
                                         send_event(&event);
                                     }
                                 }
-                                del_reverse_masq(rk);
-                                if(local_diag->verbose){
+                                int drm_ret = del_reverse_masq(rk);
+                                if(!drm_ret && local_diag->verbose){
                                     event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
                                     send_event(&event);
                                 }
@@ -2374,14 +2376,14 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     mk.__in46_u_dest.ip = iph->saddr;
                                     mk.ifindex = event.ifindex;
                                     mk.protocol = IPPROTO_UDP;
-                                    del_masq(mk);
-                                    if(local_diag->verbose){
+                                    int dm_ret = del_masq(mk);
+                                    if(!dm_ret && local_diag->verbose){
                                         event.tracking_code = MASQUERADE_ENTRY_REMOVED;
                                         send_event(&event);
                                     }
                                 }
-                                del_reverse_masq(rk);
-                                if(local_diag->verbose){
+                                int drm_ret = del_reverse_masq(rk);
+                                if(!drm_ret && local_diag->verbose){
                                     event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
                                     send_event(&event);
                                 }

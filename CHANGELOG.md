@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.1] - 2024-10-01
+
+- Added code to test if masquerade dst ip and src_port/dst_port/protocol combination is free before allocating new random   
+  source port to ensure no collisions will occur.
+
+###
+
 # [0.9.0] - 2024-09-24
 - Added several new Arguments to zfw to allow for direct system call integrations with 
   ziti-edge-tunnel ```-A --add-user-rules```, ```-H --init-tc <iface>```, ```-Z, --init-xdp <iface>```, ```-B, bind-saddr-add <cidr>```,

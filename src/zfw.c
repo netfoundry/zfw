@@ -97,6 +97,8 @@
 #define MASQUERADE_ENTRY_REMOVED 33
 #define REVERSE_MASQUERADE_ENTRY_ADDED 34
 #define MASQUERADE_ENTRY_ADDED 35
+#define MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND 36
+#define MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND 37
 
 bool ddos = false;
 bool add = false;
@@ -259,7 +261,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.0";
+const char *argp_program_version = "0.9.1";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -3403,6 +3405,15 @@ static int process_events(void *ctx, void *data, size_t len)
                     {
                         state = "MASQUERADE_ENTRY_REMOVED";
                     }
+                    else if (code == MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND)
+                    {
+                        state = "MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND";
+                    }
+                    else if (code == MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND)
+                    {
+                        state = "MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND";
+                    }
+                   
 
                     if (state)
                     {
