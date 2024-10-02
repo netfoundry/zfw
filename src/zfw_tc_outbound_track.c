@@ -67,6 +67,8 @@
 #define MASQUERADE_ENTRY_REMOVED 33
 #define REVERSE_MASQUERADE_ENTRY_ADDED 34
 #define MASQUERADE_ENTRY_ADDED 35
+#define MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND 36
+#define MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND 37
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 
 struct bpf_event{
@@ -557,8 +559,9 @@ static inline struct masq_value *get_masquerade(struct masq_key key){
 }
 
 /*Remove entry from  masq state table*/
-static inline void del_masq(struct masq_key key){
-     bpf_map_delete_elem(&masquerade_map, &key);
+static inline int del_masq(struct masq_key key){
+     int ret = bpf_map_delete_elem(&masquerade_map, &key);
+     return ret;
 }
 
 static inline void insert_reverse_masquerade(struct masq_value mv, struct masq_reverse_key key){
@@ -566,8 +569,9 @@ static inline void insert_reverse_masquerade(struct masq_value mv, struct masq_r
 }
 
 /*Remove entry from reverse masq state table*/
-static inline void del_reverse_masq(struct masq_reverse_key key){
-     bpf_map_delete_elem(&masquerade_reverse_map, &key);
+static inline int del_reverse_masq(struct masq_reverse_key key){
+    int ret = bpf_map_delete_elem(&masquerade_reverse_map, &key);
+    return ret;
 }
 
 static inline struct masq_value *get_reverse_masquerade(struct masq_reverse_key key){
@@ -2339,7 +2343,28 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     rand_source_port = revv->o_sport;
                 }
                 else{
-                    rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                    int tcount = 0;
+                    while(true){
+                        rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                        struct masq_key tmk = {0};
+                        tmk.__in46_u_dest.ip =  tuple->ipv4.daddr;
+                        tmk.dport = tuple->ipv4.dport;
+                        tmk.sport = rand_source_port;
+                        tmk.ifindex = skb->ifindex;
+                        tmk.protocol = IPPROTO_TCP;
+                        struct masq_value *tmvptr = get_masquerade(tmk);
+                        if(!tmvptr){
+                            break;
+                        }
+                        tcount++;
+                        if(tcount > 5000){
+                            if(local_diag->verbose){
+                                event.tracking_code = MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND;
+                                send_event(&event);
+                            }
+                            return TC_ACT_SHOT;
+                        }
+                    }
                     struct masq_value rev_new_val = {0};
                     rev_new_val.o_sport =  rand_source_port;
                     rev_new_val.__in46_u_origin.ip = 0;
@@ -2465,8 +2490,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
                         rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
                         rk.protocol = IPPROTO_TCP;
-                        del_reverse_masq(rk);
-                        if(local_diag->verbose){
+                        int drm_ret = del_reverse_masq(rk);
+                        if(!drm_ret && local_diag->verbose){
                             event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
                             send_event(&event);
                         }
@@ -2476,8 +2501,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         mk.__in46_u_dest.ip = iph->daddr;
                         mk.ifindex = event.ifindex;
                         mk.protocol = IPPROTO_TCP;
-                        del_masq(mk);
-                        if(local_diag->verbose){
+                        int dm_ret = del_masq(mk);
+                        if(!dm_ret && local_diag->verbose){
                             event.tracking_code = MASQUERADE_ENTRY_REMOVED;
                             send_event(&event);
                         }
@@ -2513,8 +2538,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             rk.__in46_u_dest.ip = tcp_state_key.__in46_u_dst.ip;
                             rk.__in46_u_src.ip = tcp_state_key.__in46_u_src.ip;
                             rk.protocol = IPPROTO_TCP;
-                            del_reverse_masq(rk);
-                            if(local_diag->verbose){
+                            int drm_ret = del_reverse_masq(rk);
+                            if(!drm_ret && local_diag->verbose){
                                 event.tracking_code = REVERSE_MASQUERADE_ENTRY_REMOVED;
                                 send_event(&event);
                             }
@@ -2524,8 +2549,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             mk.__in46_u_dest.ip = iph->daddr;
                             mk.ifindex = event.ifindex;
                             mk.protocol = IPPROTO_TCP;
-                            del_masq(mk);
-                            if(local_diag->verbose){
+                            int dm_ret = del_masq(mk);
+                            if(!dm_ret && local_diag->verbose){
                                 event.tracking_code = MASQUERADE_ENTRY_REMOVED;
                                 send_event(&event);
                             }
@@ -2590,7 +2615,28 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         rand_source_port = revv->o_sport;
                     }
                     else{
-                        rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                        int tcount = 0;
+                        while(true){
+                            rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                            struct masq_key tmk = {0};
+                            tmk.__in46_u_dest.ip =  tuple->ipv4.daddr;
+                            tmk.dport = tuple->ipv4.dport;
+                            tmk.sport = rand_source_port;
+                            tmk.ifindex = skb->ifindex;
+                            tmk.protocol = IPPROTO_UDP;
+                            struct masq_value *tmvptr = get_masquerade(tmk);
+                            if(!tmvptr){
+                                break;
+                            }
+                            tcount++;
+                            if(tcount > 5000){
+                                if(local_diag->verbose){
+                                    event.tracking_code = MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND;
+                                    send_event(&event);
+                                }
+                                return TC_ACT_SHOT;
+                            }
+                        }
                         struct masq_value rev_new_val = {0};
                         rev_new_val.o_sport =  rand_source_port;
                         rev_new_val.__in46_u_origin.ip = 0;
