@@ -40,6 +40,7 @@
 #include <bpf/libbpf.h>
 #include <time.h>
 #include <signal.h>
+#include <limits.h>
 
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES 100 // MAX # PREFIXES
@@ -261,7 +262,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.1";
+const char *argp_program_version = "0.9.2";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -6309,9 +6310,9 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
-    {"list-gc-sessions", 'G', NULL, 0, "", 0},
+    {"list-gc-sessions", 'G', NULL, 0, "List masquerade sessions <optional argument used with -L, --list>", 0},
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
-    {"init-tc", 'H', "", 0, "sets ingress and egress tc filters for <interface> ", 0},
+    {"init-tc", 'H', "", 0, "sets ingress and egress tc filters for <interface | all>", 0},
     {"bind-saddr-delete", 'J', "", 0, "Unbind loopback route with scope host", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"monitor", 'M', "", 0, "Monitor ebpf events for interface", 0},
@@ -6325,7 +6326,7 @@ static struct argp_option options[] = {
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
     {"set-tc-filter", 'X', "", 0, "Add/remove TC filter to/from interface", 0},
     {"list-ddos-saddr", 'Y', NULL, 0, "List source IP Addresses currently in DDOS IP whitelist", 0},
-    {"init-xdp", 'Z', "", 0, "sets ingress xdp for <interface> (used for setting xdp on zet tun interface) ", 0},
+    {"init-xdp", 'Z', "", 0, "sets ingress xdp for <interface> (used for setting xdp on zet tun interface)", 0},
     {"ddos-filtering", 'a', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"outbound-filtering", 'b', "", 0, "Manually enable/disable ddos filtering on interface", 0},
     {"ipv6-enable", '6', "", 0, "Enable/disable IPv6 packet processing on interface", 0},
@@ -7040,12 +7041,24 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 void zfw_init_tc(){
     tcfilter = true;
-    object_file = "/opt/openziti/bin/zfw_tc_ingress.o";
+    char objpath[PATH_MAX];
+    char *object_path = getenv("ZFW_OBJECT_PATH");
+    if(object_path && strlen(object_path)){
+        sprintf(objpath,"%s/%s", object_path, "zfw_tc_ingress.o");
+        object_file = objpath;
+    }else{
+        object_file = "/opt/openziti/bin/zfw_tc_ingress.o";
+    }
     ingress = true;
     direction_string = "ingress";
     interface_tc();
     ingress = false;
-    object_file = "/opt/openziti/bin/zfw_tc_outbound_track.o";
+    if(object_path && strlen(object_path)){
+        sprintf(objpath,"%s/%s", object_path, "zfw_tc_outbound_track.o");
+        object_file = objpath;
+    }else{
+        object_file = "/opt/openziti/bin/zfw_tc_outbound_track.o";
+    }
     egress = true;
     direction_string = "egress";
     interface_tc();
