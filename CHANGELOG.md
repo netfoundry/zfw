@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.2] - 2024-10-01
+
+- adding environmental path option for the ```sudo zfw -H, --init-tc <ifname|all>```.  if ZFW_OBJECT_PATH=<PATH> is populated then this command will
+  follow <PATH> otherwise it will follow the default path ```/opt/openziti/bin```. 
+- Fixed help menu formatting issue.
+
+###
+
 # [0.9.1] - 2024-10-01
 
 - Added code to test if masquerade dst ip and src_port/dst_port/protocol combination is free before allocating new random   
