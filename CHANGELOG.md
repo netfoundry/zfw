@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.3] - 2024-11-12
+
+- Removed unused variables from zfw.c
+- refactored start_ebpf_controller.py to enable/modify external ddos protection services
+###
+
 # [0.9.2] - 2024-10-01
 
 - adding environmental path option for the ```sudo zfw -H, --init-tc <ifname|all>```.  if ZFW_OBJECT_PATH=<PATH> is populated then this command will
