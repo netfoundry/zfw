@@ -262,7 +262,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.2";
+const char *argp_program_version = "0.9.3";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -624,7 +624,6 @@ void bind_prefix(struct in_addr *address, unsigned short mask)
 void bind6_prefix(struct in6_addr *address, unsigned short mask)
 {
     char prefix[INET6_ADDRSTRLEN];
-    struct in6_addr addr_6 = {0};
     inet_ntop(AF_INET6, address, prefix, INET6_ADDRSTRLEN);
     char cidr_block[44];
     sprintf(cidr_block, "%s/%u", prefix, mask);
@@ -646,7 +645,6 @@ void bind6_prefix(struct in6_addr *address, unsigned short mask)
 void unbind6_prefix(struct in6_addr *address, unsigned short mask)
 {
     char prefix[INET6_ADDRSTRLEN];
-    struct in6_addr addr_6 = {0};
     inet_ntop(AF_INET6, address, prefix, INET6_ADDRSTRLEN);
     char cidr_block[44];
     sprintf(cidr_block, "%s/%u", prefix, mask);
@@ -1593,7 +1591,6 @@ void update_bind_saddr_map(struct bind_key *key)
     {
         open_bind_saddr_map();
     }
-    struct in_addr cidr;
     __u32 count = 0;
     bind_saddr_map.key = (uint64_t)key;
     bind_saddr_map.value = (uint64_t)&count;
@@ -1643,7 +1640,6 @@ void delete_bind_saddr_map(struct bind_key *key)
     {
         open_bind_saddr_map();
     }
-    struct in_addr cidr;
     __u32 count = 0;
     bind_saddr_map.key = (uint64_t)key;
     bind_saddr_map.value = (uint64_t)&count;

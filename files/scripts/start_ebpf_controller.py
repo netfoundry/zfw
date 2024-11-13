@@ -484,13 +484,15 @@ if(os.path.exists('/etc/systemd/system/zfw-logging.service') and controller):
         test1 = os.system("sed -i '/ExecStart=/i ExecStartPre\=\-\/opt\/openziti\/bin\/start_ebpf_controller.py --lanIf " + lanIf + "' /etc/systemd/system/zfw-logging.service")
         test1 = os.system("sed -i 's/ziti-router/ziti-controller/g' /etc/systemd/system/zfw-logging.service") 
         test1 = os.system("sed -i 's/_router.py/_controller.py --lanIf " + lanIf + "/g' /etc/systemd/system/fw-init.service") 
-
+        test1 = os.system("sed -i 's/ddos-monitor enp0s5/ddos-monitor " + lanIf + "/g' /etc/systemd/system/ddos-monitor.service")
         if(not test1):
             test1 = os.system("systemctl daemon-reload")
             if(not test1):
                 print("Successfully converted zfw-logging.service. Restarting!")
                 os.system('systemctl enable zfw-logging.service')
                 os.system('systemctl enable fw-init.service')
+                os.system('systemctl enable ddos-monitor.service')
+                os.system('systemctl enable api-session-monitor.service')
                 os.system('systemctl restart ziti-controller.service')
                 if(not os.system('systemctl is-active --quiet ziti-controller.service')):
                     print("ziti-controller.service successfully restarted!")
