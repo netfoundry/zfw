@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.4] - 2024-11-20
+
+- added zfw_xdp_tun_ingress.o to router package for installations where ziti-edge-tunnel is not run as a service
+  
+###
+
 # [0.9.3] - 2024-11-12
 
 - Removed unused variables from zfw.c
