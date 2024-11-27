@@ -275,6 +275,8 @@ jobs:
         ziti_type: [tunnel, router]
         goarch: [amd64, arm64]
         pkg_type: [deb, rpm]
+        distro_name: [focal, jammy, noble]
+
     steps:
       - name: download x86 artifacts
         if: ${{ (matrix.goarch == 'amd64') && ((matrix.pkg_type != 'deb') || (matrix.pkg_type != 'rpm')) }}
@@ -304,3 +306,20 @@ jobs:
           file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.x86_64.${{ matrix.pkg_type }}
           release_name: ${{ needs.build_amd64_release.outputs.version }}
           tag: v${{ needs.build_amd64_release.outputs.version }}
+      - name: Configure jFrog CLI
+        if: ${{ matrix.pkg_type == 'deb'}} &&  ${{ matrix.ziti_type == 'router'}}
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_USER: ${{ secrets.JF_USER }}
+          JF_PASSWORD: ${{ secrets.JF_PASSWORD }}
+      - name: Upload DEB to Artifactory with jFrog CLI
+        if: ${{ matrix.pkg_type == 'deb'}} &&  ${{ matrix.ziti_type == 'router'}}
+        shell: bash
+        run: >
+          jf rt upload
+          ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.x86_64.${{ matrix.pkg_type }}
+          netfoundry-deb-stable/pool/zfw-router/${{ matrix.distro_name }}/${{ matrix.goarch }}/
+          --deb=${{ matrix.distro_name }}/main/${{ matrix.goarch }} 
+          --url https://netfoundry.jfrog.io/artifactory/
+          --recursive=false
+          --flat=true 
