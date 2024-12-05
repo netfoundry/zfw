@@ -340,4 +340,4 @@ jobs:
               --password ${{ secrets.JF_PASSWORD }} \
               --deb=${{ matrix.distro_name }}/main/${{ matrix.goarch }} \
               --recursive=false \
-              --flat=true 
+              --flat=true
