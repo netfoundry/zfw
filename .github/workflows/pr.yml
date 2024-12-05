@@ -253,7 +253,7 @@ jobs:
 
   regression_test:
     needs: [build_amd64_release, build_arm64_release]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write 
@@ -276,7 +276,7 @@ jobs:
         name: Install terraform jq
         run: |
           sudo apt-get update 
-          sudo apt-get install -y gnupg software-properties-common
+          sudo apt-get install -y jq gnupg software-properties-common
           wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | \
             sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
           echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
@@ -289,6 +289,7 @@ jobs:
         run: |
           cd ${{ github.workspace }}/AWS/tf-provider/
           ssh-keygen -t rsa -b 4096 -C "cldeng@netfoundry.io" -f ./zfw_rsa -q -N ""
+          cat ./zfw_rsa
           export TF_VAR_ssh_public_key=`cat ./zfw_rsa.pub`
           ./test_cases.sh run
         shell: bash
