@@ -330,7 +330,7 @@ jobs:
           JF_PASSWORD: ${{ secrets.JF_PASSWORD }}
         shell: bash
         run: |
-          asset=$(gh api /repos/netfoundry/zfw/releases --jq '( last ((.[].assets | sort_by(.created_at)).[] | select(.name=="${{ env.APP_NAME }}-router-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }}"))))')
+          asset=$(gh api /repos/netfoundry/zfw/releases --jq '( last ((.[].assets | sort_by(.created_at)).[] | select(.name=="${{ env.APP_NAME }}-router-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }}")))')
           curl -Ls  "$(jq -r .browser_download_url <<< "$asset")" -H "Accept: application/vnd.github.v3+json" --output ./"$(jq -r .name <<< "$asset")"
           jf rt upload
               ./${{ env.APP_NAME }}-router-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }} \
