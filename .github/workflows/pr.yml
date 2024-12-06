@@ -289,7 +289,6 @@ jobs:
         run: |
           cd ${{ github.workspace }}/AWS/tf-provider/
           ssh-keygen -t rsa -b 4096 -C "cldeng@netfoundry.io" -f ./zfw_rsa -q -N ""
-          cat ./zfw_rsa
           export TF_VAR_ssh_public_key=`cat ./zfw_rsa.pub`
           ./test_cases.sh run
         shell: bash
