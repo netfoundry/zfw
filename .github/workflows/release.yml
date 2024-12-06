@@ -275,6 +275,7 @@ jobs:
         ziti_type: [tunnel, router]
         goarch: [amd64, arm64]
         pkg_type: [deb, rpm]
+
     steps:
       - name: download x86 artifacts
         if: ${{ (matrix.goarch == 'amd64') && ((matrix.pkg_type != 'deb') || (matrix.pkg_type != 'rpm')) }}
@@ -304,3 +305,39 @@ jobs:
           file: ./${{ env.APP_NAME }}-${{ matrix.ziti_type }}-${{ needs.build_amd64_release.outputs.version }}.x86_64.${{ matrix.pkg_type }}
           release_name: ${{ needs.build_amd64_release.outputs.version }}
           tag: v${{ needs.build_amd64_release.outputs.version }}
+
+  upload_jfrog:
+    runs-on: ubuntu-22.04
+    needs:
+      - build_amd64_release
+      - build_arm64_release
+      - deploy_packages
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+        pkg_type: [deb]
+        distro_name: [focal, jammy, noble]
+    steps:
+      - name: Configure jFrog CLI
+        if: ${{ matrix.pkg_type == 'deb'}}
+        uses: jfrog/setup-jfrog-cli@v4
+      - name: Upload DEB to Artifactory with jFrog CLI
+        if: ${{ matrix.pkg_type == 'deb'}}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JF_USER: ${{ secrets.JF_USER }}
+          JF_PASSWORD: ${{ secrets.JF_PASSWORD }}
+        shell: bash
+        run: |
+          asset=$(gh api /repos/netfoundry/zfw/releases --jq '( last ((.[].assets | sort_by(.created_at)).[] | select(.name=="${{ env.APP_NAME }}-router-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }}"))))')
+          curl -Ls  "$(jq -r .browser_download_url <<< "$asset")" -H "Accept: application/vnd.github.v3+json" --output ./"$(jq -r .name <<< "$asset")"
+          jf rt upload
+              ./${{ env.APP_NAME }}-router-${{ needs.build_amd64_release.outputs.version }}.${{ matrix.goarch }}.${{ matrix.pkg_type }} \
+              netfoundry-deb-stable/pool/${{ env.APP_NAME }}-router/${{ matrix.distro_name }}/${{ matrix.goarch }}/ \
+              --url https://netfoundry.jfrog.io/artifactory/ \
+              --user ${{ secrets.JF_USER}} \
+              --password ${{ secrets.JF_PASSWORD }} \
+              --deb=${{ matrix.distro_name }}/main/${{ matrix.goarch }} \
+              --recursive=false \
+              --flat=true
