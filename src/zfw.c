@@ -41,6 +41,7 @@
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
+#include <fcntl.h>
 
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES 100 // MAX # PREFIXES
@@ -262,7 +263,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.5";
+const char *argp_program_version = "0.9.6";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -727,6 +728,15 @@ void set_tc_filter(char *action)
         close_maps(1);
     }
     pid_t pid;
+    int o_std_out = dup(STDOUT_FILENO);
+    int o_std_err = dup(STDERR_FILENO);
+    int fd = open("/dev/null", O_WRONLY);
+    if (fd == -1){
+        return; 
+    }
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    close(fd);
     if (!strcmp(action, "add") && check_filter(if_nametoindex(tc_interface),direction_string))
     {
         if(check_qdisc(tc_interface)){
@@ -782,6 +792,10 @@ void set_tc_filter(char *action)
             printf("execv error: unknown error removing filter");
         }
     }
+    dup2(o_std_out, STDOUT_FILENO);
+    dup2(o_std_err, STDERR_FILENO);
+    close(o_std_out);
+    close(o_std_err); 
 }
 
 void disable_ebpf()

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.56 - 2024-12-09
+
+- Updated zfw.c to redirect system call output to /dev/null for set_tc_filter() 
+  
+###
+
 # [0.9.5] - 2024-11-29
 
 - updated the release workflow to upload zfw-router deb package to jfrog repo
