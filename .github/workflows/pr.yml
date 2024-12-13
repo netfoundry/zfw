@@ -299,7 +299,9 @@ jobs:
           set +e
           cd ${{ github.workspace }}/AWS/tf-provider/
           /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'
+          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /var/log/cloud-init-output.log'
           /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'
+          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /var/log/cloud-init-output.log'
           while :
           do
             sleep 900
