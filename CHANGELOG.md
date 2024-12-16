@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
-# [0.9.56 - 2024-12-09
+# [0.9.7] - 2024-12-16
+
+- added debug option to the pr worklow for checking version tested
+
+###
+
+# [0.9.6] - 2024-12-09
 
 - Updated zfw.c to redirect system call output to /dev/null for set_tc_filter() 
   
