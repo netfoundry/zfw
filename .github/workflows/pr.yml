@@ -298,10 +298,17 @@ jobs:
         run: |
           set +e
           cd ${{ github.workspace }}/AWS/tf-provider/
-          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'
-          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /var/log/cloud-init-output.log'
-          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'
-          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /var/log/cloud-init-output.log'
+          zfw0_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'`
+          zfw1_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'`
+          if [ "$zfw0_ver" != "$zfw1_ver" ]; then
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /var/log/cloud-init-output.log'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /var/log/cloud-init-output.log'
+            sleep 30
+            zfw0_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'`
+            zfw1_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'`
+          fi
+          echo "*** zfw0: $zfw0_ver ***"
+          echo "*** zfw1: $zfw1_ver ***"
           while :
           do
             sleep 900
