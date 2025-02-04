@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.8] - 2025-2-4
+
+- Modified start_ebpf_router.py and start_ebpf_controller.py scripts so that if the user_rules.sh file
+  exists it can override the default port settings set based on the respective config file.
+  
+###
+
 # [0.9.7] - 2024-12-16
 
 - added debug option to the pr worklow for checking version tested

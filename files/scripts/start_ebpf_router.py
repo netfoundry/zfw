@@ -317,7 +317,7 @@ if(os.path.exists('/opt/openziti/etc/ebpf_config.json')):
 else:
     print("Missing /opt/openziti/etc/ebpf_config.json can't set ebpf interface config")
     sys.exit(1)
-
+resolver = get_if_ip(lanIf)
 ingress_object_file = '/opt/openziti/bin/zfw_tc_ingress.o'
 egress_object_file = '/opt/openziti/bin/zfw_tc_outbound_track.o'
 status = subprocess.run(['/opt/openziti/bin/zfw', '-L', '-E'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -365,6 +365,8 @@ if(status.returncode):
                     continue
                 else:
                     print("Attached " + egress_object_file + " to " + e)
+    if(len(resolver)):
+        set_local_rules(resolver)
     if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
         print("Adding user defined rules")
         os.system("/opt/openziti/bin/user/user_rules.sh")
@@ -408,13 +410,12 @@ else:
                     print("Cant attach " + e + " to tc egress with " + egress_object_file)
                 else:
                     print("Attached " + egress_object_file + " to " + e)
+    if(len(resolver)):
+        set_local_rules(resolver)
     if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
         print("Adding user defined rules!")
         os.system("/opt/openziti/bin/user/user_rules.sh")
 
-resolver = get_if_ip(lanIf)
-if(len(resolver)):
-    set_local_rules(resolver)
 if(os.path.exists('/etc/systemd/system/ziti-router.service') and router_config):
     unconfigured = os.system("grep -r 'ExecStartPre\=\-\/opt/openziti\/bin\/start_ebpf_router.py' /etc/systemd/system/ziti-router.service")
     if(unconfigured):

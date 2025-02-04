@@ -377,7 +377,7 @@ if(os.path.exists('/opt/openziti/etc/ebpf_config.json')):
 else:
     print("Missing /opt/openziti/etc/ebpf_config.json can't set ebpf interface config")
     sys.exit(1)
-
+lanIp = get_if_ip(lanIf)
 ingress_object_file = '/opt/openziti/bin/zfw_tc_ingress.o'
 egress_object_file = '/opt/openziti/bin/zfw_tc_outbound_track.o'
 status = subprocess.run(['/opt/openziti/bin/zfw', '-L', '-E'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -427,6 +427,9 @@ if(status.returncode):
                     continue
                 else:
                     print("Attached " + egress_object_file + " to " + e)
+    
+    if(len(lanIp)):
+        set_local_rules(lanIp)
     if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
         print("Adding user defined rules")
         os.system("/opt/openziti/bin/user/user_rules.sh")
@@ -470,6 +473,8 @@ else:
                     print("Cant attach " + e + " to tc egress with " + egress_object_file)
                 else:
                     print("Attached " + egress_object_file + " to " + e)
+    if(len(lanIp)):
+        set_local_rules(lanIp)
     if(os.path.exists("/opt/openziti/bin/user/user_rules.sh")):
         print("Adding user defined rules!")
         os.system("/opt/openziti/bin/user/user_rules.sh")
