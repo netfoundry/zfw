@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.9] - 2025-2-19
+
+- Modified start_ebpf_controller.py so it does not restart the controller when configuring services.
+  
+###
+
 # [0.9.8] - 2025-2-4
 
 - Modified start_ebpf_router.py and start_ebpf_controller.py scripts so that if the user_rules.sh file

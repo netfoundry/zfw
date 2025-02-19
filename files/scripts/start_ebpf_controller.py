@@ -493,18 +493,13 @@ if(os.path.exists('/etc/systemd/system/zfw-logging.service') and controller):
         if(not test1):
             test1 = os.system("systemctl daemon-reload")
             if(not test1):
-                print("Successfully converted zfw-logging.service. Restarting!")
-                os.system('systemctl enable zfw-logging.service')
-                os.system('systemctl enable fw-init.service')
-                os.system('systemctl enable ddos-monitor.service')
-                os.system('systemctl enable api-session-monitor.service')
-                os.system('systemctl restart ziti-controller.service')
-                if(not os.system('systemctl is-active --quiet ziti-controller.service')):
-                    print("ziti-controller.service successfully restarted!")
-                else:
-                    print('ziti-controller.service unable to start check router logs!')
+                print("Successfully converted services. Enabling/Starting now!")
+                os.system('systemctl enable --now zfw-logging.service')
+                os.system('systemctl enable --now fw-init.service')
+                os.system('systemctl enable --now ddos-monitor.service')
+                os.system('systemctl enable --now api-session-monitor.service')
         else:
-            print("Failed to convert ziti-controller.service!")
+            print("Failed to init services!")
     else:
         print("zfw-logging.service already converted. Nothing to do!")
 else:
