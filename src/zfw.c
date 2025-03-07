@@ -148,11 +148,14 @@ bool ebpf_disable = false;
 bool list_diag = false;
 bool monitor = false;
 bool tun = false;
+bool ot_filter = false;
 bool logging = false;
 bool dsip = false;
 bool ddos_saddr_list = false;
 bool ddport = false;
+bool dnp3fc = false;
 bool ddos_dport_list = false;
+bool dnp3_fcode_list = false;
 bool service = false;
 bool v6 = false;
 bool ipv6 = false;
@@ -160,6 +163,7 @@ bool ingress = false;
 char *service_string;
 char *ddos_saddr;
 char *ddos_dport;
+char *dnp3_fcode;
 struct in_addr ddos_scidr;
 struct in_addr dcidr;
 struct in_addr scidr;
@@ -183,6 +187,8 @@ union bpf_attr bind_saddr_map;
 int bind_saddr_fd = -1;
 union bpf_attr ddos_dport_map;
 int ddos_dport_fd = -1;
+union bpf_attr dnp3_fcode_map;
+int dnp3_fcode_fd = -1;
 union bpf_attr diag_map;
 int diag_fd = -1;
 union bpf_attr tun_map;
@@ -223,6 +229,7 @@ const char *transp_map_path = "/sys/fs/bpf/tc/globals/zet_transp_map";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *ddos_saddr_map_path = "/sys/fs/bpf/tc/globals/ddos_saddr_map";
 const char *ddos_dport_map_path = "/sys/fs/bpf/tc/globals/ddos_dport_map";
+const char *dnp3_fcode_map_path = "/sys/fs/bpf/tc/globals/dnp3_fcode_map";
 const char *syn_count_map_path = "/sys/fs/bpf/tc/globals/syn_count_map";
 const char *tp_ext_map_path = "/sys/fs/bpf/tc/globals/tproxy_extension_map";
 const char *if_list_ext_map_path = "/sys/fs/bpf/tc/globals/if_list_extension_map";
@@ -256,6 +263,7 @@ char *outbound_interface;
 char *monitor_interface;
 char *ipv6_interface;
 char *tc_interface;
+char *ot_interface;
 char *xdp_interface;
 char *log_file_name;
 char *object_file;
@@ -263,7 +271,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.9";
+const char *argp_program_version = "0.9.10";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -403,6 +411,7 @@ void open_tun_map();
 void open_egress_range_map();
 void open_ddos_saddr_map();
 void open_ddos_dport_map();
+void open_dnp3_fcode_map();
 void open_tproxy_ext_map();
 void open_egress_ext_map();
 void open_if_list_ext_map();
@@ -497,6 +506,7 @@ struct diag_ip4 {
     bool outbound_filter;
     bool masquerade;
     bool pass_non_tuple;
+    bool ot_filtering;
 };
 
 struct tproxy_tuple
@@ -804,15 +814,15 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[38] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[39] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
                              egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, 
-                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path, bind_saddr_map_path};
-    for (int map_count = 0; map_count < 38; map_count++)
+                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path, bind_saddr_map_path, dnp3_fcode_map_path};
+    for (int map_count = 0; map_count < 39; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -898,6 +908,20 @@ __u16 len2u16(char *len)
     }
     __u16 u16int = (__u16)tmpint;
     return u16int;
+}
+
+/* convert prefix string to __u16 */
+__u8 fcode2u8(char *fcode)
+{
+    char *endPtr;
+    int32_t tmpint = strtol(fcode, &endPtr, 10);
+    if ((tmpint < 0) || (tmpint > 255) || (!(*(endPtr) == '\0')))
+    {
+        printf("Invalid fcode: %s\n", fcode);
+        close_maps(1);
+    }
+    __u8 u8int = (__u8)tmpint;
+    return u8int;
 }
 
 /* function to add a UDP or TCP port range to a tproxy mapping */
@@ -1845,6 +1869,63 @@ void delete_ddos_dport_map(char *dport)
     close(fd);
 }
 
+void update_dnp3_fcode_map(char *fcode)
+{
+    if (dnp3_fcode_fd == -1)
+    {
+        open_dnp3_fcode_map();
+    }
+    uint8_t key = fcode2u8(fcode);
+    bool state = false;
+    dnp3_fcode_map.key = (uint64_t)&key;
+    dnp3_fcode_map.value = (uint64_t)&state;
+    dnp3_fcode_map.map_fd = dnp3_fcode_fd;
+    dnp3_fcode_map.flags = BPF_ANY;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+    if (lookup)
+    {
+        state = true;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        }
+        printf("%s: Added to dnp3 function code list\n", (char *)fcode);
+    }
+    else
+    {
+        printf("Key already exists: %s, state=%d\n", fcode, state);
+    }
+}
+
+void delete_dnp3_fcode_map(char *fcode)
+{
+    uint8_t key = fcode2u8(fcode);
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)dnp3_fcode_map_path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        close_maps(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        printf("Removed function code %s from dnp3_fcode_map\n", fcode);
+    }
+    close(fd);
+}
+
 bool set_diag(uint32_t *idx)
 {
     if (access(diag_map_path, F_OK) != 0)
@@ -2083,6 +2164,18 @@ bool set_diag(uint32_t *idx)
             }
             printf("Set ddos detect to %d for %s\n", !disable, ddos_interface);
         }
+        if (ot_filter)
+        {
+            if (!disable)
+            {
+                o_diag.ot_filtering = true;
+            }
+            else
+            {
+                o_diag.ot_filtering = false;
+            }
+            printf("Set ot filtering to %d for %s\n", !disable, ot_interface);
+        }
         int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
         if (ret)
         {
@@ -2118,6 +2211,7 @@ bool set_diag(uint32_t *idx)
         printf("%-24s:%d\n", "eapol enable", o_diag.eapol);
         printf("%-24s:%d\n", "ddos filtering", o_diag.ddos_filtering);
         printf("%-24s:%d\n", "masquerade", o_diag.masquerade);
+        printf("%-24s:%d\n", "ot filtering", o_diag.ot_filtering);
         printf("--------------------------\n\n");
     }
     return true;
@@ -2284,11 +2378,12 @@ void interface_diag()
                 vrrp_interface = address->ifa_name;
                 eapol_interface = address->ifa_name;
                 ddos_interface = address->ifa_name;
+                ot_interface = address->ifa_name;
                 ipv6_interface = address->ifa_name;
                 outbound_interface = address->ifa_name;
                 masq_interface = address->ifa_name;
             }
-            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6 || outbound || masquerade))
+            if (!strncmp(address->ifa_name, "ziti", 4) && (tun || per_interface || ssh_disable || echo || vrrp || eapol || ddos || v6 || outbound || masquerade || ot_filter))
             {
                 if (per_interface && !strncmp(prefix_interface, "ziti", 4))
                 {
@@ -2319,6 +2414,10 @@ void interface_diag()
                     printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
                 if (ddos && !strncmp(ddos_interface, "ziti", 4))
+                {
+                    printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
+                }
+                if (ot_filter && !strncmp(ot_interface, "ziti", 4))
                 {
                     printf("%s:zfw does not allow setting on ziti tun interfaces!\n", address->ifa_name);
                 }
@@ -2377,6 +2476,14 @@ void interface_diag()
             if (ddos)
             {
                 if (!strcmp(ddos_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
+            if (ot_filter)
+            {
+                if (!strcmp(ot_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -6129,6 +6236,68 @@ void ddos_dport_map_list()
     close(fd);
 }
 
+void dnp3_fcode_map_list()
+{
+    if (dnp3_fcode_fd == -1)
+    {
+        open_dnp3_fcode_map();
+    }
+    union bpf_attr map;
+    uint8_t init_key = 0;
+    uint8_t *key = &init_key;
+    uint8_t reference_key;
+    uint8_t lookup_key;
+    bool value;
+    bool state;
+    // Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)dnp3_fcode_map_path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        close_maps(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&value;
+    dnp3_fcode_map.value = (uint64_t)&state;
+    int lookup = 0;
+    int ret = 0;
+    int fcode_count = 0;
+    dnp3_fcode_map.map_fd = dnp3_fcode_fd;
+    printf("dnp3 function code allow list\n");
+    printf("-------------------------------\n");
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            printf("-------------------------------\n");
+            printf("fcode count: %d\n", fcode_count);
+            break;
+        }
+        map.key = map.next_key;
+        reference_key = *(uint16_t *)map.key;
+        lookup_key = *(uint8_t *)map.key;
+        dnp3_fcode_map.key = (uint64_t)&lookup_key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+        if (!lookup)
+        {
+            printf("%d (0x%x)\n", lookup_key, lookup_key);
+        }
+        else
+        {
+            printf("Not Found\n");
+        }
+        map.key = (uint64_t)&reference_key;
+        fcode_count++;
+    }
+    close(fd);
+}
+
 int get_key_count6()
 {
     union bpf_attr count_map;
@@ -6317,6 +6486,7 @@ void map_list_all()
 static struct argp_option options[] = {
     {"add-user-rules", 'A', NULL, 0, "Add user rules from /opt/openziti/bin/user/user_rules.sh", 0},
     {"bind-saddr-add", 'B', "", 0, "Bind loopback route with scope host", 0},
+    {"list-dnp3-fcodes", 'C', NULL, 0, "List dnp3 fcodes allowed protect from DNP slaves", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
@@ -6331,6 +6501,7 @@ static struct argp_option options[] = {
     {"per-interface-rules", 'P', "", 0, "Set interface to per interface rule aware", 0},
     {"disable-ebpf", 'Q', NULL, 0, "Delete tc from all interface and remove all maps", 0},
     {"vrrp-enable", 'R', "", 0, "Enable vrrp passthrough on interface", 0},
+    {"ot-filtering", 'S', "", 0, "Manually enable/disable ot advanced filtering on interface", 0},
     {"set-tun-mode", 'T', "", 0, "Set tun mode on interface", 0},
     {"list-ddos-dports", 'U', NULL, 0, "List destination ports to protect from DDOS", 0},
     {"write-log", 'W', "", 0, "Write to monitor output to /var/log/<log file name> <optional for monitor>", 0},
@@ -6358,6 +6529,7 @@ static struct argp_option options[] = {
     {"service-id", 's', "", 0, "set ziti service id", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"ddos-dport-add", 'u', "", 0, "Add destination port to DDOS port list i.e. (1-65535)", 0},
+    {"dnp3-fcode-add", 'g', "", 0, "Add fcode to dnp3 fcode list i.e. (0-255)", 0},
     {"verbose", 'v', "", 0, "Enable verbose tracing on interface", 0},
     {"enable-eapol", 'w', "", 0, "enable 802.1X eapol packets inbound on interface", 0},
     {"disable-ssh", 'x', "", 0, "Disable inbound ssh to interface (default enabled)", 0},
@@ -6391,6 +6563,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
+        break;
+    case 'C':
+        dnp3_fcode_list = true;
         break;
     case 'D':
         delete = true;
@@ -6578,6 +6753,33 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
                 vrrp_interface = check_alt;
             }else{
                 vrrp_interface = arg;
+            }
+        }
+        break;
+    case 'S':
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -S, --ot-filtering: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        idx = if_nametoindex(arg);
+        if (strcmp("all", arg) && idx == 0)
+        {
+            printf("Interface not found: %s\n", arg);
+            exit(1);
+        }
+        ot_filter = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            if(if_indextoname(idx, check_alt)){
+                ot_interface = check_alt;
+            }else{
+                ot_interface = arg;
             }
         }
         break;
@@ -6800,6 +7002,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'f':
         passthru = true;
+        break;
+    case 'g':
+        dnp3fc = true;
+        dnp3_fcode = arg;
         break;
     case 'h':
         high_port = port2s(arg);
@@ -7127,6 +7333,10 @@ void close_maps(int code)
     {
         close(ddos_dport_fd);
     }
+    if (dnp3_fcode_fd != -1)
+    {
+        close(dnp3_fcode_fd);
+    }
     if (tp_ext_fd != -1)
     {
         close(tp_ext_fd);
@@ -7256,6 +7466,20 @@ void open_ddos_dport_map()
     /* make system call to get fd for map */
     ddos_dport_fd = syscall(__NR_bpf, BPF_OBJ_GET, &ddos_dport_map, sizeof(ddos_dport_map));
     if (ddos_dport_fd == -1)
+    {
+        ebpf_usage();
+    }
+}
+
+void open_dnp3_fcode_map()
+{
+    memset(&dnp3_fcode_map, 0, sizeof(dnp3_fcode_map));
+    dnp3_fcode_map.pathname = (uint64_t)dnp3_fcode_map_path;
+    dnp3_fcode_map.bpf_fd = 0;
+    dnp3_fcode_map.file_flags = 0;
+    /* make system call to get fd for map */
+    dnp3_fcode_fd = syscall(__NR_bpf, BPF_OBJ_GET, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+    if (dnp3_fcode_fd == -1)
     {
         ebpf_usage();
     }
@@ -7434,6 +7658,14 @@ int main(int argc, char **argv)
     signal(SIGTERM, INThandler);
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+    if(ot_filter){
+        if( dnp3_fcode_list || dnp3fc || init_tc || init_xdp || non_tuple ||dsip || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
+            monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport || init_xdp || tcfilter){
+                usage("-S, --ot-filtering cannot be used in non related combination calls");
+        }
+
+    }
+
     if(user_rules){
         if ((access(tproxy_map_path, F_OK) != 0) || (access(tproxy6_map_path, F_OK) != 0))
         {
@@ -7450,7 +7682,7 @@ int main(int argc, char **argv)
     if(init_tc){
         if(non_tuple ||dsip || echo || ssh_disable || verbose || per_interface || add || delete || eapol || ddos || vrrp || 
         monitor || logging || ddport || masquerade || list || outbound || bind_saddr || unbind_saddr || ddport || init_xdp || tcfilter){
-            usage("-V, --init-tc cannot be used in non related combination calls");
+            usage("-H, --init-tc cannot be used in non related combination calls");
         }else{
             zfw_init_tc();
             close_maps(0);
@@ -7591,9 +7823,18 @@ int main(int argc, char **argv)
 
     if (ddport)
     {
-        if ((dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol) || ddos || vrrp || monitor || logging)
+        if (dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol || ddos || vrrp || monitor || logging)
         {
             usage("Y, --ddos-dport-add can not be used in combination call");
+        }
+    }
+
+    if (dnp3fc)
+    {
+        if (ddport || masquerade || v6 || tcfilter || bind_saddr || unbind_saddr || bind_flush || non_tuple || user_rules ||  service || 
+            dsip || tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush || eapol || ddos || vrrp || monitor || logging)
+        {
+            usage("Y, --dnp3-fcode-add can not be used in combination call");
         }
     }
 
@@ -7640,6 +7881,11 @@ int main(int argc, char **argv)
     if (ddos_dport_list && !list)
     {
         usage("-U, --list-ddos-dports requires -L --list");
+    }
+
+    if (dnp3_fcode_list && !list)
+    {
+        usage("-C, --list-dnp3-fcodes requires -L --list");
     }
 
     if (list_diag && !list)
@@ -7713,9 +7959,9 @@ int main(int argc, char **argv)
     }
 
     if (disable && (!ssh_disable && !echo && !verbose && !per_interface && !tcfilter && !tun && !vrrp
-     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete && !masquerade && !non_tuple))
+     && !eapol && !ddos && !dsip && !ddport && !v6 && !outbound && !add && !delete && !masquerade && !non_tuple && !dnp3fc && !ot_filter))
     {
-        usage("Missing argument at least one of -a,-b,-6,-e, -k, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
+        usage("Missing argument at least one of -a,-b, -g,-6,-e, -k, -u, -v, -w, -x, -y, or -E, -P, -R, -T, -X");
     }
 
     if (direction && (!tcfilter && !list && !flush && !delete && !add))
@@ -7937,9 +8183,18 @@ int main(int argc, char **argv)
         {
             if (cd || dl || cs || sl || prot)
             {
-                usage("-Y, --list-ddos-dports cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -E");
+                usage("-U, --list-ddos-dports cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -E");
             }
             ddos_dport_map_list();
+            close_maps(0);
+        }
+        if (dnp3_fcode_list)
+        {
+            if (cd || dl || cs || sl || prot)
+            {
+                usage("-C, --list-ddos-dports cannot be combined with cidr list arguments -c,-o, -m, -n, -p, -E");
+            }
+            dnp3_fcode_map_list();
             close_maps(0);
         }
         if (!cd && !dl && !cd6 && v6 && all_interface)
@@ -7991,7 +8246,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    else if (vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound || masquerade || non_tuple )
+    else if (ot_filter || vrrp || verbose || ssh_disable || echo || per_interface || tun || eapol || ddos || v6 || outbound || masquerade || non_tuple )
     {
         interface_diag();
     }
@@ -8019,7 +8274,7 @@ int main(int argc, char **argv)
             update_ddos_saddr_map(ddos_saddr);
         }
     }
-    else if (ddport)
+    else if (ddport){
         if (disable)
         {
             delete_ddos_dport_map(ddos_dport);
@@ -8028,6 +8283,17 @@ int main(int argc, char **argv)
         {
             update_ddos_dport_map(ddos_dport);
         }
+    }
+    else if (dnp3fc){
+        if (disable)
+        {
+            delete_dnp3_fcode_map(dnp3_fcode);
+        }
+        else
+        {
+            update_dnp3_fcode_map(dnp3_fcode);
+        }
+    }
     else
     {
         usage("No arguments specified");
