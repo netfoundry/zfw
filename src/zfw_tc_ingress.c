@@ -1956,7 +1956,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 return TC_ACT_SHOT;
             }
             __u16 payload_len = bpf_ntohs(iph->tot_len) - ((iph->ihl * 4) + (tcph->doff * 4)); 
-            if((tuple->ipv4.sport == bpf_ntohs(20000)) && payload_len > 0){
+            if(local_diag->ot_filtering && (tuple->ipv4.sport == bpf_ntohs(20000)) && (tuple->ipv4.dport >= bpf_ntohs(1024)) && payload_len > 0){
                 unsigned short *dnp3start = (unsigned short*)((unsigned long)tcph + tcph->doff * 4);
                 if ((unsigned long)(dnp3start + 1) > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
@@ -1977,7 +1977,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             return TC_ACT_SHOT;
                         }
                         __u8 dnp3_func_code = (bpf_ntohl(*dnp3_app_layer) & 0xff0000) >> 16;
-                        if(local_diag->ot_filtering && (!check_dnp3_fcode(dnp3_func_code) || dnp3_dir)){
+                        if((!check_dnp3_fcode(dnp3_func_code) || dnp3_dir)){
                             return TC_ACT_SHOT;
                         }
                     }
