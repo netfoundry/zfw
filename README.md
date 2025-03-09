@@ -613,8 +613,10 @@ This will result in traffic to port 22 matching the first rule and correctly bei
 
 ### DNP3 Function Code filtering
 
-- Added support for dnp3 slave function code filtering.  If ot filtering is enabled on the interface inbound tcp packets with source port of 20000 and   
-  have DNP3 datalink start bytes: 0x0564 and contain application layer header will be droppoed unless the function code value is in the allowed fcode list and the direction bit is unset.
+- Added support for dnp3 slave function code filtering.  If ot filtering is enabled on the interface inbound tcp
+  packets with a source port of 20000, DNP3 datalink start bytes: 0x0564 and a application layer header will be
+  droppoed unless the application layer function code value is in the allowed fcode list and the direction
+  bit is unset.
 
   Enable/Disable at interface level with ```sudo zfw --ot-filtering <iface> [-d]```
 
