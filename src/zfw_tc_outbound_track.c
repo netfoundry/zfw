@@ -209,6 +209,7 @@ struct diag_ip4 {
     bool outbound_filter;
     bool masquerade;
     bool pass_non_tuple;
+    bool ot_filtering;
 };
 
 /*value to ifindex_tun_map*/

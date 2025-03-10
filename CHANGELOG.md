@@ -5,9 +5,26 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.10] - 2025-3-7
+
+- Added support for dnp3 slave function code filtering.
+    
+  Enable/Disable at interface level with ```sudo zfw --ot-filtering <iface> [-d]```
+
+  Allowed codes added via ```sudo zfw --dnp3-fcode-add <decimal fcode>```
+
+  List allowed fcodes ```sudo zfw -L --list-dnp3-fcodes```
+
+- Fixed some command help usage syntax errors
+- Fixed incorrect brackets on ddos port add/remove conditional in zfw.c.
+- Updated README.md
+  
+###
+
 # [0.9.9] - 2025-2-19
 
 - Modified start_ebpf_controller.py so it does not restart the controller when configuring services.
+
   
 ###
 

@@ -366,6 +366,7 @@ struct diag_ip4 {
     bool outbound_filter;
     bool masquerade;
     bool pass_non_tuple;
+    bool ot_filtering;
 };
 
 /*Value to tun_map*/
@@ -434,6 +435,14 @@ struct {
      __uint(max_entries, BPF_MAX_ENTRIES);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ddos_dport_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(key_size, sizeof(uint8_t));
+    __uint(value_size,sizeof(bool));
+    __uint(max_entries, BPF_MAX_ENTRIES);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} dnp3_fcode_map SEC(".maps");
 
 /*map to track up to 3 key matches per incoming IPv4 packet search.  Map is 
 then used to search for port mappings.  This was required when source filtering was 
@@ -976,6 +985,12 @@ static inline bool *check_ddos_saddr(unsigned int key){
 static inline bool *check_ddos_dport(unsigned short key){
     bool *match;
     match = bpf_map_lookup_elem(&ddos_dport_map, &key);
+	return match;
+}
+
+static inline bool *check_dnp3_fcode(__u8 key){
+    bool *match;
+    match = bpf_map_lookup_elem(&dnp3_fcode_map, &key);
 	return match;
 }
 
@@ -1939,6 +1954,34 @@ int bpf_sk_splice(struct __sk_buff *skb){
             struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
             if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;
+            }
+            __u16 payload_len = bpf_ntohs(iph->tot_len) - ((iph->ihl * 4) + (tcph->doff * 4)); 
+            if(local_diag->ot_filtering && (tuple->ipv4.sport == bpf_ntohs(20000)) && (tuple->ipv4.dport >= bpf_ntohs(1024)) && payload_len > 0){
+                unsigned short *dnp3start = (unsigned short*)((unsigned long)tcph + tcph->doff * 4);
+                if ((unsigned long)(dnp3start + 1) > (unsigned long)skb->data_end){
+                    return TC_ACT_SHOT;
+                }
+                if(*dnp3start == 0x6405){
+                    __u8 *dnp3_len = (__u8 *)((unsigned long)dnp3start + sizeof(__u16));
+                    if ((unsigned long)(dnp3_len + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    __u8 *dnp3_dl_ctrl = (__u8 *)((unsigned long)dnp3_len + sizeof(__u8));
+                    if ((unsigned long)(dnp3_dl_ctrl + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    __u8 dnp3_dir = (*dnp3_dl_ctrl & 0x80) >> 7; 
+                    if(*dnp3_len > 5){
+                        __u32 *dnp3_app_layer = (__u32 *)((unsigned long)dnp3start + 11);
+                        if ((unsigned long)(dnp3_app_layer + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
+                        }
+                        __u8 dnp3_func_code = (bpf_ntohl(*dnp3_app_layer) & 0xff0000) >> 16;
+                        if((!check_dnp3_fcode(dnp3_func_code) || dnp3_dir)){
+                            return TC_ACT_SHOT;
+                        }
+                    }
+                }
             }
             sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
             if(sk){

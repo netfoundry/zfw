@@ -611,7 +611,25 @@ prefix_tuple_count: 1 / 100000
 ```
 This will result in traffic to port 22 matching the first rule and correctly being dropped as intended.
 
+### DNP3 Function Code filtering
 
+- Added support for dnp3 slave function code filtering.  If ot filtering is enabled on the interface inbound tcp
+  packets with a source port of 20000, DNP3 datalink start bytes: 0x0564 and a application layer header will be
+  droppoed unless the application layer function code value is in the allowed fcode list and the direction
+  bit is unset.
+
+  Enable/Disable at interface level with ```sudo zfw --ot-filtering <iface> [-d]```
+
+  Allowed codes added via ```sudo zfw --dnp3-fcode-add <decimal fcode>```
+
+  List allowed fcodes ```sudo zfw -L --list-dnp3-fcodes```
+  ```
+  dnp3 function code allow list
+  -------------------------------
+  129 (0x81)
+  -------------------------------
+  ```
+fcode count: 1
 ### Outbound filtering 
 - This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
   on intercepted inbound connections but locally hosted services will require manually entered egress rules. 
