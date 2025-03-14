@@ -76,6 +76,9 @@
 #define MASQUERADE_ENTRY_ADDED 35
 #define MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND 36
 #define MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND 37
+#define DNP3_FUNCTION_CODE_BLOCKED 38
+#define MODBUS_STATE_NOT_FOUND 39
+#define DNP3_DIRECTION_BIT_SET 40
 
 bool logging = false;
 bool monitor = false;
@@ -87,7 +90,7 @@ char check_alt[IF_NAMESIZE];
 char doc[] = "zfw_monitor -- ebpf firewall monitor tool";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *argp_program_version = "0.9.10";
+const char *argp_program_version = "0.9.11";
 union bpf_attr rb_map;
 int rb_fd = -1;
 
@@ -539,6 +542,15 @@ static int process_events(void *ctx, void *data, size_t len)
                     else if (code == MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND)
                     {
                         state = "MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND";
+                    }
+                    else if (code == DNP3_FUNCTION_CODE_BLOCKED){
+                        state = "DNP3_FUNCTION_CODE_BLOCKED";
+                    }
+                    else if (code == MODBUS_STATE_NOT_FOUND){
+                        state = "MODBUS_STATE_NOT_FOUND";
+                    }
+                    else if (code == DNP3_DIRECTION_BIT_SET){
+                        state = "DNP3_DIRECTION_BIT_SET";
                     }
 
                     if (state)

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.11] - 2025-3-14
+
+- Updated DNP3 fcode map to limit size to 256 entries and changed to standard hashmap.  Also added DNP3 ring buffer event logging. 
+- Added modbus attack protection when ot filtering is enabled on the inbound interface.  zfw actively monitors the slave responses to
+  ensure valid transaction id, unit id, function codes in response to requests from the master.
+  
+###
+
 # [0.9.10] - 2025-3-7
 
 - Added support for dnp3 slave function code filtering.

@@ -101,6 +101,9 @@
 #define MASQUERADE_ENTRY_ADDED 35
 #define MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND 36
 #define MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND 37
+#define DNP3_FUNCTION_CODE_BLOCKED 38
+#define MODBUS_STATE_NOT_FOUND 39
+#define DNP3_DIRECTION_BIT_SET 40
 
 bool ddos = false;
 bool add = false;
@@ -247,6 +250,7 @@ const char *masquerade_reverse_map_path = "/sys/fs/bpf/tc/globals/masquerade_rev
 const char *icmp_masquerade_map_path = "/sys/fs/bpf/tc/globals/icmp_masquerade_map";
 const char *bind_saddr_map_path = "/sys/fs/bpf/tc/globals/bind_saddr_map";
 const char *icmp_echo_map_path = "/sys/fs/bpf/tc/globals/icmp_echo_map";
+const char *modbus_state_map_path = "/sys/fs/bpf/tc/globals/modbus_state_map";
 char doc[] = "zfw -- ebpf firewall configuration tool";
 const char *if_map_path;
 char *diag_interface;
@@ -271,7 +275,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.10";
+const char *argp_program_version = "0.9.11";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -814,15 +818,16 @@ void disable_ebpf()
     disable = true;
     tc = true;
     interface_tc();
-    const char *maps[39] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
+    const char *maps[40] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path,
                             udp_map_path, matched_map_path, tcp_map_path, tun_map_path, if_tun_map_path,
                             transp_map_path, rb_map_path, ddos_saddr_map_path, ddos_dport_map_path, syn_count_map_path,
                             tp_ext_map_path, if_list_ext_map_path, range_map_path, wildcard_port_map_path, tproxy6_map_path,
                              if6_map_path, count6_map_path, matched6_map_path, egress_range_map_path, egress_if_list_ext_map_path,
                              egress_ext_map_path, egress_map_path, egress6_map_path, egress_count_map_path, egress_count6_map_path,
                              egress_matched6_map_path, egress_matched_map_path, udp_ingress_map_path, tcp_ingress_map_path, 
-                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path, bind_saddr_map_path, dnp3_fcode_map_path};
-    for (int map_count = 0; map_count < 39; map_count++)
+                             masquerade_map_path, icmp_masquerade_map_path, icmp_echo_map_path, masquerade_reverse_map_path,
+                              bind_saddr_map_path, dnp3_fcode_map_path, modbus_state_map_path};
+    for (int map_count = 0; map_count < 40; map_count++)
     {
 
         int stat = remove(maps[map_count]);
@@ -3530,6 +3535,15 @@ static int process_events(void *ctx, void *data, size_t len)
                     else if (code == MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND)
                     {
                         state = "MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND";
+                    }
+                    else if (code == DNP3_FUNCTION_CODE_BLOCKED){
+                        state = "DNP3_FUNCTION_CODE_BLOCKED";
+                    }
+                    else if (code == MODBUS_STATE_NOT_FOUND){
+                        state = "MODBUS_STATE_NOT_FOUND";
+                    }
+                    else if (code == DNP3_DIRECTION_BIT_SET){
+                        state = "DNP3_DIRECTION_BIT_SET";
                     }
                    
 
