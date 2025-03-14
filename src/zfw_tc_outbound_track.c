@@ -2421,7 +2421,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                                 mb_state.ti = *modbus_ti;
                                 mb_state.ui = *modbus_ui;
                                 mb_state.fcode = *modbus_fcode;
-                                bpf_printk("inserting modbus state");
                                 insert_modbus(mb_state);
 
                             }
@@ -2492,7 +2491,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         mb_state.ti = *modbus_ti;
                         mb_state.ui = *modbus_ui;
                         mb_state.fcode = *modbus_fcode;
-                        bpf_printk("inserting pass modbus state");
                         insert_modbus(mb_state);
                     }
                 }

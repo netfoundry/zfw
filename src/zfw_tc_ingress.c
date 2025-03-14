@@ -2078,7 +2078,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 mb_state.dport = tuple->ipv4.dport;     
                                 mb_state.ti = *modbus_ti;
                                 mb_state.ui = *modbus_ui;
-                                mb_state.fcode = *modbus_fcode;
+                                mb_state.fcode = *modbus_fcode & 0x7f;
                                 if(!check_modbus_state(mb_state)){
                                     if(local_diag->verbose){
                                         event.tracking_code = MODBUS_STATE_NOT_FOUND;
@@ -2087,7 +2087,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     bpf_sk_release(sk);
                                     return TC_ACT_SHOT;
                                 }
-                                bpf_printk("mb_key_state=%d", check_modbus_state(mb_state));
                                 del_modbus(mb_state);
                             }
                         }
@@ -2254,7 +2253,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 mb_state.dport = tuple->ipv4.dport;     
                                 mb_state.ti = *modbus_ti;
                                 mb_state.ui = *modbus_ui;
-                                mb_state.fcode = *modbus_fcode;
+                                mb_state.fcode = *modbus_fcode & 0x7f;
                                 if(!check_modbus_state(mb_state)){
                                     if(local_diag->verbose){
                                         event.tracking_code = MODBUS_STATE_NOT_FOUND;
@@ -2262,7 +2261,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     }
                                     return TC_ACT_SHOT;
                                 }
-                                bpf_printk("mb_key_state=%d", check_modbus_state(mb_state));
                                 del_modbus(mb_state);
                             }
                         }
