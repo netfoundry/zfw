@@ -69,6 +69,7 @@
 #define MASQUERADE_ENTRY_ADDED 35
 #define MASQUERADE_NO_FREE_TCP_SRC_PORTS_FOUND 36
 #define MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND 37
+#define MODBUS_STATE_INSERTED 43
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 
 struct bpf_event{
@@ -2421,6 +2422,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                                 mb_state.ti = *modbus_ti;
                                 mb_state.ui = *modbus_ui;
                                 mb_state.fcode = *modbus_fcode;
+                                if(local_diag->verbose){
+                                    event.tracking_code = MODBUS_STATE_INSERTED;
+                                    send_event(&event);
+                                }
                                 insert_modbus(mb_state);
 
                             }
@@ -2491,6 +2496,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         mb_state.ti = *modbus_ti;
                         mb_state.ui = *modbus_ui;
                         mb_state.fcode = *modbus_fcode;
+                        if(local_diag->verbose){
+                            event.tracking_code = MODBUS_STATE_INSERTED;
+                            send_event(&event);
+                        }   
                         insert_modbus(mb_state);
                     }
                 }

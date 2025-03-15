@@ -83,6 +83,9 @@
 #define DNP3_FUNCTION_CODE_BLOCKED 38
 #define MODBUS_STATE_NOT_FOUND 39
 #define DNP3_DIRECTION_BIT_SET 40
+#define DNP3_FUNCTION_CODE_MATCHED 41
+#define MODBUS_STATE_FOUND 42
+
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -2033,6 +2036,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                 send_event(&event);
                             }
                             return TC_ACT_SHOT;
+                        }else{
+                            if(local_diag->verbose){
+                                event.tracking_code = DNP3_FUNCTION_CODE_MATCHED;
+                                send_event(&event);
+                            }
                         }
                     }
                 }
@@ -2086,6 +2094,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     }
                                     bpf_sk_release(sk);
                                     return TC_ACT_SHOT;
+                                }else{
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MODBUS_STATE_FOUND;
+                                        send_event(&event);
+                                    }
                                 }
                                 del_modbus(mb_state);
                             }
@@ -2260,6 +2273,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                         send_event(&event);
                                     }
                                     return TC_ACT_SHOT;
+                                }else{
+                                    if(local_diag->verbose){
+                                        event.tracking_code = MODBUS_STATE_FOUND;
+                                        send_event(&event);
+                                    }
                                 }
                                 del_modbus(mb_state);
                             }

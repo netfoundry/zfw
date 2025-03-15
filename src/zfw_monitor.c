@@ -79,6 +79,9 @@
 #define DNP3_FUNCTION_CODE_BLOCKED 38
 #define MODBUS_STATE_NOT_FOUND 39
 #define DNP3_DIRECTION_BIT_SET 40
+#define DNP3_FUNCTION_CODE_MATCHED 41
+#define MODBUS_STATE_FOUND 42
+#define MODBUS_STATE_INSERTED 43
 
 bool logging = false;
 bool monitor = false;
@@ -551,6 +554,15 @@ static int process_events(void *ctx, void *data, size_t len)
                     }
                     else if (code == DNP3_DIRECTION_BIT_SET){
                         state = "DNP3_DIRECTION_BIT_SET";
+                    }
+                    else if (code == MODBUS_STATE_FOUND){
+                        state = "MODBUS_STATE_FOUND";
+                    }
+                    else if (code == DNP3_FUNCTION_CODE_MATCHED){
+                        state = "DNP3_FUNCTION_CODE_MATCHED";
+                    }
+                    else if (code == MODBUS_STATE_INSERTED){
+                        state = "MODBUS_STATE_INSERTED";
                     }
 
                     if (state)
