@@ -616,7 +616,8 @@ This will result in traffic to port 22 matching the first rule and correctly bei
 - Added support for dnp3 slave function code filtering.  If ot filtering is enabled on the interface inbound tcp
   packets with a source port of 20000, DNP3 datalink start bytes: 0x0564 and a application layer header will be
   droppoed unless the application layer function code value is in the allowed fcode list and the direction
-  bit is unset.
+  bit is unset. If verbose interface logging is enabled packets with matched and unmatched function codes
+  will be logged.
 
   Enable/Disable at interface level with ```sudo zfw --ot-filtering <iface> [-d]```
 
@@ -629,7 +630,18 @@ This will result in traffic to port 22 matching the first rule and correctly bei
   129 (0x81)
   -------------------------------
   ```
-fcode count: 1
+  fcode count: 1
+
+
+
+### MODBUS filtering
+
+- Added modbus attack protection when ot filtering is enabled on the inbound interface.  zfw actively monitors
+  the slave responses to ensure valid transaction id, unit id, function codes in response to requests from
+  the master. If verbose interface logging is enabled insertion, found states, and unexpected states will be logged.
+
+  Enable/Disable at interface level with ```sudo zfw --ot-filtering <iface> [-d]```
+
 ### Outbound filtering 
 - This new feature is currently meant to be used in stand alone FW mode (No OpenZiti). It can be run with OpenZiti
   on intercepted inbound connections but locally hosted services will require manually entered egress rules. 
