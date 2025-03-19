@@ -351,5 +351,3 @@ jobs:
           ./test_cases.sh cleanup
           rm ./zfw_rsa*
         shell: bash
-
-        
