@@ -462,7 +462,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(key_size, sizeof(uint8_t));
-    __uint(value_size,sizeof(bool));
+    __uint(value_size,sizeof(uint32_t));
     __uint(max_entries, 256);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } dnp3_fcode_map SEC(".maps");

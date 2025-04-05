@@ -278,7 +278,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.11";
+const char *argp_program_version = "0.9.12";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -419,6 +419,7 @@ void open_egress_range_map();
 void open_ddos_saddr_map();
 void open_ddos_dport_map();
 void open_dnp3_fcode_map();
+void dnp3_fcode_map_flush();
 void open_tproxy_ext_map();
 void open_egress_ext_map();
 void open_if_list_ext_map();
@@ -1884,7 +1885,7 @@ void update_dnp3_fcode_map(char *fcode)
         open_dnp3_fcode_map();
     }
     uint8_t key = fcode2u8(fcode);
-    bool state = false;
+    uint32_t state = 0;
     dnp3_fcode_map.key = (uint64_t)&key;
     dnp3_fcode_map.value = (uint64_t)&state;
     dnp3_fcode_map.map_fd = dnp3_fcode_fd;
@@ -1892,44 +1893,121 @@ void update_dnp3_fcode_map(char *fcode)
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
     if (lookup)
     {
-        state = true;
+        state = 1;
         int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
         if (result)
         {
             printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        }else{
+            printf("%s: Added to dnp3 function code list\n", (char *)fcode);
         }
-        printf("%s: Added to dnp3 function code list\n", (char *)fcode);
     }
     else
     {
-        printf("Key already exists: %s, state=%d\n", fcode, state);
+        state += 1;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        }else{
+            printf("Added instantiation to existing key: %s, instantiations=%d\n", fcode, state);
+        }
     }
 }
 
 void delete_dnp3_fcode_map(char *fcode)
 {
+    if (dnp3_fcode_fd == -1)
+    {
+        open_dnp3_fcode_map();
+    }
     uint8_t key = fcode2u8(fcode);
+    uint32_t state = 0;
+    dnp3_fcode_map.key = (uint64_t)&key;
+    dnp3_fcode_map.value = (uint64_t)&state;
+    dnp3_fcode_map.map_fd = dnp3_fcode_fd;
+    dnp3_fcode_map.flags = BPF_ANY;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+    if (!lookup)
+    {
+        if(state > 1 && !flush){
+            state -= 1;
+            int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
+            if (result)
+            {
+                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            }else{
+                printf("%s: Decremented fcode instantiation count, %d instantiations remaining\n", (char *)fcode, state);
+            }
+        }else{
+            union bpf_attr map;
+            memset(&map, 0, sizeof(map));
+            map.pathname = (uint64_t)dnp3_fcode_map_path;
+            map.bpf_fd = 0;
+            int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+            if (fd == -1)
+            {
+                printf("BPF_OBJ_GET: %s\n", strerror(errno));
+                close_maps(1);
+            }
+            // delete element with specified key
+            map.map_fd = fd;
+            map.key = (uint64_t)&key;
+            int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+            if (result)
+            {
+                printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+            }
+            else
+            {
+                printf("Removed function code %s from dnp3_fcode_map\n", fcode);
+            }
+            close(fd);
+        }
+    }else{
+        printf("MAP_LOOKUP_ELEM: %s \n", strerror(errno));
+    }
+}
+
+void dnp3_fcode_map_flush()
+{
     union bpf_attr map;
+    uint8_t init_key = 0;
+    uint8_t *key = &init_key;
+    uint8_t reference_key;
+    uint8_t lookup_key;
+    uint32_t value;
+    uint32_t state;
+    // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)dnp3_fcode_map_path;
     map.bpf_fd = 0;
+    map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
     {
-        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
         close_maps(1);
     }
-    // delete element with specified key
     map.map_fd = fd;
-    map.key = (uint64_t)&key;
-    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
-    if (result)
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&value;
+    dnp3_fcode_map.value = (uint64_t)&state;
+    int lookup = 0;
+    int ret = 0;
+    dnp3_fcode_map.map_fd = dnp3_fcode_fd;
+    while (true)
     {
-        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
-    }
-    else
-    {
-        printf("Removed function code %s from dnp3_fcode_map\n", fcode);
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1){
+            break;
+        }
+        map.key = map.next_key;
+        reference_key = *(uint16_t *)map.key;
+        char fcode[4];
+        sprintf(fcode, "%d", reference_key);
+        delete_dnp3_fcode_map(fcode);
+        map.key = (uint64_t)&reference_key;
     }
     close(fd);
 }
@@ -6273,8 +6351,8 @@ void dnp3_fcode_map_list()
     uint8_t *key = &init_key;
     uint8_t reference_key;
     uint8_t lookup_key;
-    bool value;
-    bool state;
+    uint32_t value;
+    uint32_t state;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)dnp3_fcode_map_path;
@@ -6306,13 +6384,13 @@ void dnp3_fcode_map_list()
             break;
         }
         map.key = map.next_key;
-        reference_key = *(uint16_t *)map.key;
+        reference_key = *(uint8_t *)map.key;
         lookup_key = *(uint8_t *)map.key;
         dnp3_fcode_map.key = (uint64_t)&lookup_key;
         lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &dnp3_fcode_map, sizeof(dnp3_fcode_map));
         if (!lookup)
         {
-            printf("%d (0x%x)\n", lookup_key, lookup_key);
+            printf("%d (0x%x): instantiations: %d\n", lookup_key, lookup_key, state);
         }
         else
         {
@@ -6512,7 +6590,7 @@ void map_list_all()
 static struct argp_option options[] = {
     {"add-user-rules", 'A', NULL, 0, "Add user rules from /opt/openziti/bin/user/user_rules.sh", 0},
     {"bind-saddr-add", 'B', "", 0, "Bind loopback route with scope host", 0},
-    {"list-dnp3-fcodes", 'C', NULL, 0, "List dnp3 fcodes allowed protect from DNP slaves", 0},
+    {"list-dnp3-fcodes", 'C', NULL, 0, "List/Flush dnp3 fcodes allowed protect from DNP slaves", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list-diag", 'E', NULL, 0, "", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
@@ -7909,9 +7987,9 @@ int main(int argc, char **argv)
         usage("-U, --list-ddos-dports requires -L --list");
     }
 
-    if (dnp3_fcode_list && !list)
+    if (dnp3_fcode_list && (!list && !flush))
     {
-        usage("-C, --list-dnp3-fcodes requires -L --list");
+        usage("-C, --list-dnp3-fcodes requires -L --list or -F, --flush");
     }
 
     if (list_diag && !list)
@@ -8159,6 +8237,10 @@ int main(int argc, char **argv)
     }
     else if (flush)
     {
+        if(dnp3_fcode_list){
+            dnp3_fcode_map_flush();
+            close_maps(0);
+        }
         if(egress && ((access(egress6_map_path, F_OK) != 0) || (access(egress_map_path, F_OK) != 0))){
             egress_usage();
         }

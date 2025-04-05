@@ -621,16 +621,20 @@ This will result in traffic to port 22 matching the first rule and correctly bei
 
   Enable/Disable at interface level with ```sudo zfw --ot-filtering <iface> [-d]```
 
-  Allowed codes added via ```sudo zfw --dnp3-fcode-add <decimal fcode>```
+  Allowed codes added/removed via ```sudo zfw --dnp3-fcode-add <decimal fcode> [-d]```
 
   List allowed fcodes ```sudo zfw -L --list-dnp3-fcodes```
   ```
   dnp3 function code allow list
   -------------------------------
-  129 (0x81)
+  129 (0xa0): instantiations: 1
+  130 (0x82): instantiations: 2
   -------------------------------
+  fcode count: 3
   ```
-  fcode count: 1
+
+  Flush all dnp3 fcodes with ```sudo zfw -F -C```
+
 
 
 

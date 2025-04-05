@@ -2504,7 +2504,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     }
                 }
             }
-            if(local_diag->masquerade && local_ip4 && local_ip4->count){
+            if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] != tuple->ipv4.saddr)){
                 struct masq_reverse_key revk = {0};
                 revk.__in46_u_src.ip =  tuple->ipv4.saddr;
                 revk.__in46_u_dest.ip = tuple->ipv4.daddr;
