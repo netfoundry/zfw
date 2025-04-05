@@ -7,9 +7,10 @@ All notable changes to this project will be documented in this file. The format 
 
 # [0.9.12] - 2025-4-5
 
-- Updated DNP3 fcode map to change value to an unsigned int to count the number of times the same fcode insertion was
-  requested to track queued service fcode requests so that the fcode will only be removed when all instantiations have 
-  been decremented.  Output of ```zfw -L -C``` now list the current instantiations per fcode i.e
+- Updated DNP3 fcode map to change value to an unsigned int to count the number of times the 
+  same fcode insertion was requested to track queued service fcode requests so that the fcode
+  will only be removed when all instantiations have been decremented.  Output of ```zfw -L -C```
+  now list the current instantiations per fcode i.e
   ```
   dnp3 function code allow list
   -------------------------------
@@ -18,8 +19,9 @@ All notable changes to this project will be documented in this file. The format 
   -------------------------------
   fcode count: 3
   ```
-  Also added ```sudo zfw -F -C``` which will flush all dnp3 fcodes from the map
-- Added code to bypass masquerade logic if the source is the local outgoing interfaces ip address. 
+  Also added ```sudo zfw -F -C``` which will flush all dnp3 fcodes from the map.
+  The above functionality allows for more advanced interaction with external programs such as openziti
+  to facilitate automated fcode insertion / removal with services.
 
 ###
 
