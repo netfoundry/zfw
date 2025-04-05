@@ -419,6 +419,7 @@ void open_egress_range_map();
 void open_ddos_saddr_map();
 void open_ddos_dport_map();
 void open_dnp3_fcode_map();
+void delete_dnp3_fcode_map(char *fcode);
 void dnp3_fcode_map_flush();
 void open_tproxy_ext_map();
 void open_egress_ext_map();
@@ -1992,10 +1993,8 @@ void dnp3_fcode_map_flush()
     map.map_fd = fd;
     map.key = (uint64_t)key;
     map.value = (uint64_t)&value;
-    dnp3_fcode_map.value = (uint64_t)&state;
     int lookup = 0;
     int ret = 0;
-    dnp3_fcode_map.map_fd = dnp3_fcode_fd;
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
