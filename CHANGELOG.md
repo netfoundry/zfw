@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.12] - 2025-4-5
+
+- Updated DNP3 fcode map to change value to an unsigned int to count the number of times the 
+  same fcode insertion was requested to track queued service fcode requests so that the fcode
+  will only be removed when all instantiations have been decremented.  Output of ```zfw -L -C```
+  now list the current instantiations per fcode i.e
+  ```
+  dnp3 function code allow list
+  -------------------------------
+  129 (0xa0): instantiations: 1
+  130 (0x82): instantiations: 2
+  -------------------------------
+  fcode count: 3
+  ```
+  Also added ```sudo zfw -F -C``` which will flush all dnp3 fcodes from the map.
+  The above functionality allows for more advanced interaction with external programs such as openziti
+  to facilitate automated fcode insertion / removal with services.
+
+###
+
 # [0.9.11] - 2025-3-14
 
 - Updated DNP3 fcode map to limit size to 256 entries and changed to standard hashmap.  Also added DNP3 ring buffer event logging. 
