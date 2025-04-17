@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.13] - 2025-4-17
+
+###
+
+- refactoring masquerade
+
 # [0.9.12] - 2025-4-5
 
 - Updated DNP3 fcode map to change value to an unsigned int to count the number of times the 
