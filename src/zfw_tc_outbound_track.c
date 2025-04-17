@@ -1246,7 +1246,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     if(local_diag->verbose){
                         send_event(&event);
                     }
-                    bpf_printk("here_now");
                     return TC_ACT_OK;
                 }
                 bpf_sk_release(sk);
