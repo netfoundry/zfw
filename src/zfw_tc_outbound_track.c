@@ -908,6 +908,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool ipv4 = false;
     bool ipv6 = false;
     bool tcp = false;
+    struct tuple_key mtcp_state_key = {0};
+    struct tuple_key mudp_state_key ={0};
     struct tuple_key tcp_state_key = {0};
     struct tuple_key udp_state_key ={0};
 
@@ -1230,13 +1232,21 @@ int bpf_sk_splice(struct __sk_buff *skb){
             reverse_tuple.ipv4.dport = tuple->ipv4.sport;
             reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
             reverse_tuple.ipv4.sport = tuple->ipv4.dport;
+            mtcp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+            mtcp_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+            mtcp_state_key.sport = tuple->ipv4.sport;
+            mtcp_state_key.dport = tuple->ipv4.dport;
+            mtcp_state_key.ifindex = event.ifindex;
+            mtcp_state_key.type = 4;
+            struct tcp_state *mtstate = get_tcp(mtcp_state_key);
             sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
-            if(sk && sk->dst_ip4){
+            if(sk && sk->dst_ip4 && !mtstate){
                 if ((sk->state != BPF_TCP_LISTEN) && (sk->state != BPF_TCP_SYN_SENT)){
                     bpf_sk_release(sk);
                     if(local_diag->verbose){
                         send_event(&event);
                     }
+                    bpf_printk("here_now");
                     return TC_ACT_OK;
                 }
                 bpf_sk_release(sk);
@@ -2574,26 +2584,19 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 //Calculate l3 Checksum
                 if(mv.__in46_u_origin.ip != local_ip4->ipaddr[0]){
                     not_local = true;
+                    __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
+                    iph->saddr = local_ip4->ipaddr[0];
+                    bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
                 }
-                __u32 l3_sum = bpf_csum_diff((__u32 *)&tuple->ipv4.saddr, sizeof(tuple->ipv4.saddr), (__u32 *)&local_ip4->ipaddr[0], sizeof(local_ip4->ipaddr[0]), 0);
-                iph->saddr = local_ip4->ipaddr[0];
-                bpf_l3_csum_replace(skb, sizeof(struct ethhdr) + offsetof(struct iphdr, check), 0, l3_sum, 0);
                 iph = (struct iphdr *)(skb->data + sizeof(*eth));
                 if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                    return TC_ACT_SHOT;
-                }
-                tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                if(!tuple){
-                    return TC_ACT_SHOT;
-                }
-                tuple_len = sizeof(tuple->ipv4);
-                if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
                 }
                 tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
                 if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
                 }
+                
                 
                 /*Calculate l4 Checksum*/
                 int flags = BPF_F_PSEUDO_HDR;
@@ -2618,14 +2621,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 }
                 iph = (struct iphdr *)(skb->data + sizeof(*eth));
                 if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                    return TC_ACT_SHOT;
-                }
-                tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                if(!tuple){
-                    return TC_ACT_SHOT;
-                }
-                tuple_len = sizeof(tuple->ipv4);
-                if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                     return TC_ACT_SHOT;
                 }
                 tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
@@ -2696,7 +2691,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         }
                     }
                     del_tcp(tcp_state_key);
-                    if(tuple->ipv4.dport == bpf_ntohs(502)){
+                    if(tcph->dest == bpf_ntohs(502)){
                         if(check_modbus_state(mb_state)){
                             del_modbus(mb_state);
                         }
@@ -2755,7 +2750,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                                 event.tracking_code = CLIENT_FINAL_ACK_RCVD;
                                 send_event(&event);
                             }
-                            if(tuple->ipv4.dport == bpf_ntohs(502)){
+                            if(tcph->dest == bpf_ntohs(502)){
                                 if(check_modbus_state(mb_state)){
                                     del_modbus(mb_state);
                                 }
