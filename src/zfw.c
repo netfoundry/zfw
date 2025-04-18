@@ -278,7 +278,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.12";
+const char *argp_program_version = "0.9.13";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -734,12 +734,12 @@ void set_tc(char *action)
     }
 }
 
-void set_tc_filter(char *action)
+int set_tc_filter(char *action)
 {
     if (access("/usr/sbin/tc", F_OK) != 0)
     {
         printf("tc not installed\n");
-        close_maps(0);
+        close_maps(1);
     }
     if (!strcmp("add", action) && access(object_file, F_OK) != 0)
     {
@@ -751,7 +751,7 @@ void set_tc_filter(char *action)
     int o_std_err = dup(STDERR_FILENO);
     int fd = open("/dev/null", O_WRONLY);
     if (fd == -1){
-        return; 
+        return 1; 
     }
     dup2(fd, STDOUT_FILENO);
     dup2(fd, STDERR_FILENO);
@@ -792,7 +792,13 @@ void set_tc_filter(char *action)
                 {
                     if(!(WIFEXITED(status) && !WEXITSTATUS(status)))
                     {
-                        printf("waitpid error: tc %s filter not set : %s\n", direction_string, tc_interface);
+                        printf("waitpid error: tc %s filter not set : %s section: %s\n", direction_string, tc_interface, section);
+                        set_tc("del");
+                        dup2(o_std_out, STDOUT_FILENO);
+                        dup2(o_std_err, STDERR_FILENO);
+                        close(o_std_out);
+                        close(o_std_err); 
+                        return 1;
                     }
                 }
             }
@@ -815,6 +821,7 @@ void set_tc_filter(char *action)
     dup2(o_std_err, STDERR_FILENO);
     close(o_std_out);
     close(o_std_err); 
+    return 0;
 }
 
 void disable_ebpf()
@@ -2377,14 +2384,16 @@ void interface_tc()
                     {
                         if (!disable)
                         {
-                            set_tc_filter("add");
+                            int res = set_tc_filter("add");
                             interface_map();
                             interface_map6();
                             if (diag_fd == -1)
                             {
                                 open_diag_map();
                             }
-                            set_diag(&idx);
+                            if(!res){
+                                set_diag(&idx);
+                            }
                         }
                         else
                         {
