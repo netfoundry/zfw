@@ -909,7 +909,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool ipv6 = false;
     bool tcp = false;
     struct tuple_key mtcp_state_key = {0};
-    struct tuple_key mudp_state_key ={0};
     struct tuple_key tcp_state_key = {0};
     struct tuple_key udp_state_key ={0};
 
@@ -2248,11 +2247,59 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     return TC_ACT_SHOT;
 }
 
+static inline struct bpf_sock *get_skl(struct bpf_event event, struct __sk_buff *skb, struct bpf_sock_tuple sockcheck){
+    struct bpf_sock *sk;
+    if(event.version == 4){
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+        }
+    }else{
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }
+    }
+    if(sk){
+        if((event.proto == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
+            bpf_sk_release(sk);
+            return NULL;
+        }    
+    }
+    return sk;
+}
+
+static inline struct bpf_sock *get_sk(struct bpf_event event, struct __sk_buff *skb, struct bpf_sock_tuple sockcheck){
+    struct bpf_sock *sk;
+    if(event.version == 4){
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+        }
+    }else{
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }
+    }
+    if(sk){
+        if((event.proto == IPPROTO_TCP) && (sk->state == BPF_TCP_LISTEN)){
+            bpf_sk_release(sk);
+            return NULL;
+        }    
+    }
+    return sk;
+}
+
 //ebpf tc code entry program
 SEC("action/6")
 int bpf_sk_splice6(struct __sk_buff *skb){
     struct bpf_sock *sk = NULL;
-    struct bpf_sock_tuple *tuple, reverse_tuple = {0};
+    struct bpf_sock_tuple *tuple, reverse_tuple = {0}, listen_tuple ={0};
     int tuple_len;
     bool tcp = false;
     bool ipv4 = false;
@@ -2364,86 +2411,95 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 return TC_ACT_SHOT;
             }
             __u16 payload_len = bpf_ntohs(iph->tot_len) - ((iph->ihl * 4) + (tcph->doff * 4));
-            struct modbus_key mb_state = {0}; 
-            if(!local_diag->masquerade){
-                reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
-                reverse_tuple.ipv4.dport = tuple->ipv4.sport;
-                reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
-                reverse_tuple.ipv4.sport = tuple->ipv4.dport;
-                sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
+            listen_tuple.ipv4.dport = tuple->ipv4.sport;
+            listen_tuple.ipv4.daddr = tuple->ipv4.saddr;
+            /*check if src is from a listening socket if masqerade is enabled*/
+            if(local_diag->masquerade){
+                struct bpf_sock *lsk = get_skl(event, skb, listen_tuple);
+                if(lsk){
+                    skb->mark = 1;
+                    bpf_sk_release(lsk);
+                }
             }
-            if(sk){
-                if (sk->state != BPF_TCP_LISTEN){
-                    bpf_sk_release(sk);
-                    if(local_diag->verbose){
-                        send_event(&event);
+            struct modbus_key mb_state = {0}; 
+            reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
+            reverse_tuple.ipv4.dport = tuple->ipv4.sport;
+            reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
+            reverse_tuple.ipv4.sport = tuple->ipv4.dport;
+            sk = get_sk(event, skb, reverse_tuple);
+            //sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
+            if(sk && ((skb->mark == 1) || !local_diag->masquerade)){
+                bpf_sk_release(sk);
+                if(local_diag->verbose){
+                    send_event(&event);
+                }
+                if(local_diag->ot_filtering && (tuple->ipv4.dport == bpf_ntohs(502)) && (tuple->ipv4.sport >= bpf_ntohs(1024)) && payload_len > 0){
+                    bpf_skb_pull_data(skb,skb->len); //load payload bytes
+                    eth = (struct ethhdr *)(unsigned long)(skb->data);
+                    /* verify its a valid eth header within the packet bounds */
+                    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
+                            return TC_ACT_SHOT;
                     }
-                    if(local_diag->ot_filtering && (tuple->ipv4.dport == bpf_ntohs(502)) && (tuple->ipv4.sport >= bpf_ntohs(1024)) && payload_len > 0){
-                        bpf_skb_pull_data(skb,skb->len); //load payload bytes
-                        eth = (struct ethhdr *)(unsigned long)(skb->data);
-                        /* verify its a valid eth header within the packet bounds */
-                        if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
-                                return TC_ACT_SHOT;
-                        }
-                        iph = (struct iphdr *)(skb->data + sizeof(*eth));
-                        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                    iph = (struct iphdr *)(skb->data + sizeof(*eth));
+                    if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    
+                    tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+                    if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+                    if(!tuple){
+                        return TC_ACT_SHOT;
+                    }
+                    /* determine length of tuple */
+                    tuple_len = sizeof(tuple->ipv4);
+                    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    unsigned short *modbus_ti = (unsigned short*)((unsigned long)tcph + (tcph->doff * 4));
+                    if ((unsigned long)(modbus_ti + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    unsigned short *modbus_proto = (unsigned short*)((unsigned long)modbus_ti + sizeof(__u16));
+                    if ((unsigned long)(modbus_proto + 1) > (unsigned long)skb->data_end){
+                        return TC_ACT_SHOT;
+                    }
+                    if(*modbus_proto == 0){               
+                        unsigned short *modbus_len = (unsigned short *)((unsigned long)modbus_proto + sizeof(__u16));
+                        if ((unsigned long)(modbus_len + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
                         }
-                        
-                        tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-                        if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                        __u8 *modbus_ui = (__u8 *)((unsigned long)modbus_len + sizeof(__u16));
+                        if ((unsigned long)(modbus_ui + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
-                        }
-                        tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
-                        if(!tuple){
-                            return TC_ACT_SHOT;
-                        }
-                        /* determine length of tuple */
-                        tuple_len = sizeof(tuple->ipv4);
-                        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        unsigned short *modbus_ti = (unsigned short*)((unsigned long)tcph + (tcph->doff * 4));
-                        if ((unsigned long)(modbus_ti + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        unsigned short *modbus_proto = (unsigned short*)((unsigned long)modbus_ti + sizeof(__u16));
-                        if ((unsigned long)(modbus_proto + 1) > (unsigned long)skb->data_end){
-                            return TC_ACT_SHOT;
-                        }
-                        if(*modbus_proto == 0){               
-                            unsigned short *modbus_len = (unsigned short *)((unsigned long)modbus_proto + sizeof(__u16));
-                            if ((unsigned long)(modbus_len + 1) > (unsigned long)skb->data_end){
-                                return TC_ACT_SHOT;
-                            }
-                            __u8 *modbus_ui = (__u8 *)((unsigned long)modbus_len + sizeof(__u16));
-                            if ((unsigned long)(modbus_ui + 1) > (unsigned long)skb->data_end){
+                        } 
+                        if(bpf_ntohs(*modbus_len) > 2){
+                            __u8 *modbus_fcode = (__u8 *)((unsigned long)modbus_ui + sizeof(__u8));
+                            if ((unsigned long)(modbus_fcode + 1) > (unsigned long)skb->data_end){
                                 return TC_ACT_SHOT;
                             } 
-                            if(bpf_ntohs(*modbus_len) > 2){
-                                __u8 *modbus_fcode = (__u8 *)((unsigned long)modbus_ui + sizeof(__u8));
-                                if ((unsigned long)(modbus_fcode + 1) > (unsigned long)skb->data_end){
-                                    return TC_ACT_SHOT;
-                                } 
-                                mb_state.type = 4;
-                                mb_state.ifindex = skb->ifindex;
-                                mb_state.__in46_u_dst.ip = tuple->ipv4.saddr;
-                                mb_state.__in46_u_src.ip = tuple->ipv4.daddr;
-                                mb_state.dport = tuple->ipv4.sport;     
-                                mb_state.ti = *modbus_ti;
-                                mb_state.ui = *modbus_ui;
-                                mb_state.fcode = *modbus_fcode;
-                                if(local_diag->verbose){
-                                    event.tracking_code = MODBUS_STATE_INSERTED;
-                                    send_event(&event);
-                                }
-                                insert_modbus(mb_state);
-
+                            mb_state.type = 4;
+                            mb_state.ifindex = skb->ifindex;
+                            mb_state.__in46_u_dst.ip = tuple->ipv4.saddr;
+                            mb_state.__in46_u_src.ip = tuple->ipv4.daddr;
+                            mb_state.dport = tuple->ipv4.sport;     
+                            mb_state.ti = *modbus_ti;
+                            mb_state.ui = *modbus_ui;
+                            mb_state.fcode = *modbus_fcode;
+                            if(local_diag->verbose){
+                                event.tracking_code = MODBUS_STATE_INSERTED;
+                                send_event(&event);
                             }
+                            insert_modbus(mb_state);
+
                         }
-                    }   
-                    return TC_ACT_OK;
+                    }
                 }
+                return TC_ACT_OK;
+            }
+            if(sk){
                 bpf_sk_release(sk);
             }
             tcp_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
@@ -2784,7 +2840,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 reverse_tuple.ipv4.dport = tuple->ipv4.sport;
                 reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
                 reverse_tuple.ipv4.sport = tuple->ipv4.dport;
-                sk = bpf_sk_lookup_udp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4), BPF_F_CURRENT_NETNS, 0);
+                sk = get_sk(event, skb, reverse_tuple);
             }
             unsigned long long tstamp = bpf_ktime_get_ns();
             if(sk){
