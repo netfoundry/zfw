@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file. The format 
   collisions with passthrough sessions.  Note with this change when an interface is in masquerade mode 
   you will not be able to connect inbound to udp listening ports on the firewall.
 
+- Fixed an issue where if tc fails to attach a filter and zfw reports a waitpid error but still partially
+  applies some of the filers and reports the filter is in place in ```zfw -L -E```.   
+
 # [0.9.12] - 2025-4-5
 
 - Updated DNP3 fcode map to change value to an unsigned int to count the number of times the 
