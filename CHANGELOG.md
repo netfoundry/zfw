@@ -9,7 +9,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ###
 
-- refactoring masquerade
+- Refactored masquerade to ensure that firewall internally generated outbound client sessions are also
+  processed through masquerade dynamic PAT to ensure there are no source port 
+  collisions with passthrough sessions.  Note with this change when an interface is in masquerade mode 
+  you will not be able to connect inbound to udp listening ports on the firewall.
 
 # [0.9.12] - 2025-4-5
 
