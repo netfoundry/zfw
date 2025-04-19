@@ -1256,11 +1256,35 @@ static inline struct bpf_sock *get_sk(struct bpf_event event, struct __sk_buff *
     return sk;
 }
 
+static inline struct bpf_sock *get_skl(struct bpf_event event, struct __sk_buff *skb, struct bpf_sock_tuple sockcheck){
+    struct bpf_sock *sk;
+    if(event.version == 4){
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+        }
+    }else{
+        if(event.proto == IPPROTO_TCP){
+            sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }else{
+            sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv6),BPF_F_CURRENT_NETNS, 0);
+        }
+    }
+    if(sk){
+        if((event.proto == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
+            bpf_sk_release(sk);
+            return NULL;
+        }    
+    }
+    return sk;
+}
+
 //ebpf tc code entry program
 SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
     struct bpf_sock *sk = {0}; 
-    struct bpf_sock_tuple *tuple ={0};
+    struct bpf_sock_tuple *tuple ={0}, listen_tuple ={0};
     int tuple_len;
     bool ipv4 = false;
     bool ipv6 = false;
@@ -2045,8 +2069,19 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                 }
             }
+            
+            if(local_diag->masquerade){
+                listen_tuple.ipv4.dport = tuple->ipv4.dport;
+                listen_tuple.ipv4.daddr = tuple->ipv4.daddr;
+                struct bpf_sock *lsk = get_skl(event, skb, listen_tuple);
+                if(lsk){
+                    skb->mark = 1;
+                    bpf_sk_release(lsk);
+                }
+            }
+
             sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
-            if(sk){
+            if(sk && ((skb->mark == 1) || !local_diag->masquerade)){
                 if (sk->state != BPF_TCP_LISTEN){
                     if(local_diag->verbose){
                         send_event(&event);
@@ -2137,6 +2172,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             else
             {
+                if(sk){
+                    bpf_sk_release(sk);
+                }
                 if(check_ddos_dport(tuple->ipv4.dport) && local_ip4 && local_ip4->count){
                         uint8_t addresses = 0;
                         if(local_ip4->count < MAX_ADDRESSES){
@@ -2433,7 +2471,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 return TC_ACT_OK;
             }
             sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
-            if(sk){
+            if(sk && !local_diag->masquerade){
             /*
                 * check if there is a dest ip associated with the local socket. if yes jump to assign if not
                 * disregard and release the sk and continue on to check for tproxy mapping.
@@ -2447,6 +2485,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 bpf_sk_release(sk);
             /*reply to outbound passthrough check*/
             }else{
+                if(sk){
+                    bpf_sk_release(sk);
+                }
                 if(local_diag->masquerade && local_ip4 && local_ip4->count && (local_ip4->ipaddr[0] == tuple->ipv4.daddr)){
                     struct masq_key mk = {0};
                     mk.__in46_u_dest.ip = tuple->ipv4.saddr;
