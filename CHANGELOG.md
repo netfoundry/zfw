@@ -5,9 +5,14 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
-# [0.9.13] - 2025-4-17
+# [0.9.14] - 2025-4-19
+
+- Additional changes made to ingress filter to ensure masquerade collisions are avoided for
+  host initiated client sessions.
 
 ###
+
+# [0.9.13] - 2025-4-17
 
 - Refactored masquerade to ensure that firewall internally generated outbound client sessions are also
   processed through masquerade dynamic PAT to ensure there are no source port 
@@ -16,6 +21,8 @@ All notable changes to this project will be documented in this file. The format 
 
 - Fixed an issue where if tc fails to attach a filter and zfw reports a waitpid error but still partially
   applies some of the filers and reports the filter is in place in ```zfw -L -E```.   
+
+###
 
 # [0.9.12] - 2025-4-5
 

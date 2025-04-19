@@ -2411,10 +2411,10 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 return TC_ACT_SHOT;
             }
             __u16 payload_len = bpf_ntohs(iph->tot_len) - ((iph->ihl * 4) + (tcph->doff * 4));
-            listen_tuple.ipv4.dport = tuple->ipv4.sport;
-            listen_tuple.ipv4.daddr = tuple->ipv4.saddr;
             /*check if src is from a listening socket if masqerade is enabled*/
             if(local_diag->masquerade){
+                listen_tuple.ipv4.dport = tuple->ipv4.sport;
+                listen_tuple.ipv4.daddr = tuple->ipv4.saddr;
                 struct bpf_sock *lsk = get_skl(event, skb, listen_tuple);
                 if(lsk){
                     skb->mark = 1;
