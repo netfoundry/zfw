@@ -3534,7 +3534,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
                                 unsigned long long tstamp = bpf_ktime_get_ns();
                                 struct tun_state *tustate = get_tun(tun_state_key);
-                                if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
                                     struct tun_state tus = {
                                         tstamp,
                                         skb->ifindex,
@@ -3590,7 +3590,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
                                         unsigned long long tstamp = bpf_ktime_get_ns();
                                         struct tun_state *tustate = get_tun(tun_state_key);
-                                        if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                        if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
                                             struct tun_state tus = {
                                                 tstamp,
                                                 skb->ifindex,
@@ -3733,7 +3733,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
                                 unsigned long long tstamp = bpf_ktime_get_ns();
                                 struct tun_state *tustate = get_tun(tun_state_key);
-                                if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
                                     struct tun_state tus = {
                                         tstamp,
                                         skb->ifindex,
@@ -3789,7 +3789,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
 
                                         unsigned long long tstamp = bpf_ktime_get_ns();
                                         struct tun_state *tustate = get_tun(tun_state_key);
-                                        if((!tustate) || (tustate->tstamp > (tstamp + 30000000000))){
+                                        if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
                                             struct tun_state tus = {
                                                 tstamp,
                                                 skb->ifindex,
@@ -3928,7 +3928,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             udp_state_key.ifindex = event.ifindex;
             udp_state_key.type = 4;
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
-            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+            if((!ustate) || (tstamp > (ustate->tstamp + 30000000000))){
                 struct udp_state us = {
                     tstamp
                 };
@@ -4070,7 +4070,7 @@ int bpf_sk_splice6(struct __sk_buff *skb){
             udp_state_key.ifindex = event.ifindex;
             udp_state_key.type = 6;
             struct udp_state *ustate = get_udp_ingress(udp_state_key);
-            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+            if((!ustate) || (tstamp > (ustate->tstamp + 30000000000))){
                 struct udp_state us = {
                     tstamp
                 };
