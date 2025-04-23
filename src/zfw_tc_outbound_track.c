@@ -1336,7 +1336,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             udp_egress_state_key.ifindex = event.ifindex;
             udp_egress_state_key.type = 4;
             struct udp_state *ustate_egress = get_udp(udp_egress_state_key);
-            if(ustate_egress)
+            if(ustate_egress && (tstamp < (ustate_egress->tstamp + 30000000000)))
             {
                 if(local_diag->masquerade && local_ip4 && local_ip4->count)
                 {
@@ -1436,14 +1436,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                }
                         }
                     }
-                
+                    ustate_egress->tstamp = tstamp;
                 }
-                if(tstamp < (ustate_egress->tstamp + 30000000000)){
-                    if(local_diag->masquerade){
-                       ustate_egress->tstamp = tstamp;
-                    }
-                    return TC_ACT_OK;
-                }
+                return TC_ACT_OK;
             }
             udp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
             udp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
