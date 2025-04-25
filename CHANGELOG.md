@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.15] - 2025-4-23
+
+- Refactoring udp state engine for outbound filtering in order to optimize throughput.
+  The most notable change is in SEC("action") of zfw_tc_outbound_track.c which now looks up
+  existing cached udp sessions in the udp_map to determine if the flow should be fast switched
+  to the os.  This has some implications as follows if the outbound rule is removed and will act
+  differently if masquerade is also enabled on the outbound interface.
+
+  If masquerade is disabled and the outbound rule is removed and the flow is active it will timeout
+  in 30 seconds regardless if outbound udp traffic is sent that matches the rule tuple.  Note the
+  tuple includes both source and destination ports so new sessions that only match the outbound destination 
+  ip/port and not source port will immediately be blocked when the outbound rule is removed.
+
+  if masquerade is enabled and the outbound rule is removed and the flow is active it will not timeout
+  till outbound traffic that matches the tuple ceases for at least 30 seconds. Similarly to non-masquerade the
+  tuple includes both source and destination ports so new sessions that only match the outbound destination 
+  ip/port and not source port will immediately be blocked when the outbound rule is removed.
+
+  In both cases inbound matching udp traffic will continue to maintain states unless it ceases for at 
+  least 30 seconds.
+  
+###
+
 # [0.9.14] - 2025-4-19
 
 - Additional changes made to ingress filter to ensure masquerade collisions are avoided for
