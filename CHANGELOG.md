@@ -11,7 +11,9 @@ All notable changes to this project will be documented in this file. The format 
   a check is made to see if there is an existing tunnel state for the source ip, dest ip, src port,
   dest port and protocol.  If it exists and is not expired (State expires in 30 seconds if no traffic seen
   in either direction) traffic is fast redirected to the ziti0 interface. Tunnel mode should only be enabled on
-  interfaces which you wish to intercept traffic when running in conjunction with ziti-edge-tunnel.   
+  interfaces which you wish to intercept traffic when running in conjunction with ziti-edge-tunnel.  
+
+- Updated README.md 
 
 ###
 

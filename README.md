@@ -1,10 +1,10 @@
 # Introduction
 
 --- 
-This firewall application utilizes both tc-ebpf and xdp to provide stateful firewalling
-for an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel installation and is meant as a replacement for packet
-filtering.  It can also be used in conjunction with OpenZiti edge-routers or as a standalone fw. It now has built in
-EBPF based masquerade capability for both IPv4/IPv6. 
+This standalone firewall application utilizes both tc-ebpf and xdp to provide stateful IPv4/IPv6 firewalling.
+It can also be used in conjunction with an [OpenZiti](https://docs.openziti.io/) ziti-edge-tunnel/edge router
+installation for packet redirection/filtering. It also supports EBPF based masquerade capability for
+both IPv4/IPv6. 
 
   
 ## Build
@@ -957,6 +957,8 @@ removing /sys/fs/bpf/tc/globals/icmp_masquerade_map
 removing /sys/fs/bpf/tc/globals/icmp_echo_map
 removing /sys/fs/bpf/tc/globals/masquerade_reverse_map
 removing /sys/fs/bpf/tc/globals/bind_saddr_map
+removing /sys/fs/bpf/tc/globals/dnp3_fcode_map
+removing /sys/fs/bpf/tc/globals/modbus_state_map
 ```
 
 
