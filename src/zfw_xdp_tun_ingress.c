@@ -61,6 +61,10 @@ struct tun_key {
         __u32 ip;
         __u32 ip6[4];
     }__in46_u_src;
+    __u16 sport;
+    __u16 dport;
+    __u8 protocol;
+    __u8 type;
 };
 
 /*Value to tun_map*/
@@ -144,6 +148,11 @@ static inline void send_event(struct bpf_event *new_event){
     }
 }
 
+/*Insert entry into tun state table*/
+static inline void insert_tun(struct tun_state tustate, struct tun_key key){
+    bpf_map_update_elem(&tun_map, &key, &tustate,0);
+}
+
 SEC("xdp_redirect")
 int xdp_redirect_prog(struct xdp_md *ctx)
 {
@@ -184,42 +193,45 @@ int xdp_redirect_prog(struct xdp_md *ctx)
     struct tun_key tun_state_key = {0};
     if(iph->version == 4){
         event.version = iph->version;
+        __u8 protocol = iph->protocol;
         tun_state_key.__in46_u_dst.ip = iph->saddr;
         tun_state_key.__in46_u_src.ip = iph->daddr;
+        tun_state_key.protocol = protocol;
+        event.proto = protocol;
+        if(protocol == IPPROTO_TCP){
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
+                return XDP_PASS;
+            }
+            event.dport = tcph->dest;
+            event.sport = tcph->source;
+            tun_state_key.sport = tcph->dest;;
+            tun_state_key.dport =  tcph->source;  
+        }else if (protocol == IPPROTO_UDP){
+            struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+                return XDP_PASS;
+            }
+            event.dport = udph->dest;
+            event.sport = udph->source;
+            tun_state_key.sport = udph->dest;;
+            tun_state_key.dport =  udph->source;
+        }
+        tun_state_key.type = 4;
         struct tun_state *tus = get_tun(tun_state_key);
-        if(tus){
+        if(tus && (tstamp < tus->tstamp + 30000000000)){
             bpf_xdp_adjust_head(ctx, -14);
             struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
             /* verify its a valid eth header within the packet bounds */
             if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                     return XDP_PASS;
             }
+            tus->tstamp = tstamp;
+            insert_tun(*tus, tun_state_key);
             if(tun_diag->verbose){
-                struct iphdr *iph = (struct iphdr *)(ctx->data + sizeof(*eth));
-                /* ensure ip header is in packet bounds */
-                if ((unsigned long)(iph + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                }
-                __u8 protocol = iph->protocol;
-                if(protocol == IPPROTO_TCP){
-                    struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
-                    if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                    }
-                    event.dport = tcph->dest;
-                    event.sport = tcph->source;
-                }else if (protocol == IPPROTO_UDP){
-                    struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
-                    if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                    }
-                    event.dport = udph->dest;
-                    event.sport = udph->source;
-                }
                 event.tun_ifindex = tus->ifindex;
-                event.proto = protocol;
-                __u32 saddr_array[4] = {iph->saddr,0,0,0};
-                __u32 daddr_array[4] = {iph->daddr,0,0,0};
+                __u32 saddr_array[4] = {tun_state_key.__in46_u_dst.ip,0,0,0};
+                __u32 daddr_array[4] = {tun_state_key.__in46_u_src.ip,0,0,0};
                 memcpy(event.saddr,saddr_array, sizeof(event.saddr));
                 memcpy(event.daddr,daddr_array, sizeof(event.daddr));
                 memcpy(&event.source, &tus->dest, 6);
@@ -239,42 +251,44 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         if ((unsigned long)(ip6h + 1) > (unsigned long)ctx->data_end){
                 return XDP_PASS;
         }
+        __u8 protocol = ip6h->nexthdr;
         memcpy(tun_state_key.__in46_u_dst.ip6, ip6h->saddr.in6_u.u6_addr32, sizeof(ip6h->saddr.in6_u.u6_addr32));
         memcpy(tun_state_key.__in46_u_src.ip6, ip6h->daddr.in6_u.u6_addr32, sizeof(ip6h->daddr.in6_u.u6_addr32));
+        tun_state_key.protocol = protocol;
+        event.proto = protocol;
+        if(protocol == IPPROTO_TCP){
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+            if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
+                return XDP_PASS;
+            }
+            event.dport = tcph->dest;
+            event.sport = tcph->source;
+            tun_state_key.sport = tcph->dest;;
+            tun_state_key.dport =  tcph->source; 
+        }else if (protocol == IPPROTO_UDP){
+            struct udphdr *udph = (struct udphdr *)((unsigned long)ip6h + sizeof(*ip6h));
+            if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
+                return XDP_PASS;
+            }
+            event.dport = udph->dest;
+            event.sport = udph->source;
+            tun_state_key.sport = udph->dest;;
+            tun_state_key.dport =  udph->source; 
+        }
         struct tun_state *tus = get_tun(tun_state_key);
-        if(tus){
+        if(tus && (tstamp < tus->tstamp + 30000000000)){
             bpf_xdp_adjust_head(ctx, -14);
             struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
             /* verify its a valid eth header within the packet bounds */
             if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                     return XDP_PASS;
             }
+            tus->tstamp = tstamp;
+            insert_tun(*tus, tun_state_key);
             if(tun_diag->verbose){
-                struct ipv6hdr *ip6h = (struct ipv6hdr *)(ctx->data + sizeof(*eth));
-                /* ensure ip header is in packet bounds */
-                if ((unsigned long)(ip6h + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                }
-                __u8 protocol = ip6h->nexthdr;
-                if(protocol == IPPROTO_TCP){
-                    struct tcphdr *tcph = (struct tcphdr *)((unsigned long)ip6h + sizeof(*ip6h));
-                    if ((unsigned long)(tcph + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                    }
-                    event.dport = tcph->dest;
-                    event.sport = tcph->source;
-                }else if (protocol == IPPROTO_UDP){
-                    struct udphdr *udph = (struct udphdr *)((unsigned long)ip6h + sizeof(*ip6h));
-                    if ((unsigned long)(udph + 1) > (unsigned long)ctx->data_end){
-                        return XDP_PASS;
-                    }
-                    event.dport = udph->dest;
-                    event.sport = udph->source;
-                }
                 event.tun_ifindex = tus->ifindex;
-                event.proto = protocol;
-                memcpy(event.saddr,ip6h->saddr.in6_u.u6_addr32, sizeof(event.saddr));
-                memcpy(event.daddr,ip6h->daddr.in6_u.u6_addr32, sizeof(event.daddr));
+                memcpy(event.saddr, tun_state_key.__in46_u_dst.ip6, sizeof(event.saddr));
+                memcpy(event.daddr, tun_state_key.__in46_u_src.ip6, sizeof(event.daddr));
                 memcpy(&event.source, &tus->dest, 6);
                 memcpy(&event.dest, &tus->source, 6);
                 send_event(&event);
