@@ -2286,6 +2286,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
                     if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                        insert_tun(*tustate, tun_state_key);
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
@@ -2609,6 +2610,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
                     if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                        insert_tun(*tustate, tun_state_key);
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
@@ -2854,6 +2856,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
                     if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                        insert_tun(*tustate, tun_state_key);
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
@@ -3006,6 +3009,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
                     if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                        insert_tun(*tustate, tun_state_key);
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
