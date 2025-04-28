@@ -219,15 +219,13 @@ int xdp_redirect_prog(struct xdp_md *ctx)
         }
         tun_state_key.type = 4;
         struct tun_state *tus = get_tun(tun_state_key);
-        if(tus && (tstamp < tus->tstamp + 30000000000)){
+        if(tus){
             bpf_xdp_adjust_head(ctx, -14);
             struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
             /* verify its a valid eth header within the packet bounds */
             if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                     return XDP_PASS;
             }
-            tus->tstamp = tstamp;
-            insert_tun(*tus, tun_state_key);
             if(tun_diag->verbose){
                 event.tun_ifindex = tus->ifindex;
                 __u32 saddr_array[4] = {tun_state_key.__in46_u_dst.ip,0,0,0};
@@ -276,15 +274,13 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             tun_state_key.dport =  udph->source; 
         }
         struct tun_state *tus = get_tun(tun_state_key);
-        if(tus && (tstamp < tus->tstamp + 30000000000)){
+        if(tus){
             bpf_xdp_adjust_head(ctx, -14);
             struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
             /* verify its a valid eth header within the packet bounds */
             if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
                     return XDP_PASS;
             }
-            tus->tstamp = tstamp;
-            insert_tun(*tus, tun_state_key);
             if(tun_diag->verbose){
                 event.tun_ifindex = tus->ifindex;
                 memcpy(event.saddr, tun_state_key.__in46_u_dst.ip6, sizeof(event.saddr));
