@@ -148,11 +148,6 @@ static inline void send_event(struct bpf_event *new_event){
     }
 }
 
-/*Insert entry into tun state table*/
-static inline void insert_tun(struct tun_state tustate, struct tun_key key){
-    bpf_map_update_elem(&tun_map, &key, &tustate,0);
-}
-
 SEC("xdp_redirect")
 int xdp_redirect_prog(struct xdp_md *ctx)
 {
