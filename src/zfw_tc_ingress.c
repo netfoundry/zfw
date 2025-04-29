@@ -2279,8 +2279,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     struct tun_key tun_state_key = {0};
                     tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
                     tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
-                    tun_state_key.sport = tuple->ipv4.dport;
-                    tun_state_key.dport = tuple->ipv4.sport;
+                    tun_state_key.sport = tuple->ipv4.sport;
+                    tun_state_key.dport = tuple->ipv4.dport;
                     tun_state_key.protocol = IPPROTO_TCP;
                     tun_state_key.type = 4;
                     unsigned long long tstamp = bpf_ktime_get_ns();
