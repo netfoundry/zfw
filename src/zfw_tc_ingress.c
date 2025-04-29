@@ -3700,6 +3700,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         tun_state_key.dport = tuple->ipv4.dport;
                                         tun_state_key.protocol = protocol;
                                         tun_state_key.type = 4;
+                                        unsigned long long tstamp = bpf_ktime_get_ns();
                                         struct tun_state *tustate = get_tun(tun_state_key);
                                         if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
                                             struct tun_state tus = {
