@@ -2285,7 +2285,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     tun_state_key.type = 4;
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
-                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
@@ -2608,7 +2608,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     tun_state_key.type = 4;
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
-                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
@@ -2853,7 +2853,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     tun_state_key.type = 6;
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
-                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
@@ -3005,7 +3005,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     tun_state_key.type = 6;
                     unsigned long long tstamp = bpf_ktime_get_ns();
                     struct tun_state *tustate = get_tun(tun_state_key);
-                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000))){
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
                         struct ifindex_tun *tun_index = get_tun_index(0);
                         if(tun_index){
                             if(local_diag->verbose){
