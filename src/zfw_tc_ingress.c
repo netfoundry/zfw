@@ -278,6 +278,10 @@ struct tun_key {
         __u32 ip;
         __u32 ip6[4];
     }__in46_u_src;
+    __u16 sport;
+    __u16 dport;
+    __u8 protocol;
+    __u8 type;
 };
 
 
@@ -2010,7 +2014,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         * initiated by the local OS if not pass on to tproxy logic to determine if the
         * openziti router has tproxy intercepts defined for the flow
         */
-        if(tcp){
+        if(tcp){ 
             /*if tcp based tuple implement stateful inspection to see if they were
             * initiated by the local OS and If yes jump to assign. Then check if tuple is a reply to 
             outbound initiated from through the router interface. if not pass on to tproxy logic
@@ -2266,6 +2270,31 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
                         if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
                             return TC_ACT_SHOT;
+                        }
+                    }
+                }
+                /*if in tunnel mode check to see if a valid tun state exists and if it does
+               fast switch it to the ziti tun interface*/
+                if(local_diag->tun_mode){
+                    struct tun_key tun_state_key = {0};
+                    tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+                    tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                    tun_state_key.sport = tuple->ipv4.sport;
+                    tun_state_key.dport = tuple->ipv4.dport;
+                    tun_state_key.protocol = IPPROTO_TCP;
+                    tun_state_key.type = 4;
+                    unsigned long long tstamp = bpf_ktime_get_ns();
+                    struct tun_state *tustate = get_tun(tun_state_key);
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
+                        struct ifindex_tun *tun_index = get_tun_index(0);
+                        if(tun_index){
+                            if(local_diag->verbose){
+                                memcpy(event.source, tustate->source, 6);
+                                memcpy(event.dest, tustate->dest, 6);
+                                event.tun_ifindex = tun_index->index;
+                                send_event(&event);
+                            }
+                            return bpf_redirect(tun_index->index, 0);
                         }
                     }
                 }
@@ -2567,6 +2596,31 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                 }
+                /*if in tunnel mode check to see if a valid tun state exists and if it does
+                fast switch it to the ziti tun interface*/
+                if(local_diag->tun_mode){
+                    struct tun_key tun_state_key = {0};
+                    tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
+                    tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                    tun_state_key.sport = tuple->ipv4.sport;
+                    tun_state_key.dport = tuple->ipv4.dport;
+                    tun_state_key.protocol = IPPROTO_UDP;
+                    tun_state_key.type = 4;
+                    unsigned long long tstamp = bpf_ktime_get_ns();
+                    struct tun_state *tustate = get_tun(tun_state_key);
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
+                        struct ifindex_tun *tun_index = get_tun_index(0);
+                        if(tun_index){
+                            if(local_diag->verbose){
+                                memcpy(event.source, tustate->source, 6);
+                                memcpy(event.dest, tustate->dest, 6);
+                                event.tun_ifindex = tun_index->index;
+                                send_event(&event);
+                            }
+                            return bpf_redirect(tun_index->index, 0);
+                        }
+                    }
+                }
                 udp_state_key.__in46_u_dst.ip = tuple->ipv4.saddr;
                 udp_state_key.__in46_u_src.ip = tuple->ipv4.daddr;
                 udp_state_key.sport = tuple->ipv4.dport;
@@ -2787,6 +2841,31 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                 }
+                /*if in tunnel mode check to see if a valid tun state exists and if it does
+              fast switch it to the ziti tun interface*/
+                if(local_diag->tun_mode){
+                    struct tun_key tun_state_key = {0};
+                    memcpy(tun_state_key.__in46_u_dst.ip6, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                    memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                    tun_state_key.sport = tuple->ipv6.sport;
+                    tun_state_key.dport = tuple->ipv6.dport;
+                    tun_state_key.protocol = IPPROTO_TCP;
+                    tun_state_key.type = 6;
+                    unsigned long long tstamp = bpf_ktime_get_ns();
+                    struct tun_state *tustate = get_tun(tun_state_key);
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
+                        struct ifindex_tun *tun_index = get_tun_index(0);
+                        if(tun_index){
+                            if(local_diag->verbose){
+                                memcpy(event.source, tustate->source, 6);
+                                memcpy(event.dest, tustate->dest, 6);
+                                event.tun_ifindex = tun_index->index;
+                                send_event(&event);
+                            }
+                            return bpf_redirect(tun_index->index, 0);
+                        }
+                    }
+                }
                 memcpy(tcp_state_key.__in46_u_dst.ip6,tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
                 memcpy(tcp_state_key.__in46_u_src.ip6,tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                 tcp_state_key.sport = tuple->ipv6.dport;
@@ -2911,6 +2990,31 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
                                 return TC_ACT_SHOT;
                             }
+                        }
+                    }
+                }
+                /*if in tunnel mode check to see if a valid tun state exists and if it does
+              fast switch it to the ziti tun interface*/
+                if(local_diag->tun_mode){
+                    struct tun_key tun_state_key = {0};
+                    memcpy(tun_state_key.__in46_u_dst.ip6, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
+                    memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                    tun_state_key.sport = tuple->ipv6.sport;
+                    tun_state_key.dport = tuple->ipv6.dport;
+                    tun_state_key.protocol = IPPROTO_UDP;
+                    tun_state_key.type = 6;
+                    unsigned long long tstamp = bpf_ktime_get_ns();
+                    struct tun_state *tustate = get_tun(tun_state_key);
+                    if((tustate) && (tstamp < (tustate->tstamp + 30000000000) && (tustate->ifindex == event.ifindex))){
+                        struct ifindex_tun *tun_index = get_tun_index(0);
+                        if(tun_index){
+                            if(local_diag->verbose){
+                                memcpy(event.source, tustate->source, 6);
+                                memcpy(event.dest, tustate->dest, 6);
+                                event.tun_ifindex = tun_index->index;
+                                send_event(&event);
+                            }
+                            return bpf_redirect(tun_index->index, 0);
                         }
                     }
                 }
@@ -3532,6 +3636,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 struct tun_key tun_state_key = {0};
                                 tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
                                 tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                                tun_state_key.sport = tuple->ipv4.sport;
+                                tun_state_key.dport = tuple->ipv4.dport;
+                                tun_state_key.protocol = protocol;
+                                tun_state_key.type = 4;
                                 unsigned long long tstamp = bpf_ktime_get_ns();
                                 struct tun_state *tustate = get_tun(tun_state_key);
                                 if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
@@ -3588,6 +3696,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         struct tun_key tun_state_key = {0};
                                         tun_state_key.__in46_u_dst.ip = tuple->ipv4.daddr;
                                         tun_state_key.__in46_u_src.ip = tuple->ipv4.saddr;
+                                        tun_state_key.sport = tuple->ipv4.sport;
+                                        tun_state_key.dport = tuple->ipv4.dport;
+                                        tun_state_key.protocol = protocol;
+                                        tun_state_key.type = 4;
                                         unsigned long long tstamp = bpf_ktime_get_ns();
                                         struct tun_state *tustate = get_tun(tun_state_key);
                                         if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
@@ -3731,6 +3843,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                 struct tun_key tun_state_key = {0};
                                 memcpy(tun_state_key.__in46_u_dst.ip6, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                                 memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
+                                tun_state_key.sport = tuple->ipv6.sport;
+                                tun_state_key.dport = tuple->ipv6.dport;
+                                tun_state_key.protocol = protocol;
+                                tun_state_key.type = 6;
                                 unsigned long long tstamp = bpf_ktime_get_ns();
                                 struct tun_state *tustate = get_tun(tun_state_key);
                                 if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){
@@ -3786,7 +3902,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                                         struct tun_key tun_state_key = {0};
                                         memcpy(tun_state_key.__in46_u_dst.ip6, tuple->ipv6.daddr, sizeof(tuple->ipv6.daddr));
                                         memcpy(tun_state_key.__in46_u_src.ip6, tuple->ipv6.saddr, sizeof(tuple->ipv6.saddr));
-
+                                        tun_state_key.sport = tuple->ipv6.sport;
+                                        tun_state_key.dport = tuple->ipv6.dport;
+                                        tun_state_key.protocol = protocol;
+                                        tun_state_key.type = 6;
                                         unsigned long long tstamp = bpf_ktime_get_ns();
                                         struct tun_state *tustate = get_tun(tun_state_key);
                                         if((!tustate) || (tstamp > (tustate->tstamp + 30000000000))){

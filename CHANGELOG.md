@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.16] - 2025-4-25
+
+- Refactored openziti tunnel mode forwarding to optimize forwarding performance.  On ingress
+  a check is made to see if there is an existing tunnel state for the source ip, dest ip, src port,
+  dest port and protocol.  If it exists and is not expired (State expires in 30 seconds if no traffic seen
+  in either direction) traffic is fast redirected to the ziti0 interface. Tunnel mode should only be enabled on
+  interfaces which you wish to intercept traffic when running in conjunction with ziti-edge-tunnel.  
+
+- Updated README.md 
+
+###
+
 # [0.9.15] - 2025-4-23
 
 - Refactoring udp state engine for outbound filtering in order to optimize throughput.
