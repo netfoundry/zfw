@@ -3006,13 +3006,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             if(!tmvptr){
                                 break;
                             }
-                            if(tcount > 5000){
-                                if(local_diag->verbose){
-                                    event.tracking_code = MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND;
-                                    send_event(&event);
-                                }
-                                return TC_ACT_SHOT;
-                            }
                         }
                         struct masq_value rev_new_val = {0};
                         rev_new_val.o_sport =  rand_source_port;
