@@ -93,7 +93,7 @@ char check_alt[IF_NAMESIZE];
 char doc[] = "zfw_monitor -- ebpf firewall monitor tool";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *argp_program_version = "0.9.16";
+const char *argp_program_version = "0.9.17";
 union bpf_attr rb_map;
 int rb_fd = -1;
 

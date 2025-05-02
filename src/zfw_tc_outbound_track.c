@@ -37,6 +37,7 @@
 #define MAX_INDEX_ENTRIES 100
 #define MAX_ADDRESSES 10
 #define BPF_MAX_RANGES 250000
+#define GENEVE_UDP_PORT 6081
 #define MAX_IF_LIST_ENTRIES 3
 #define MATCHED_KEY_DEPTH 3
 #define MAX_IF_ENTRIES 256
@@ -2982,7 +2983,19 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                     else{
                         int tcount = 0;
                         while(true){
+                            if(tcount > 5000){
+                                if(local_diag->verbose){
+                                    event.tracking_code = MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND;
+                                    send_event(&event);
+                                }
+                                return TC_ACT_SHOT;
+                            }
                             rand_source_port = bpf_htons(1024 + bpf_get_prandom_u32() % (65535 -1023));
+                            tcount++;
+                            //If random port is equal GENEVE(udp port 6081) find another available source port
+                            if(rand_source_port == bpf_htons(GENEVE_UDP_PORT)){
+                                continue;
+                            }
                             struct masq_key tmk = {0};
                             tmk.__in46_u_dest.ip =  tuple->ipv4.daddr;
                             tmk.dport = tuple->ipv4.dport;
@@ -2993,7 +3006,6 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             if(!tmvptr){
                                 break;
                             }
-                            tcount++;
                             if(tcount > 5000){
                                 if(local_diag->verbose){
                                     event.tracking_code = MASQUERADE_NO_FREE_UDP_SRC_PORTS_FOUND;
