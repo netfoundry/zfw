@@ -54,7 +54,6 @@
 #define NO_IP_OPTIONS_ALLOWED 2
 #define UDP_HEADER_TOO_BIG 3
 #define GENEVE_HEADER_TOO_BIG 4
-#define GENEVE_HEADER_LENGTH_VERSION_ERROR  5
 #define SKB_ADJUST_ERROR 6
 #define ICMP_HEADER_TOO_BIG 7
 #define IP_TUPLE_TOO_BIG 8
@@ -1136,51 +1135,44 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 /* read receive geneve version and header length */
                 __u8 *genhdr = NULL;
                 genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
-                if ((unsigned long)(genhdr + 1) > (unsigned long)skb->data_end){
-                    event->error_code = GENEVE_HEADER_TOO_BIG;
-                    send_event(event);
-                    return NULL;
-                }
-                __u32 gen_ver  = genhdr[0] & 0xC0 >> 6;
-                __u32 gen_hdr_len = genhdr[0] & 0x3F;
-            
-                /* if the length is not equal to 32 bytes and version 0 */
-                if ((gen_hdr_len != AWS_GNV_HDR_OPT_LEN / 4) || (gen_ver != GENEVE_VER)){
-                    event->error_code = GENEVE_HEADER_LENGTH_VERSION_ERROR;
-                    send_event(event);
-                    return NULL;
-                }
-
-                /* Updating the skb to pop geneve header */
-                int ret = 0;
-                ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
-                if (ret) {
-                    event->error_code = SKB_ADJUST_ERROR;
-                    send_event(event);
-                    return NULL;
-                }
-                /* Initialize iph for after popping outer */
-                iph = (struct iphdr *)(skb->data + nh_off);
-                if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                    event->error_code = IP_HEADER_TOO_BIG;
-                    send_event(event);
-                    return NULL;
-                }
-                unsigned char version = iph->version;
-                if(version == 6){
-                    *ipv4 = false;
-                    event->version = 6;
-                    ip6h = (struct ipv6hdr *)(skb->data + nh_off);
-                    /* ensure ip header is in packet bounds */
-                    if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
-                        event->error_code = IP6_HEADER_TOO_BIG;
-                        send_event(event);
-                        return NULL;
+                if ((unsigned long)(genhdr + 1) <= (unsigned long)skb->data_end){
+                    __u32 gen_ver  = genhdr[0] & 0xC0 >> 6;
+                    __u32 gen_hdr_len = genhdr[0] & 0x3F;
+                
+                    /* if the length is not equal to 32 bytes and version 0 */
+                    if ((gen_hdr_len == AWS_GNV_HDR_OPT_LEN / 4) && (gen_ver == GENEVE_VER)){
+                        /* Updating the skb to pop geneve header */
+                        int ret = 0;
+                        ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
+                        if (ret) {
+                            event->error_code = SKB_ADJUST_ERROR;
+                            send_event(event);
+                            return NULL;
+                        }
+                        /* Initialize iph for after popping outer */
+                        iph = (struct iphdr *)(skb->data + nh_off);
+                        if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                            event->error_code = IP_HEADER_TOO_BIG;
+                            send_event(event);
+                            return NULL;
+                        }
+                        unsigned char version = iph->version;
+                        if(version == 6){
+                            *ipv4 = false;
+                            event->version = 6;
+                            ip6h = (struct ipv6hdr *)(skb->data + nh_off);
+                            /* ensure ip header is in packet bounds */
+                            if ((unsigned long)(ip6h + 1) > (unsigned long)skb->data_end){
+                                event->error_code = IP6_HEADER_TOO_BIG;
+                                send_event(event);
+                                return NULL;
+                            }
+                            *ipv6 = true;
+                            proto = ip6h->nexthdr;
+                        }else{
+                            proto = iph->protocol;
+                        }
                     }
-                    *ipv6 = true;
-                    proto = ip6h->nexthdr;
-                }else{
-                    proto = iph->protocol;
                 }
                 
             }

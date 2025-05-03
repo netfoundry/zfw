@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.17] - 2025-5-1
+
+- Refactored GENEVE inbound termination to continue to filter processing as non GENEVE if the GENEVE version and
+  header length are not the expected values vs the current explicit drop action.
+  
+- Removed port 6081(GENEVE) from the IPv4 masquerade PAT random dynamic udp source port pool
+  
+###
+
 # [0.9.16] - 2025-4-25
 
 - Refactored openziti tunnel mode forwarding to optimize forwarding performance.  On ingress
