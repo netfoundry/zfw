@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.18] - 2025-5-28
+###
+
+- Fixed issue where outbound tcp passthrough tracking will stop packet ingress forwarding prematurely when
+  fin received from client and server.
+
+- Fixed format error in zfw_xdp_ingress.c where several statements had double ; termination.
+
 # [0.9.17] - 2025-5-1
 
 - Refactored GENEVE inbound termination to continue to filter processing as non GENEVE if the GENEVE version and
