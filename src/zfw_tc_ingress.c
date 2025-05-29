@@ -2299,7 +2299,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 unsigned long long tstamp = bpf_ktime_get_ns();
                 struct tcp_state *tstate = get_tcp(tcp_state_key);
                 /*check tcp state and timeout if greater than 60 minutes without traffic*/
-                if(tstate && (tstamp < (tstate->tstamp + 3600000000000))){ 
+                if(tstate && (tstamp < (tstate->tstamp + 3600000000000)))
+                { 
                     /*Filter modbus responses that do not match outstanding requests*/  
                     if(local_diag->ot_filtering && (tuple->ipv4.sport == bpf_ntohs(502)) && (tuple->ipv4.dport >= bpf_ntohs(1024)) && payload_len > 0){
                         unsigned short *modbus_ti = (unsigned short*)((unsigned long)tcph + (tcph->doff * 4));
@@ -2456,6 +2457,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                                     }
                                 }
                             }
+                            return TC_ACT_OK;
                         }
                         else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
                             tstate->sfack = 1;

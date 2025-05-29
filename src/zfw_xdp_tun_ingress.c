@@ -200,7 +200,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             }
             event.dport = tcph->dest;
             event.sport = tcph->source;
-            tun_state_key.sport = tcph->dest;;
+            tun_state_key.sport = tcph->dest;
             tun_state_key.dport =  tcph->source;  
         }else if (protocol == IPPROTO_UDP){
             struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
@@ -209,7 +209,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             }
             event.dport = udph->dest;
             event.sport = udph->source;
-            tun_state_key.sport = udph->dest;;
+            tun_state_key.sport = udph->dest;
             tun_state_key.dport =  udph->source;
         }
         tun_state_key.type = 4;
@@ -256,7 +256,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             }
             event.dport = tcph->dest;
             event.sport = tcph->source;
-            tun_state_key.sport = tcph->dest;;
+            tun_state_key.sport = tcph->dest;
             tun_state_key.dport =  tcph->source; 
         }else if (protocol == IPPROTO_UDP){
             struct udphdr *udph = (struct udphdr *)((unsigned long)ip6h + sizeof(*ip6h));
@@ -265,7 +265,7 @@ int xdp_redirect_prog(struct xdp_md *ctx)
             }
             event.dport = udph->dest;
             event.sport = udph->source;
-            tun_state_key.sport = udph->dest;;
+            tun_state_key.sport = udph->dest;
             tun_state_key.dport =  udph->source; 
         }
         struct tun_state *tus = get_tun(tun_state_key);
