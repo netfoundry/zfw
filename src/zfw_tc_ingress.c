@@ -2415,7 +2415,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         return TC_ACT_OK;
                     }
                     else if(tcph->ack){
-                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->cfack) && 
+                        ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->cfseq)))){
                             if(local_diag->masquerade){
                                 struct masq_reverse_key rk = {0};
                                 rk.dport = tcp_state_key.dport;
@@ -2459,13 +2460,18 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             }
                             return TC_ACT_OK;
                         }
-                        else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                        else if((tstate->est) && (tstate->cfin == 1) && 
+                        ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->cfseq)))){
                             tstate->sfack = 1;
-                            tstate->tstamp = tstamp;
+                            if(tstamp >= tstate->tstamp + 250000000){
+                                tstate->tstamp = tstamp;
+                            }
                             return TC_ACT_OK;
                         }
                         else if(tstate->est){
-                            tstate->tstamp = tstamp;
+                            if(tstamp >= tstate->tstamp + 250000000){
+                                tstate->tstamp = tstamp;
+                            }
                             return TC_ACT_OK;
                         }
                     }
@@ -2672,7 +2678,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                     else{
-                        ustate->tstamp = tstamp;
+                        if(tstamp >= ustate->tstamp + 250000000){
+                            ustate->tstamp = tstamp;
+                        }
                         if(local_diag->verbose){
                             event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
                             send_event(&event);
@@ -2903,7 +2911,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         return TC_ACT_OK;
                     }
                     else if(tcph->ack){
-                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                        if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->cfack) && 
+                        ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->cfseq)))){
                             del_tcp(tcp_state_key);
                             tstate = get_tcp(tcp_state_key);
                             if(!tstate){
@@ -2914,13 +2923,18 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             }
 
                         }
-                        else if((tstate->est) && (tstate->cfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1))){
+                        else if((tstate->est) && (tstate->cfin == 1) && 
+                          ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->cfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->cfseq)))){
                             tstate->sfack = 1;
-                            tstate->tstamp = tstamp;
+                            if(tstamp >= tstate->tstamp + 250000000){
+                                tstate->tstamp = tstamp;
+                            }
                             return TC_ACT_OK;
                         }
                         else if(tstate->est){
-                            tstate->tstamp = tstamp;
+                            if(tstamp >= tstate->tstamp + 250000000){
+                                tstate->tstamp = tstamp;
+                            }
                             return TC_ACT_OK;
                         }
                     }
@@ -3037,7 +3051,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             event.tracking_code = UDP_MATCHED_ACTIVE_STATE;
                             send_event(&event);
                         }
-                        ustate->tstamp = tstamp;
+                        if(tstamp >= ustate->tstamp + 250000000){
+                            ustate->tstamp = tstamp;
+                        }
                         return TC_ACT_OK;
                     }
                 }
@@ -4052,7 +4068,9 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 }
             }
             else if(ustate){
-                ustate->tstamp = tstamp;
+                if(tstamp >= ustate->tstamp + 250000000){
+                    ustate->tstamp = tstamp;
+                }
             }
             return TC_ACT_OK;
         }
@@ -4127,7 +4145,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         tstate->syn = 0;
                         tstate->est = 1;
                     }
-                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) &&
+                    ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->sfseq)))){
                         del_ingress_tcp(tcp_state_key);
                         tstate = get_ingress_tcp(tcp_state_key);
                         if(!tstate){
@@ -4137,12 +4156,17 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             }
                         }
                     }
-                    else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                    else if((tstate->est) && (tstate->sfin == 1) &&
+                     ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->sfseq)))){
                         tstate->cfack = 1;
-                        tstate->tstamp = tstamp;
+                        if(tstamp >= tstate->tstamp + 250000000){
+                            tstate->tstamp = tstamp;
+                        }
                     }
                     else{
-                        tstate->tstamp = tstamp;
+                        if(tstamp >= tstate->tstamp + 250000000){
+                            tstate->tstamp = tstamp;
+                        }
                     }
                 }
             }
@@ -4194,7 +4218,9 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                 }
             }
             else if(ustate){
-                ustate->tstamp = tstamp;
+                if(tstamp >= ustate->tstamp + 250000000){
+                    ustate->tstamp = tstamp;
+                }
             }
             return TC_ACT_OK;
         }
@@ -4268,7 +4294,8 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                         tstate->syn = 0;
                         tstate->est = 1;
                     }
-                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                    if((tstate->est) && (tstate->sfin == 1) && (tstate->cfin == 1) && (tstate->sfack) &&
+                    ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->sfseq)))){
                         del_ingress_tcp(tcp_state_key);
                         tstate = get_ingress_tcp(tcp_state_key);
                         if(!tstate){
@@ -4278,12 +4305,17 @@ int bpf_sk_splice6(struct __sk_buff *skb){
                             }
                         }
                     }
-                    else if((tstate->est) && (tstate->sfin == 1) && (bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1))){
+                    else if((tstate->est) && (tstate->sfin == 1) && 
+                    ((bpf_htonl(tcph->ack_seq) == (bpf_htonl(tstate->sfseq) + 1)) || (bpf_htonl(tcph->ack_seq) == bpf_htonl(tstate->sfseq)))){
                         tstate->cfack = 1;
-                        tstate->tstamp = tstamp;
+                       if(tstamp >= tstate->tstamp + 250000000){
+                            tstate->tstamp = tstamp;
+                        }
                     }
                     else{
-                        tstate->tstamp = tstamp;
+                        if(tstamp >= tstate->tstamp + 250000000){
+                            tstate->tstamp = tstamp;
+                        }
                     }
                 }
             }

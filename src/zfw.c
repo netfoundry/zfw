@@ -278,7 +278,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.18";
+const char *argp_program_version = "0.9.19";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
