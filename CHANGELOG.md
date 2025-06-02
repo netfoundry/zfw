@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.19] - 2025-6-1
+###
+
+- Fixed issue where in masquerade mode if sending at a high rate user space could not keep up with timestamps.
+- Additions to tcp tracking to work with varying tcp stack FIN acknowledgement handling.
+
+###
+
 # [0.9.18] - 2025-5-28
 ###
 
