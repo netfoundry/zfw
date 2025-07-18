@@ -6802,7 +6802,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ifcount++;
         break;
     case 'O':
-        if (!strlen(arg))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "object file name required as arg to -O, --object-file: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7233,7 +7233,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         route = true;
         break;
     case 's':
-        if (!strlen(arg))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "service id required as arg to -s, --service-id: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7347,7 +7347,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ddos_saddr = arg;
         break;
     case 'z':
-        if (!strlen(arg) || (strcmp("ingress", arg) && strcmp("egress", arg)))
+        if (strcmp("ingress", arg) && strcmp("egress", arg))
         {
             fprintf(stderr, "direction ingress/egress required as arg to -z, --direction: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
