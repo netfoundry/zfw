@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.20] - 2025-7-18
+
+- Refactored cli sanitization to only block '-' at start of argument and removed 
+  redundant check for no argument.
+
 # [0.9.19] - 2025-6-1
 ###
 

@@ -278,7 +278,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.19";
+const char *argp_program_version = "0.9.20";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -6693,7 +6693,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         list_gc = true;
         break;
     case 'H':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -H, --init-tc: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6743,7 +6743,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         list = true;
         break;
     case 'M':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -M, --monitor: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6770,7 +6770,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'N':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name required as arg to -N, --interface: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6812,7 +6812,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         object_file = arg;
         break;
     case 'P':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -P, --per-interface-rules: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6842,7 +6842,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ebpf_disable = true;
         break;
     case 'R':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -R, --vrrp-enable: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6869,7 +6869,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'S':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -S, --ot-filtering: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6896,7 +6896,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'T':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -T, --set-tun-mode: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6926,7 +6926,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ddos_dport_list = true;
         break;
     case 'W':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "logfile name -W, --write-log: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6936,7 +6936,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         log_file_name = arg;
         break;
     case 'X':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -X, --set-tc-filter: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6966,7 +6966,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ddos_saddr_list = true;
         break;
     case 'Z':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -Z, --init-xdp: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -6986,7 +6986,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'a':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -a, --ddos-filter: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7013,7 +7013,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'b':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -b, --outbound-filtering: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7040,7 +7040,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case '6':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -6, --ipv6-enable: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7083,7 +7083,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'e':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -e, --icmp-echo: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7130,7 +7130,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         bind_flush = true;
         break;
     case 'k':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -k, --masquerade: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7203,7 +7203,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         prot = true;
         break;
     case 'q':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -q, --pass-non-tuple: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7256,7 +7256,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ddos_dport = arg;
         break;
     case 'v':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -v, --verbose: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7283,7 +7283,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'w':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -w, --enable-eapol: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -7310,7 +7310,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'x':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -x, --disable-ssh: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
