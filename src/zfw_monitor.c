@@ -93,7 +93,7 @@ char check_alt[IF_NAMESIZE];
 char doc[] = "zfw_monitor -- ebpf firewall monitor tool";
 const char *rb_map_path = "/sys/fs/bpf/tc/globals/rb_map";
 const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-const char *argp_program_version = "0.9.19";
+const char *argp_program_version = "0.9.20";
 union bpf_attr rb_map;
 int rb_fd = -1;
 
@@ -1010,7 +1010,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     switch (key)
     {
     case 'i':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "Interface name or all required as arg to -i, --interface: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -1037,7 +1037,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'W':
-        if (!strlen(arg) || (strchr(arg, '-') != NULL))
+        if (arg[0] == '-')
         {
             fprintf(stderr, "logfile name -W, --write-log: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
