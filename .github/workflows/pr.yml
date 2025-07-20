@@ -301,18 +301,26 @@ jobs:
           cd ${{ github.workspace }}/AWS/tf-provider/
           zfw0_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'`
           zfw1_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'`
-          if [ "$zfw0_ver" != "$zfw1_ver" ]; then
-            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /var/log/cloud-init-output.log'
-            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /var/log/cloud-init-output.log'
-            sleep 60
-            zfw0_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo /opt/openziti/bin/zfw -V'`
-            zfw1_ver=`/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo /opt/openziti/bin/zfw -V'`
-          fi
           echo "*** zfw0: $zfw0_ver ***"
           echo "*** zfw1: $zfw1_ver ***"
+          if [ "${{ vars.DEBUG }}" == "true" ] || [ "$zfw0_ver" != "$zfw1_ver" ]; then
+            sleep 60
+            echo -e "\033[31mDebug mode ${{ vars.DEBUG }}, printing debug info for zfw0\033[m"
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /var/log/cloud-init-output.log'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo ls -l /opt/netfoundry/'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /opt/netfoundry/dl_artifacts_zfw.sh'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo ls -l /var/lib/cloud/instance/scripts/'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[0]) -tq 'sudo cat /var/lib/cloud/instance/scripts/runcmd'
+            echo -e "\033[31mDebug mode ${{ vars.DEBUG }}, printing debug info for zfw1\033[m"
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /var/log/cloud-init-output.log'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo ls -l /opt/netfoundry/'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /opt/netfoundry/dl_artifacts_zfw.sh'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo ls -l /var/lib/cloud/instance/scripts/'
+            /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .backend_public_ips.value[1]) -tq 'sudo cat /var/lib/cloud/instance/scripts/runcmd'
+          fi
           while :
           do
-            sleep 900
+            sleep ${{ fromJSON(vars.LOOP_SLEEP_TIMER) }}
             /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' > ${{ github.workspace }}/AWS/tf-provider/result
             /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[1]) -tq '/usr/bin/tail -n 1 /var/log/http_test.json' >> ${{ github.workspace }}/AWS/tf-provider/result
             /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/tail -n 30 /var/log/http.log' > ${{ github.workspace }}/AWS/tf-provider/test.log
@@ -337,7 +345,29 @@ jobs:
               cat ./test.log
               exit 1
             else
+              echo -e "\033[33mResult File\033[m"
               cat ./result
+              if [ "${{ vars.DEBUG }}" == "true" ]; then
+                echo -e "\033[33mLog File\033[m"
+                cat ./test.log
+                /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[0]) -tq '/usr/bin/pgrep -f http' > ${{ github.workspace }}/AWS/tf-provider/pgrep.log
+                /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ./zfw_rsa ziggy@$(terraform output -json | jq -r .client_public_ips.value[1]) -tq '/usr/bin/pgrep -f http' >> ${{ github.workspace }}/AWS/tf-provider/pgrep.log
+                count=`cat ./pgrep.log | wc -l`
+                echo "Count: $count"
+                if [ $count -eq 0 ]; then
+                  echo -e "\033[31mFAILED, http app is not running\033[m"
+                  cat ./pgrep.log
+                elif [ $count -eq 1 ]; then
+                  echo -e "\033[33mPARTIALLYPASSED, http app is running on one client\033[m"
+                  cat ./pgrep.log
+                elif [ $count -eq 2 ]; then
+                  echo -e "\033[32mPASSED, http app is running on both clients\033[m"
+                  cat ./pgrep.log
+                else
+                  echo -e "\033[31mFAILED, unexpected number of http apps running: $count\033[m"
+                  cat ./pgrep.log
+                fi
+              fi
               continue
             fi
           done
