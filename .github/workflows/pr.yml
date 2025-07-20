@@ -14,6 +14,8 @@ env:
   NF_NETWORK_NAME: 'dariuszdev02'
   TF_VAR_test_iterate_count: ${{ fromJSON(vars.TEST_ITERATE_COUNT) }}
   TF_VAR_github_pt: ${{ secrets.PAT  }}
+  TF_VAR_ziti_type: ${{ vars.ZITI_TYPE }}
+  TF_VAR_repo_name: ${{ vars.REPO_NAME }}
   NF_API_CLIENT_ID: "${{ secrets.NF_API_CLIENT_ID }}"
   NF_API_CLIENT_SECRET: "${{ secrets.NF_API_CLIENT_SECRET }}"
 
