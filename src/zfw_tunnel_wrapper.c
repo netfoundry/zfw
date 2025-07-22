@@ -327,7 +327,7 @@ void process_service_updates(char * service_id)
                 port_ext_key.low_port = orule.index_table[x];
                 port_ext_key.dprefix_len = current_key.dprefix_len;
                 port_ext_key.sprefix_len = current_key.sprefix_len;
-                port_ext_key.protocol = current_key.protocol,
+                port_ext_key.protocol = current_key.protocol;
                 port_ext_key.type = 4;
                 range_map.key = (uint64_t)&port_ext_key;
                 struct range_mapping range_ports = {0};
@@ -398,7 +398,7 @@ bool rule_exists(uint32_t dst_ip, uint8_t dplen, uint32_t src_ip, uint8_t splen,
                 port_ext_key.low_port = orule.index_table[x];
                 port_ext_key.dprefix_len = current_key.dprefix_len;
                 port_ext_key.sprefix_len = current_key.sprefix_len;
-                port_ext_key.protocol = current_key.protocol,
+                port_ext_key.protocol = current_key.protocol;
                 port_ext_key.type = 4;
                 range_map.key = (uint64_t)&port_ext_key;
                 struct range_mapping range_ports = {0};
