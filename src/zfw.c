@@ -278,7 +278,7 @@ char *direction_string;
 char *masq_interface;
 char check_alt[IF_NAMESIZE];
 
-const char *argp_program_version = "0.9.20";
+const char *argp_program_version = "0.9.21";
 struct ring_buffer *ring_buffer;
 
 __u32 if_list[MAX_IF_LIST_ENTRIES];
@@ -381,23 +381,20 @@ struct interface6
     uint32_t addresses[MAX_ADDRESSES][4];
 };
 
-struct port_extension_key
-{
-    union
-    {
+struct port_extension_key {
+    union {
         __u32 ip;
         __u32 ip6[4];
-    } __in46_u_dst;
-    union
-    {
+    }__in46_u_dst;
+    union {
         __u32 ip;
         __u32 ip6[4];
-    } __in46_u_src;
+    }__in46_u_src;
     __u16 low_port;
     __u8 dprefix_len;
     __u8 sprefix_len;
     __u8 protocol;
-    __u8 pad;
+    __u8 type;
 };
 
 struct if_list_extension_mapping
@@ -1096,7 +1093,7 @@ void print_rule6(struct tproxy6_key *key, struct tproxy_tuple *tuple, int *rule_
     port_ext_key.dprefix_len = key->dprefix_len;
     port_ext_key.sprefix_len = key->sprefix_len;
     port_ext_key.protocol = key->protocol;
-    port_ext_key.pad = 0;
+    port_ext_key.type = 6;
     char saddr6[INET6_ADDRSTRLEN];
     char daddr6[INET6_ADDRSTRLEN];
     struct in6_addr saddr_6 = {0};
@@ -1374,7 +1371,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     port_ext_key.dprefix_len = key->dprefix_len;
     port_ext_key.sprefix_len = key->sprefix_len;
     port_ext_key.protocol = key->protocol;
-    port_ext_key.pad = 0;
+    port_ext_key.type = 4;
     port_range_map->key = (uint64_t)&port_ext_key;
 
     struct range_mapping range_value;
@@ -4245,7 +4242,7 @@ void map_insert6()
     port_ext_key.dprefix_len = dplen;
     port_ext_key.sprefix_len = splen;
     port_ext_key.protocol = protocol;
-    port_ext_key.pad = 0;
+    port_ext_key.type = 6;
     if (protocol == IPPROTO_UDP)
     {
         printf("Adding UDP mapping\n");
@@ -4411,7 +4408,7 @@ void map_insert()
     port_ext_key.dprefix_len = dplen;
     port_ext_key.sprefix_len = splen;
     port_ext_key.protocol = protocol;
-    port_ext_key.pad = 0;
+    port_ext_key.type = 4;
     if (protocol == IPPROTO_UDP)
     {
         printf("Adding UDP mapping\n");
@@ -4595,7 +4592,7 @@ void range_delete_key(struct port_extension_key key)
     {
         char *saddr;
         char *daddr;
-        if (cd)
+        if (key.type == 4)
         {
             saddr = nitoa(ntohl(key.__in46_u_src.ip));
             daddr = nitoa(ntohl(key.__in46_u_dst.ip));
@@ -4782,7 +4779,7 @@ void map_delete6()
     port_ext_key.dprefix_len = dplen;
     port_ext_key.sprefix_len = splen;
     port_ext_key.protocol = protocol;
-    port_ext_key.pad = 0;
+    port_ext_key.type = 6;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
     {
@@ -4955,7 +4952,7 @@ void map_delete()
     port_ext_key.dprefix_len = dplen;
     port_ext_key.sprefix_len = splen;
     port_ext_key.protocol = protocol;
-    port_ext_key.pad = 0;
+    port_ext_key.type = 4;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
     {
