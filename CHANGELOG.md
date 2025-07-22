@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file. The format 
 ---
 ###
 
+# [0.9.21] - 2025-7-18
+
+- Refactored port_extension_key.pad to  port_extension_key.type to differentiate ipv4 from ipv6
+  range/interface maps so that they are not ambiguous in the case of all zeros prefix/len with 
+  matching ifindex/lowport values.
+- Fixed issue in zfw_tunnel_wrapper.c that could cause a rule cleanup issue on exit.
+- Refactored pr.yml due to changes in the regression test pattern.
+
+###
+
 # [0.9.20] - 2025-7-18
 
 - Refactored cli sanitization to only block '-' at start of argument and removed 
