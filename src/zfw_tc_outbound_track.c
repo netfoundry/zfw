@@ -1286,7 +1286,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
                     else if(tcph->rst){
-                        del_tcp(tcp_state_key);
+                        del_ingress_tcp(tcp_state_key);
                         tstate = get_ingress_tcp(tcp_state_key);
                         if(!tstate){
                             if(local_diag->verbose){
