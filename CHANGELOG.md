@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file. The format 
 
 # [0.9.22] - 2025-8-5
 
-- Fixed an issue where tcp rst received from tcp a server does not remove the ingress
+- Fixed an issue where TCP rst received from tcp a server does not remove the ingress
   state when egressing the interface facing the client due to incorrect map lookup.
   This then caused the connection to be be cleaned up after idle time rather than immediately.
 
